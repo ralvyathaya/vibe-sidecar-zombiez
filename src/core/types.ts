@@ -201,6 +201,13 @@ export interface WeaponStatus {
   canReload: boolean;
 }
 
+export interface RadarContact {
+  id: number;
+  offset: number;
+  proximity: number;
+  type: ZombieType;
+}
+
 export interface ActiveZombie {
   id: number;
   group: Group;

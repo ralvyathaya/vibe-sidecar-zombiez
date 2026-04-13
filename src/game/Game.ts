@@ -23,6 +23,7 @@ export class Game {
   private readonly uiSystem: UISystem;
   private readonly gameLoop: GameLoop;
   private readonly playerPosition = new Vector3();
+  private readonly playerForward = new Vector3();
 
   private state: GameStateType = 'menu';
   private suppressUnlockPause = false;
@@ -121,6 +122,10 @@ export class Game {
       player: this.playerSystem.state,
       weapon: this.weaponSystem.getStatus(this.playerSystem),
       elapsedSeconds: this.spawnSystem.elapsedSeconds,
+      radarContacts: this.enemySystem.getRadarContacts(
+        this.playerSystem.getPosition(this.playerPosition),
+        this.playerSystem.getFacingDirection(this.playerForward),
+      ),
     });
   }
 

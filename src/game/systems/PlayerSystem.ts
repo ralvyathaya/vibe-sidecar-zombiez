@@ -98,6 +98,15 @@ export class PlayerSystem {
     return target.copy(this.worldPosition);
   }
 
+  getFacingDirection(target = new Vector3()): Vector3 {
+    this.camera.getWorldDirection(target);
+    target.y = 0;
+    if (target.lengthSq() < 0.0001) {
+      target.set(0, 0, -1);
+    }
+    return target.normalize();
+  }
+
   private applyCameraTransform(moveAxis: number): void {
     const bob = Math.sin(this.state.distance * this.config.player.bobFrequency) *
       this.config.player.bobAmplitude;

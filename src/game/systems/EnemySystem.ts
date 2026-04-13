@@ -24,6 +24,7 @@ import type {
   GameConfig,
   HumanoidEnemyModelConfig,
   HumanoidZombieType,
+  RadarContact,
   ZombieModelVariant,
   ZombieType,
 } from '../../core/types';
@@ -91,6 +92,8 @@ export class EnemySystem {
   private readonly effectTangent = new Vector3();
   private readonly effectBitangent = new Vector3();
   private readonly effectLookTarget = new Vector3();
+  private readonly radarDirection = new Vector3();
+  private readonly radarRight = new Vector3();
 
   private readonly humanoidAssets: Partial<Record<HumanoidZombieType, HumanoidAssets>> = {};
   private readonly humanoidAssetPromises: Partial<
@@ -322,6 +325,58 @@ export class EnemySystem {
 
   getActiveCount(): number {
     return this.pool.reduce((count, zombie) => count + (zombie.active ? 1 : 0), 0);
+  }
+
+  getRadarContacts(
+    playerPosition: Vector3,
+    playerForward: Vector3,
+  ): RadarContact[] {
+    if (playerForward.lengthSq() < 0.0001) {
+      return [];
+    }
+
+    this.radarRight.set(-playerForward.z, 0, playerForward.x).normalize();
+    const contacts: Array<RadarContact & { distance: number }> = [];
+    const maxRange = 110;
+    const halfSpan = Math.PI * 0.72;
+
+    for (const zombie of this.pool) {
+      if (!zombie.active || zombie.state !== 'alive') {
+        continue;
+      }
+
+      this.radarDirection
+        .subVectors(zombie.group.position, playerPosition)
+        .setY(0);
+      const distance = this.radarDirection.length();
+      if (distance <= 0.001 || distance > maxRange) {
+        continue;
+      }
+
+      this.radarDirection.multiplyScalar(1 / distance);
+      const forwardDot = MathUtils.clamp(
+        this.radarDirection.dot(playerForward),
+        -1,
+        1,
+      );
+      const rightDot = MathUtils.clamp(
+        this.radarDirection.dot(this.radarRight),
+        -1,
+        1,
+      );
+      const bearing = Math.atan2(rightDot, forwardDot);
+
+      contacts.push({
+        id: zombie.id,
+        offset: MathUtils.clamp(bearing / halfSpan, -1, 1),
+        proximity: 1 - Math.min(distance / maxRange, 1),
+        type: zombie.type,
+        distance,
+      });
+    }
+
+    contacts.sort((left, right) => left.distance - right.distance);
+    return contacts.slice(0, 14).map(({ distance: _distance, ...contact }) => contact);
   }
 
   private isHumanoidType(type: ZombieType): type is HumanoidZombieType {
