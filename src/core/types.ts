@@ -47,6 +47,14 @@ export interface GameConfig {
     damagePerShot: number;
     cameraKick: number;
     recoilRecovery: number;
+    audio: {
+      gunshotPath: string;
+      emptyPath: string;
+      reloadPath: string;
+      gunshotVolume: number;
+      emptyVolume: number;
+      reloadVolume: number;
+    };
     viewmodel: {
       assetPath: string;
       position: Vec3Tuple;

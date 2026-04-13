@@ -16,6 +16,7 @@ import {
 } from 'three';
 import type { GameConfig, WeaponStatus } from '../../core/types';
 import { approach, clamp, randomRange } from '../../core/utils';
+import { SoundEffectPool } from '../audio/SoundEffectPool';
 import type { EnemySystem } from '../systems/EnemySystem';
 import type { InputSystem } from '../systems/InputSystem';
 import type { PlayerSystem } from '../systems/PlayerSystem';
@@ -61,6 +62,9 @@ export class PistolWeapon {
     this.muzzleFlashStreakMaterial,
   );
   private readonly muzzleLight = new PointLight(0xffb060, 0, 5, 2);
+  private readonly gunshotSound: SoundEffectPool;
+  private readonly emptySound: SoundEffectPool;
+  private readonly reloadSound: SoundEffectPool;
   private readonly crosshair = new Vector2(0, 0);
   private readonly basePosition: Vector3;
   private readonly baseRotation = new Vector3();
@@ -83,6 +87,18 @@ export class PistolWeapon {
   ) {
     const [rotX, rotY, rotZ] = this.config.weapon.viewmodel.rotationDegrees;
     this.basePosition = new Vector3(...this.config.weapon.viewmodel.position);
+    this.gunshotSound = new SoundEffectPool(this.config.weapon.audio.gunshotPath, {
+      poolSize: 4,
+      volume: this.config.weapon.audio.gunshotVolume,
+    });
+    this.emptySound = new SoundEffectPool(this.config.weapon.audio.emptyPath, {
+      poolSize: 2,
+      volume: this.config.weapon.audio.emptyVolume,
+    });
+    this.reloadSound = new SoundEffectPool(this.config.weapon.audio.reloadPath, {
+      poolSize: 2,
+      volume: this.config.weapon.audio.reloadVolume,
+    });
     this.baseRotation.set(
       MathUtils.degToRad(rotX),
       MathUtils.degToRad(rotY),
@@ -126,6 +142,9 @@ export class PistolWeapon {
     this.slideOffset = 0;
     this.muzzleFlash.visible = false;
     this.muzzleLight.intensity = 0;
+    this.gunshotSound.stopAll();
+    this.emptySound.stopAll();
+    this.reloadSound.stopAll();
 
     player.state.ammoInMagazine = this.config.weapon.magazineSize;
     player.state.reloading = false;
@@ -156,6 +175,10 @@ export class PistolWeapon {
       } else {
         this.dryFireTimer = 0.16;
         this.cooldown = 0.12;
+        this.emptySound.play(
+          this.config.weapon.audio.emptyVolume,
+          randomRange(0.97, 1.03),
+        );
       }
     }
 
@@ -195,6 +218,9 @@ export class PistolWeapon {
     this.muzzleFlashStreak.geometry.dispose();
     this.muzzleFlashCoreMaterial.dispose();
     this.muzzleFlashStreakMaterial.dispose();
+    this.gunshotSound.destroy();
+    this.emptySound.destroy();
+    this.reloadSound.destroy();
   }
 
   private async loadViewmodel(): Promise<void> {
@@ -323,6 +349,10 @@ export class PistolWeapon {
     this.muzzleFlash.visible = true;
     player.state.ammoInMagazine -= 1;
     player.applyRecoil(this.config.weapon.cameraKick);
+    this.gunshotSound.play(
+      this.config.weapon.audio.gunshotVolume,
+      randomRange(0.98, 1.03),
+    );
 
     this.fireKick = 1;
     this.slideOffset = this.config.weapon.viewmodel.slideTravel;
@@ -349,6 +379,10 @@ export class PistolWeapon {
     player.state.reloading = true;
     this.reloadTimer = this.config.weapon.reloadDuration;
     this.reloadElapsed = 0;
+    this.reloadSound.play(
+      this.config.weapon.audio.reloadVolume,
+      randomRange(0.98, 1.02),
+    );
   }
 
   private updateReload(deltaTime: number, player: PlayerSystem): void {
@@ -395,7 +429,7 @@ export class PistolWeapon {
         : 0;
     this.muzzleFlashCoreMaterial.opacity = flashAlpha * 0.95;
     this.muzzleFlashStreakMaterial.opacity = flashAlpha * 0.82;
-    this.muzzleLight.intensity = flashAlpha * 2.4;
+    this.muzzleLight.intensity = flashAlpha * 3.1;
 
     this.applyViewmodelPose(reloading);
     this.applySlidePose();
@@ -496,7 +530,7 @@ export class PistolWeapon {
       MathUtils.degToRad(randomRange(-18, 18)),
     );
     this.muzzleFlashCore.scale.setScalar(scale);
-    this.muzzleFlashStreak.scale.set(scale * 1.9, scale * 0.45, scale * 0.45);
+    this.muzzleFlashStreak.scale.set(scale * 2.4, scale * 0.52, scale * 0.52);
   }
 
   private restoreAnimatedNodes(): void {

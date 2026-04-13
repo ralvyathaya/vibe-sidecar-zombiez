@@ -29,6 +29,14 @@ export const GAME_CONFIG: GameConfig = {
     damagePerShot: 1,
     cameraKick: 0.04,
     recoilRecovery: 8.5,
+    audio: {
+      gunshotPath: '/audio/weapons/9mm-gunshot.ogg',
+      emptyPath: '/audio/weapons/no-ammo.ogg',
+      reloadPath: '/audio/weapons/reload.ogg',
+      gunshotVolume: 0.5,
+      emptyVolume: 0.44,
+      reloadVolume: 0.46,
+    },
     viewmodel: {
       assetPath: '/models/weapons/pistol.glb',
       position: [0.36, -0.32, -0.62],
@@ -47,8 +55,8 @@ export const GAME_CONFIG: GameConfig = {
       reloadLift: 0.11,
       reloadPushBack: 0.025,
       reloadTiltDegrees: -30,
-      muzzleFlashSize: 0.17,
-      muzzleFlashDuration: 0.07,
+      muzzleFlashSize: 0.21,
+      muzzleFlashDuration: 0.085,
     },
   },
   enemies: {
