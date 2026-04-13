@@ -30,3 +30,15 @@ npm run build
 - 60-second difficulty ramp, then endless survival
 - Primitive-geometry low-poly visuals only
 - No backend, login, or external asset downloads
+
+## Asset Workflow
+
+- Runtime pistol asset uses `public/models/weapons/pistol-web.glb`, a browser-friendly optimized build.
+- Recommended workflow for new weapon assets:
+
+```bash
+npx @gltf-transform/cli resize public/models/weapons/pistol-textured.glb public/models/weapons/pistol-textured-1024.glb --width 1024 --height 1024
+npx @gltf-transform/cli webp public/models/weapons/pistol-textured-1024.glb public/models/weapons/pistol-web.glb --quality 85 --effort 6
+```
+
+- Keep raw source assets outside `public/` when possible so they do not ship with the game.

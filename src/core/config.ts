@@ -38,7 +38,7 @@ export const GAME_CONFIG: GameConfig = {
       reloadVolume: 0.46,
     },
     viewmodel: {
-      assetPath: '/models/weapons/pistol.glb',
+      assetPath: '/models/weapons/pistol-web.glb',
       position: [0.36, -0.32, -0.62],
       rotationDegrees: [0, -90, -3],
       scale: 0.34,
