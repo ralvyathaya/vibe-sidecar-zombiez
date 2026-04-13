@@ -61,7 +61,9 @@ export interface GameConfig {
       slideRecovery: number;
       magazineDrop: number;
       magazineTiltDegrees: number;
+      reloadSideShift: number;
       reloadLift: number;
+      reloadPushBack: number;
       reloadTiltDegrees: number;
       muzzleFlashSize: number;
       muzzleFlashDuration: number;

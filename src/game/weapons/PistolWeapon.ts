@@ -1,4 +1,5 @@
 import {
+  AdditiveBlending,
   Box3,
   BoxGeometry,
   Camera,
@@ -9,11 +10,12 @@ import {
   MeshStandardMaterial,
   Object3D,
   OctahedronGeometry,
+  PointLight,
   Vector2,
   Vector3,
 } from 'three';
 import type { GameConfig, WeaponStatus } from '../../core/types';
-import { approach, clamp } from '../../core/utils';
+import { approach, clamp, randomRange } from '../../core/utils';
 import type { EnemySystem } from '../systems/EnemySystem';
 import type { InputSystem } from '../systems/InputSystem';
 import type { PlayerSystem } from '../systems/PlayerSystem';
@@ -33,16 +35,32 @@ export class PistolWeapon {
   private readonly muzzleAnchor = new Group();
   private readonly fallbackSlideAnchor = new Group();
   private readonly fallbackMagazineAnchor = new Group();
-  private readonly muzzleFlashMaterial = new MeshBasicMaterial({
+  private readonly muzzleFlash = new Group();
+  private readonly muzzleFlashCoreMaterial = new MeshBasicMaterial({
     color: 0xffcf75,
     transparent: true,
     opacity: 0.95,
+    blending: AdditiveBlending,
     depthWrite: false,
+    depthTest: false,
   });
-  private readonly muzzleFlash = new Mesh(
+  private readonly muzzleFlashStreakMaterial = new MeshBasicMaterial({
+    color: 0xff8d3a,
+    transparent: true,
+    opacity: 0.82,
+    blending: AdditiveBlending,
+    depthWrite: false,
+    depthTest: false,
+  });
+  private readonly muzzleFlashCore = new Mesh(
     new OctahedronGeometry(1, 0),
-    this.muzzleFlashMaterial,
+    this.muzzleFlashCoreMaterial,
   );
+  private readonly muzzleFlashStreak = new Mesh(
+    new BoxGeometry(1, 0.22, 0.22),
+    this.muzzleFlashStreakMaterial,
+  );
+  private readonly muzzleLight = new PointLight(0xffb060, 0, 5, 2);
   private readonly crosshair = new Vector2(0, 0);
   private readonly basePosition: Vector3;
   private readonly baseRotation = new Vector3();
@@ -77,6 +95,12 @@ export class PistolWeapon {
     this.fallbackSlideAnchor.name = 'PistolSlideAnchor';
     this.fallbackMagazineAnchor.name = 'PistolMagazineAnchor';
 
+    this.muzzleFlash.name = 'PistolMuzzleFlash';
+    this.muzzleFlashCore.renderOrder = 14;
+    this.muzzleFlashStreak.renderOrder = 14;
+    this.muzzleFlashCore.position.x = -0.08;
+    this.muzzleFlashStreak.position.x = -0.55;
+    this.muzzleFlash.add(this.muzzleFlashCore, this.muzzleFlashStreak, this.muzzleLight);
     this.muzzleFlash.visible = false;
     this.muzzleAnchor.add(this.muzzleFlash);
     this.contentRoot.add(
@@ -101,6 +125,7 @@ export class PistolWeapon {
     this.fireKick = 0;
     this.slideOffset = 0;
     this.muzzleFlash.visible = false;
+    this.muzzleLight.intensity = 0;
 
     player.state.ammoInMagazine = this.config.weapon.magazineSize;
     player.state.reloading = false;
@@ -166,8 +191,10 @@ export class PistolWeapon {
     this.disposeObject(this.loadedScene);
     this.disposeObject(this.fallbackSlideAnchor);
     this.disposeObject(this.fallbackMagazineAnchor);
-    this.muzzleFlash.geometry.dispose();
-    this.muzzleFlashMaterial.dispose();
+    this.muzzleFlashCore.geometry.dispose();
+    this.muzzleFlashStreak.geometry.dispose();
+    this.muzzleFlashCoreMaterial.dispose();
+    this.muzzleFlashStreakMaterial.dispose();
   }
 
   private async loadViewmodel(): Promise<void> {
@@ -216,13 +243,13 @@ export class PistolWeapon {
     if (slideNode) {
       this.slideTarget = this.captureAnimatedTarget(slideNode);
     } else {
-      this.createFallbackSlide(size);
+      this.createFallbackSlide();
     }
 
     if (magazineNode) {
       this.magazineTarget = this.captureAnimatedTarget(magazineNode);
     } else {
-      this.createFallbackMagazine(size);
+      this.createFallbackMagazine();
     }
 
     this.restoreAnimatedNodes();
@@ -258,55 +285,35 @@ export class PistolWeapon {
     gripPivot: Vector3,
   ): void {
     const muzzlePosition = new Vector3(
-      center.x,
+      box.min.x - size.x * 0.03,
       box.min.y + size.y * 0.56,
-      box.min.z - size.z * 0.18,
+      center.z,
     ).sub(gripPivot);
     this.muzzleAnchor.position.copy(muzzlePosition);
+    this.muzzleAnchor.rotation.set(0, 0, 0);
 
     this.fallbackSlideAnchor.position.copy(
       new Vector3(
-        center.x,
+        box.max.x - size.x * 0.24,
         box.max.y - size.y * 0.14,
-        box.max.z - size.z * 0.32,
+        center.z,
       ).sub(gripPivot),
     );
 
     this.fallbackMagazineAnchor.position.copy(
       new Vector3(
-        center.x,
+        box.max.x - size.x * 0.18,
         box.min.y + size.y * 0.31,
-        box.max.z - size.z * 0.22,
+        center.z,
       ).sub(gripPivot),
     );
   }
 
-  private createFallbackSlide(size: Vector3): void {
-    const slideProxy = new Mesh(
-      new BoxGeometry(size.x * 0.38, size.y * 0.12, size.z * 0.62),
-      new MeshStandardMaterial({
-        color: 0x25262a,
-        roughness: 0.55,
-        metalness: 0.4,
-      }),
-    );
-    slideProxy.renderOrder = 11;
-    this.fallbackSlideAnchor.add(slideProxy);
-    this.slideTarget = this.captureAnimatedTarget(this.fallbackSlideAnchor);
+  private createFallbackSlide(): void {
+    this.slideTarget = this.captureAnimatedTarget(this.contentRoot);
   }
 
-  private createFallbackMagazine(size: Vector3): void {
-    const magazineProxy = new Mesh(
-      new BoxGeometry(size.x * 0.12, size.y * 0.34, size.z * 0.26),
-      new MeshStandardMaterial({
-        color: 0x1c1b1f,
-        roughness: 0.6,
-        metalness: 0.3,
-      }),
-    );
-    magazineProxy.position.y = -size.y * 0.17;
-    magazineProxy.renderOrder = 11;
-    this.fallbackMagazineAnchor.add(magazineProxy);
+  private createFallbackMagazine(): void {
     this.magazineTarget = this.captureAnimatedTarget(this.fallbackMagazineAnchor);
   }
 
@@ -378,7 +385,7 @@ export class PistolWeapon {
     );
 
     this.muzzleFlash.visible = this.muzzleFlashTimer > 0;
-    this.muzzleFlashMaterial.opacity =
+    const flashAlpha =
       this.muzzleFlashTimer > 0
         ? clamp(
             this.muzzleFlashTimer / this.config.weapon.viewmodel.muzzleFlashDuration,
@@ -386,6 +393,9 @@ export class PistolWeapon {
             1,
           )
         : 0;
+    this.muzzleFlashCoreMaterial.opacity = flashAlpha * 0.95;
+    this.muzzleFlashStreakMaterial.opacity = flashAlpha * 0.82;
+    this.muzzleLight.intensity = flashAlpha * 2.4;
 
     this.applyViewmodelPose(reloading);
     this.applySlidePose();
@@ -409,11 +419,11 @@ export class PistolWeapon {
     );
 
     this.viewmodelRoot.position.set(
-      this.basePosition.x - reloadArc * 0.035,
+      this.basePosition.x - reloadArc * this.config.weapon.viewmodel.reloadSideShift,
       this.basePosition.y + this.fireKick * this.config.weapon.viewmodel.recoilLift -
         reloadArc * this.config.weapon.viewmodel.reloadLift,
-      this.basePosition.z + this.fireKick * this.config.weapon.viewmodel.recoilBack +
-        reloadArc * 0.045,
+      this.basePosition.z + this.fireKick * this.config.weapon.viewmodel.recoilBack -
+        reloadArc * this.config.weapon.viewmodel.reloadPushBack,
     );
     this.viewmodelRoot.rotation.set(
       this.baseRotation.x + recoilPitch + reloadTilt * 0.35,
@@ -429,7 +439,7 @@ export class PistolWeapon {
     }
 
     this.slideTarget.node.position.copy(this.slideTarget.basePosition);
-    this.slideTarget.node.position.z += this.slideOffset;
+    this.slideTarget.node.position.x += this.slideOffset;
   }
 
   private applyMagazinePose(reloading: boolean): void {
@@ -479,7 +489,14 @@ export class PistolWeapon {
   private randomizeMuzzleFlash(): void {
     const baseSize = this.config.weapon.viewmodel.muzzleFlashSize;
     const scale = baseSize * (0.9 + Math.random() * 0.25);
-    this.muzzleFlash.scale.set(scale * 0.75, scale * 0.75, scale * 1.45);
+    this.muzzleFlash.position.x = -baseSize * 0.4;
+    this.muzzleFlash.rotation.set(
+      MathUtils.degToRad(randomRange(-6, 6)),
+      MathUtils.degToRad(randomRange(-5, 5)),
+      MathUtils.degToRad(randomRange(-18, 18)),
+    );
+    this.muzzleFlashCore.scale.setScalar(scale);
+    this.muzzleFlashStreak.scale.set(scale * 1.9, scale * 0.45, scale * 0.45);
   }
 
   private restoreAnimatedNodes(): void {
