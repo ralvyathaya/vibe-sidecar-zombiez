@@ -209,7 +209,7 @@ export class PistolWeapon {
         : 0,
       reserveAmmoText: Number.isFinite(player.state.ammoReserve)
         ? `${player.state.ammoReserve}`
-        : 'INF',
+        : '∞',
       hitConfirm: this.hitConfirmTimer,
       crosshairKick: this.fireKick,
       canReload:
