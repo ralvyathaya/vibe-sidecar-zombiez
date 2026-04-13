@@ -65,6 +65,15 @@ export const GAME_CONFIG: GameConfig = {
     spawnMaxZ: -78,
     cleanupZ: 12,
     contactRadius: 1.35,
+    walkerModel: {
+      characterPath: '/models/enemies/walker/character.glb',
+      walkAnimationPath: '/models/enemies/walker/walk.glb',
+      deathAnimationPath: '/models/enemies/walker/death.glb',
+      position: [0, 0, 0],
+      rotationDegrees: [0, 0, 0],
+      scale: 1.5,
+      walkAnimationSpeed: 1.16,
+    },
     types: {
       walker: {
         type: 'walker',

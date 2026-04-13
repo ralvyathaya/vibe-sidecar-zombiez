@@ -1,10 +1,25 @@
-import type { Group, MeshStandardMaterial, Object3D, Vector3 } from 'three';
+import type {
+  AnimationAction,
+  AnimationMixer,
+  Group,
+  MeshStandardMaterial,
+  Object3D,
+  Vector3,
+} from 'three';
 
 export type GameStateType = 'menu' | 'running' | 'paused' | 'dead';
 
 export type ZombieType = 'walker' | 'runner' | 'tank';
+export type ZombieLifecycleState = 'inactive' | 'alive' | 'dying';
 
 export type Vec3Tuple = [number, number, number];
+
+export interface FlashMaterial {
+  emissive: {
+    setHex(hex: number): unknown;
+  };
+  emissiveIntensity: number;
+}
 
 export interface ZombieConfig {
   type: ZombieType;
@@ -83,6 +98,15 @@ export interface GameConfig {
     spawnMaxZ: number;
     cleanupZ: number;
     contactRadius: number;
+    walkerModel: {
+      characterPath: string;
+      walkAnimationPath: string;
+      deathAnimationPath: string;
+      position: Vec3Tuple;
+      rotationDegrees: Vec3Tuple;
+      scale: number;
+      walkAnimationSpeed: number;
+    };
     types: Record<ZombieType, ZombieConfig>;
   };
   spawn: {
@@ -133,11 +157,13 @@ export interface ActiveZombie {
   id: number;
   group: Group;
   active: boolean;
+  state: ZombieLifecycleState;
   type: ZombieType;
   config: ZombieConfig;
   health: number;
   velocity: Vector3;
   poolId: number;
+  primitiveRoot: Group;
   bodyMaterial: MeshStandardMaterial;
   accentMaterial: MeshStandardMaterial;
   leftArmPivot: Object3D;
@@ -147,6 +173,14 @@ export interface ActiveZombie {
   animationClock: number;
   animationOffset: number;
   hitFlash: number;
+  deathTimer: number;
+  primitiveFlashMaterials: FlashMaterial[];
+  modelFlashMaterials: FlashMaterial[];
+  flashMaterials: FlashMaterial[];
+  walkerRoot: Group | null;
+  mixer: AnimationMixer | null;
+  walkAction: AnimationAction | null;
+  deathAction: AnimationAction | null;
 }
 
 export interface ActiveObstacle {
