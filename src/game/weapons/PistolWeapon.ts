@@ -360,7 +360,11 @@ export class PistolWeapon {
 
     const hitZombie = enemies.raycast(this.camera, this.crosshair, this.config.weapon.range);
     if (hitZombie) {
-      const scoreValue = enemies.damage(hitZombie, this.config.weapon.damagePerShot);
+      const scoreValue = enemies.damage(
+        hitZombie.zombie,
+        this.config.weapon.damagePerShot,
+        hitZombie.point,
+      );
       this.hitConfirmTimer = 0.1;
       if (scoreValue > 0) {
         player.state.score += scoreValue;

@@ -19,6 +19,9 @@ export interface FlashMaterial {
     setHex(hex: number): unknown;
   };
   emissiveIntensity: number;
+  transparent: boolean;
+  opacity: number;
+  depthWrite: boolean;
 }
 
 export interface ZombieConfig {
@@ -106,6 +109,27 @@ export interface GameConfig {
       rotationDegrees: Vec3Tuple;
       scale: number;
       walkAnimationSpeed: number;
+      deathAnimationSpeed: number;
+      fadeDelay: number;
+      fadeDuration: number;
+      fadeSink: number;
+      hitBloodCount: number;
+      hitBloodSize: number;
+      hitBloodSpeed: number;
+      hitBloodLifetime: number;
+      bodySplatterCount: number;
+      bodySplatterSize: number;
+      bodySplatterSpeed: number;
+      bodySplatterLifetime: number;
+      bloodDelay: number;
+      bloodBurstCount: number;
+      bloodBurstSize: number;
+      bloodBurstSpeed: number;
+      bloodBurstLifetime: number;
+      bloodGravity: number;
+      roadSplatSize: number;
+      roadSplatLifetime: number;
+      roadSplatOpacity: number;
     };
     types: Record<ZombieType, ZombieConfig>;
   };
@@ -127,6 +151,7 @@ export interface GameConfig {
     obstacleCleanupZ: number;
     obstacleDamage: number;
     obstacleHitboxDepth: number;
+    roadSurfaceY: number;
   };
 }
 
@@ -174,6 +199,10 @@ export interface ActiveZombie {
   animationOffset: number;
   hitFlash: number;
   deathTimer: number;
+  deathElapsed: number;
+  impactLocalPoint: Vector3;
+  bodySplatterTriggered: boolean;
+  bloodBurstTriggered: boolean;
   primitiveFlashMaterials: FlashMaterial[];
   modelFlashMaterials: FlashMaterial[];
   flashMaterials: FlashMaterial[];

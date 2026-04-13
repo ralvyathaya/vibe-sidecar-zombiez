@@ -1,6 +1,8 @@
 import {
   AnimationClip,
   AnimationMixer,
+  CircleGeometry,
+  MeshBasicMaterial,
   BoxGeometry,
   Camera,
   Group,
@@ -27,6 +29,8 @@ const TORSO_GEOMETRY = new BoxGeometry(0.8, 1.05, 0.5);
 const HEAD_GEOMETRY = new BoxGeometry(0.54, 0.52, 0.48);
 const ARM_GEOMETRY = new BoxGeometry(0.18, 0.76, 0.18);
 const LEG_GEOMETRY = new BoxGeometry(0.22, 0.9, 0.22);
+const PARTICLE_SHARD_GEOMETRY = new BoxGeometry(0.12, 0.12, 0.12);
+const ROAD_SPLAT_GEOMETRY = new CircleGeometry(1, 10);
 const HIT_FLASH_COLOR = 0x5a1405;
 
 type WalkerAssets = {
@@ -37,10 +41,46 @@ type WalkerAssets = {
 
 type CloneSkinnedScene = (source: Object3D) => Object3D;
 
+type ParticleShard = {
+  mesh: Mesh;
+  velocity: Vector3;
+  angularVelocity: Vector3;
+  baseScale: Vector3;
+};
+
+type ParticleBurst = {
+  group: Group;
+  material: MeshBasicMaterial;
+  shards: ParticleShard[];
+  active: boolean;
+  life: number;
+  maxLife: number;
+  gravity: number;
+  stickToRoad: boolean;
+};
+
+type RoadSplat = {
+  group: Group;
+  material: MeshBasicMaterial;
+  blotches: Mesh[];
+  active: boolean;
+  life: number;
+  maxLife: number;
+};
+
 export class EnemySystem {
   private readonly pool: ActiveZombie[] = [];
+  private readonly hitBloodBursts: ParticleBurst[] = [];
+  private readonly bodySplatterBursts: ParticleBurst[] = [];
+  private readonly bloodBursts: ParticleBurst[] = [];
+  private readonly roadSplats: RoadSplat[] = [];
   private readonly raycaster = new Raycaster();
   private readonly chaseVector = new Vector3();
+  private readonly effectPosition = new Vector3();
+  private readonly effectDirection = new Vector3();
+  private readonly effectTangent = new Vector3();
+  private readonly effectBitangent = new Vector3();
+  private readonly effectLookTarget = new Vector3();
 
   private walkerAssets: WalkerAssets | null = null;
   private walkerAssetsPromise: Promise<void> | null = null;
@@ -55,12 +95,52 @@ export class EnemySystem {
       this.scene.add(zombie.group);
     }
 
+    for (let index = 0; index < 16; index += 1) {
+      const burst = this.createParticleBurst();
+      this.hitBloodBursts.push(burst);
+      this.scene.add(burst.group);
+    }
+
+    for (let index = 0; index < 16; index += 1) {
+      const splatter = this.createParticleBurst();
+      this.bodySplatterBursts.push(splatter);
+      this.scene.add(splatter.group);
+    }
+
+    for (let index = 0; index < 16; index += 1) {
+      const bloodBurst = this.createParticleBurst();
+      this.bloodBursts.push(bloodBurst);
+      this.scene.add(bloodBurst.group);
+    }
+
+    for (let index = 0; index < 56; index += 1) {
+      const roadSplat = this.createRoadSplat();
+      this.roadSplats.push(roadSplat);
+      this.scene.add(roadSplat.group);
+    }
+
     void this.loadWalkerAssets();
   }
 
   reset(): void {
     for (const zombie of this.pool) {
       this.deactivate(zombie);
+    }
+
+    for (const burst of this.bodySplatterBursts) {
+      this.deactivateParticleBurst(burst);
+    }
+
+    for (const burst of this.hitBloodBursts) {
+      this.deactivateParticleBurst(burst);
+    }
+
+    for (const burst of this.bloodBursts) {
+      this.deactivateParticleBurst(burst);
+    }
+
+    for (const splat of this.roadSplats) {
+      this.deactivateRoadSplat(splat);
     }
   }
 
@@ -77,6 +157,9 @@ export class EnemySystem {
     zombie.config = zombieConfig;
     zombie.health = zombieConfig.maxHealth;
     zombie.velocity.set(0, 0, 0);
+    if (zombie.group.parent !== this.scene) {
+      this.scene.add(zombie.group);
+    }
     zombie.group.visible = true;
     zombie.group.position.set(laneX + randomRange(-0.55, 0.55), 0, zPosition);
     zombie.group.scale.setScalar(zombieConfig.scale);
@@ -84,6 +167,10 @@ export class EnemySystem {
     zombie.animationOffset = randomRange(0, Math.PI * 2);
     zombie.hitFlash = 0;
     zombie.deathTimer = 0;
+    zombie.deathElapsed = 0;
+    zombie.impactLocalPoint.set(0, 1.15, 0.32);
+    zombie.bodySplatterTriggered = false;
+    zombie.bloodBurstTriggered = false;
 
     this.resetFlashMaterials(zombie.primitiveFlashMaterials);
     this.resetFlashMaterials(zombie.modelFlashMaterials);
@@ -103,6 +190,11 @@ export class EnemySystem {
     worldScrollSpeed: number,
     onPlayerHit: (damage: number, sourceX: number) => void,
   ): void {
+    this.updateParticleBursts(this.hitBloodBursts, deltaTime, worldScrollSpeed);
+    this.updateParticleBursts(this.bodySplatterBursts, deltaTime, worldScrollSpeed);
+    this.updateParticleBursts(this.bloodBursts, deltaTime, worldScrollSpeed);
+    this.updateRoadSplats(deltaTime, worldScrollSpeed);
+
     for (const zombie of this.pool) {
       if (!zombie.active) {
         continue;
@@ -121,7 +213,10 @@ export class EnemySystem {
           continue;
         }
       } else if (zombie.state === 'dying') {
+        zombie.deathElapsed += deltaTime;
         zombie.deathTimer -= deltaTime;
+        this.triggerDelayedDeathEffects(zombie);
+        this.updateWalkerDeathFade(zombie);
       }
 
       if (zombie.mixer) {
@@ -144,7 +239,11 @@ export class EnemySystem {
     }
   }
 
-  raycast(camera: Camera, crosshair: Vector2, range: number): ActiveZombie | null {
+  raycast(
+    camera: Camera,
+    crosshair: Vector2,
+    range: number,
+  ): { zombie: ActiveZombie; point: Vector3 } | null {
     this.raycaster.setFromCamera(crosshair, camera);
     this.raycaster.near = 0;
     this.raycaster.far = range;
@@ -166,21 +265,26 @@ export class EnemySystem {
 
       const zombie = this.pool[poolId];
       if (zombie?.active && zombie.state === 'alive') {
-        return zombie;
+        return {
+          zombie,
+          point: hit.point.clone(),
+        };
       }
     }
 
     return null;
   }
 
-  damage(zombie: ActiveZombie, amount: number): number {
+  damage(zombie: ActiveZombie, amount: number, impactPoint?: Vector3): number {
     if (!zombie.active || zombie.state !== 'alive') {
       return 0;
     }
 
+    this.captureImpactPoint(zombie, impactPoint);
     zombie.health -= amount;
     zombie.hitFlash = 1;
     this.setFlashColor(zombie.flashMaterials, HIT_FLASH_COLOR);
+    this.spawnHitBloodBurst(zombie);
 
     if (zombie.health <= 0) {
       const scoreValue = zombie.config.scoreValue;
@@ -256,6 +360,10 @@ export class EnemySystem {
       animationOffset: 0,
       hitFlash: 0,
       deathTimer: 0,
+      deathElapsed: 0,
+      impactLocalPoint: new Vector3(0, 1.15, 0.32),
+      bodySplatterTriggered: false,
+      bloodBurstTriggered: false,
       primitiveFlashMaterials: [rootMaterial, accentMaterial],
       modelFlashMaterials: [],
       flashMaterials: [rootMaterial, accentMaterial],
@@ -316,6 +424,8 @@ export class EnemySystem {
     zombie.walkerRoot.visible = true;
     zombie.flashMaterials = zombie.modelFlashMaterials;
     this.resetFlashMaterials(zombie.modelFlashMaterials);
+    this.setMaterialOpacity(zombie.modelFlashMaterials, 1);
+    zombie.walkerRoot.position.set(...this.config.enemies.walkerModel.position);
 
     if (zombie.deathAction) {
       zombie.deathAction.stop();
@@ -336,9 +446,19 @@ export class EnemySystem {
   private startWalkerDeath(zombie: ActiveZombie): void {
     zombie.state = 'dying';
     zombie.velocity.set(0, 0, 0);
+    zombie.deathElapsed = 0;
+    zombie.bodySplatterTriggered = true;
+    zombie.bloodBurstTriggered = false;
+    zombie.deathTimer =
+      this.config.enemies.walkerModel.fadeDelay +
+      this.config.enemies.walkerModel.fadeDuration;
+    this.spawnBodySplatter(zombie);
+    if (this.config.enemies.walkerModel.bloodDelay <= 0) {
+      zombie.bloodBurstTriggered = true;
+      this.spawnBloodBurst(zombie);
+    }
 
     if (!zombie.deathAction) {
-      zombie.deathTimer = 0.18;
       return;
     }
 
@@ -351,11 +471,21 @@ export class EnemySystem {
     zombie.deathAction.time = 0;
     zombie.deathAction
       .setLoop(LoopOnce, 1)
-      .setEffectiveTimeScale(1)
+      .setEffectiveTimeScale(this.config.enemies.walkerModel.deathAnimationSpeed)
       .setEffectiveWeight(1)
       .play();
     zombie.deathAction.clampWhenFinished = true;
-    zombie.deathTimer = zombie.deathAction.getClip().duration + 0.1;
+  }
+
+  private triggerDelayedDeathEffects(zombie: ActiveZombie): void {
+    if (
+      zombie.type === 'walker' &&
+      !zombie.bloodBurstTriggered &&
+      zombie.deathElapsed >= this.config.enemies.walkerModel.bloodDelay
+    ) {
+      zombie.bloodBurstTriggered = true;
+      this.spawnBloodBurst(zombie);
+    }
   }
 
   private createLimbPivot(
@@ -393,6 +523,7 @@ export class EnemySystem {
 
   private resetFlashMaterials(materials: FlashMaterial[]): void {
     this.setFlashColor(materials, 0x000000);
+    this.setMaterialOpacity(materials, 1);
     for (const material of materials) {
       material.emissiveIntensity = 0;
     }
@@ -415,16 +546,553 @@ export class EnemySystem {
     zombie.state = 'inactive';
     zombie.group.visible = false;
     zombie.group.position.set(0, 0, 999);
+    zombie.group.removeFromParent();
     zombie.velocity.set(0, 0, 0);
     zombie.hitFlash = 0;
     zombie.deathTimer = 0;
+    zombie.deathElapsed = 0;
+    zombie.bodySplatterTriggered = false;
+    zombie.bloodBurstTriggered = false;
     zombie.primitiveRoot.visible = false;
     if (zombie.walkerRoot) {
       zombie.walkerRoot.visible = false;
+      zombie.walkerRoot.position.set(...this.config.enemies.walkerModel.position);
     }
     this.stopWalkerActions(zombie);
     this.resetFlashMaterials(zombie.primitiveFlashMaterials);
     this.resetFlashMaterials(zombie.modelFlashMaterials);
+  }
+
+  private updateWalkerDeathFade(zombie: ActiveZombie): void {
+    if (!zombie.walkerRoot || zombie.type !== 'walker') {
+      return;
+    }
+
+    const {
+      fadeDelay,
+      fadeDuration,
+      fadeSink,
+      position,
+    } = this.config.enemies.walkerModel;
+    const fadeProgress = MathUtils.clamp(
+      (zombie.deathElapsed - fadeDelay) / Math.max(fadeDuration, 0.001),
+      0,
+      1,
+    );
+
+    if (fadeProgress <= 0) {
+      return;
+    }
+
+    this.setMaterialOpacity(zombie.modelFlashMaterials, 1 - fadeProgress);
+    zombie.walkerRoot.position.set(
+      position[0],
+      position[1] - fadeSink * fadeProgress,
+      position[2],
+    );
+  }
+
+  private setMaterialOpacity(materials: FlashMaterial[], opacity: number): void {
+    const nextOpacity = MathUtils.clamp(opacity, 0, 1);
+
+    for (const material of materials) {
+      material.opacity = nextOpacity;
+      material.transparent = nextOpacity < 0.999;
+      material.depthWrite = nextOpacity >= 0.999;
+    }
+  }
+
+  private createParticleBurst(): ParticleBurst {
+    const group = new Group();
+    const material = new MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+    });
+    const maxCount = Math.max(
+      this.config.enemies.walkerModel.hitBloodCount,
+      this.config.enemies.walkerModel.bodySplatterCount,
+      this.config.enemies.walkerModel.bloodBurstCount,
+    );
+    const shards: ParticleShard[] = [];
+
+    for (let index = 0; index < maxCount; index += 1) {
+      const shard = new Mesh(PARTICLE_SHARD_GEOMETRY, material);
+      shard.visible = false;
+      group.add(shard);
+      shards.push({
+        mesh: shard,
+        velocity: new Vector3(),
+        angularVelocity: new Vector3(),
+        baseScale: new Vector3(1, 1, 1),
+      });
+    }
+
+    group.visible = false;
+
+    return {
+      group,
+      material,
+      shards,
+      active: false,
+      life: 0,
+      maxLife: 0,
+      gravity: 0,
+      stickToRoad: false,
+    };
+  }
+
+  private createRoadSplat(): RoadSplat {
+    const group = new Group();
+    const material = new MeshBasicMaterial({
+      color: 0x4f0909,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -1,
+    });
+    const blotches: Mesh[] = [];
+
+    for (let index = 0; index < 3; index += 1) {
+      const blotch = new Mesh(ROAD_SPLAT_GEOMETRY, material);
+      blotch.rotation.x = -Math.PI * 0.5;
+      group.add(blotch);
+      blotches.push(blotch);
+    }
+
+    group.visible = false;
+
+    return {
+      group,
+      material,
+      blotches,
+      active: false,
+      life: 0,
+      maxLife: 0,
+    };
+  }
+
+  private spawnHitBloodBurst(zombie: ActiveZombie): void {
+    const burst = this.hitBloodBursts.find((entry) => !entry.active);
+    if (!burst) {
+      return;
+    }
+
+    const walkerModel = this.config.enemies.walkerModel;
+    burst.active = true;
+    if (burst.group.parent !== this.scene) {
+      this.scene.add(burst.group);
+    }
+    burst.group.visible = true;
+    burst.life = Math.max(walkerModel.hitBloodLifetime, 0.42);
+    burst.maxLife = Math.max(walkerModel.hitBloodLifetime, 0.42);
+    burst.gravity = walkerModel.bloodGravity * 0.72;
+    burst.stickToRoad = true;
+    burst.material.color.setHex(0xb81414);
+    burst.material.opacity = 1;
+    this.getImpactWorldPoint(zombie, this.effectPosition);
+    this.getImpactDirection(zombie, this.effectDirection);
+    burst.group.position.copy(
+      this.effectPosition.addScaledVector(this.effectDirection, 0.05 * zombie.config.scale),
+    );
+    this.prepareBurstBasis(this.effectDirection);
+
+    for (let index = 0; index < burst.shards.length; index += 1) {
+      const shard = burst.shards[index];
+      const enabled = index < walkerModel.hitBloodCount;
+      shard.mesh.visible = enabled;
+      shard.mesh.position.set(0, 0, 0);
+
+      if (!enabled) {
+        continue;
+      }
+
+      shard.mesh.rotation.set(
+        randomRange(0, Math.PI * 2),
+        randomRange(0, Math.PI * 2),
+        randomRange(0, Math.PI * 2),
+      );
+      const scale = walkerModel.hitBloodSize * randomRange(0.75, 1.45);
+      shard.baseScale.set(
+        scale * randomRange(0.34, 0.72),
+        scale * randomRange(0.34, 0.72),
+        scale * randomRange(1.8, 3.4),
+      );
+      shard.mesh.scale.set(
+        shard.baseScale.x,
+        shard.baseScale.y,
+        shard.baseScale.z,
+      );
+      this.setSprayVelocity(
+        shard.velocity,
+        this.effectDirection,
+        walkerModel.hitBloodSpeed * randomRange(0.85, 1.25),
+        0.42,
+        -0.28,
+        0.12,
+        0.35,
+      );
+      shard.angularVelocity.set(
+        randomRange(-12, 12),
+        randomRange(-12, 12),
+        randomRange(-12, 12),
+      );
+    }
+  }
+
+  private spawnBodySplatter(zombie: ActiveZombie): void {
+    const burst = this.bodySplatterBursts.find((entry) => !entry.active);
+    if (!burst) {
+      return;
+    }
+
+    const walkerModel = this.config.enemies.walkerModel;
+    const activeCount = walkerModel.bodySplatterCount;
+    burst.active = true;
+    if (burst.group.parent !== this.scene) {
+      this.scene.add(burst.group);
+    }
+    burst.group.visible = true;
+    burst.life = walkerModel.bodySplatterLifetime;
+    burst.maxLife = walkerModel.bodySplatterLifetime;
+    burst.gravity = 4.6;
+    burst.stickToRoad = false;
+    burst.material.color.setHex(zombie.config.bodyColor);
+    burst.material.opacity = 1;
+    this.getImpactWorldPoint(zombie, this.effectPosition);
+    this.getImpactDirection(zombie, this.effectDirection);
+    burst.group.position.copy(
+      this.effectPosition.addScaledVector(this.effectDirection, 0.03 * zombie.config.scale),
+    );
+    this.prepareBurstBasis(this.effectDirection);
+
+    for (let index = 0; index < burst.shards.length; index += 1) {
+      const shard = burst.shards[index];
+      const enabled = index < activeCount;
+      shard.mesh.visible = enabled;
+      shard.mesh.position.set(0, 0, 0);
+
+      if (!enabled) {
+        continue;
+      }
+
+      shard.mesh.rotation.set(
+        randomRange(0, Math.PI * 2),
+        randomRange(0, Math.PI * 2),
+        randomRange(0, Math.PI * 2),
+      );
+      const scale = walkerModel.bodySplatterSize * randomRange(0.7, 1.35);
+      shard.baseScale.set(
+        scale * randomRange(0.65, 1.05),
+        scale * randomRange(0.65, 1.05),
+        scale * randomRange(1.4, 2.4),
+      );
+      shard.mesh.scale.set(
+        shard.baseScale.x,
+        shard.baseScale.y,
+        shard.baseScale.z,
+      );
+      this.setSprayVelocity(
+        shard.velocity,
+        this.effectDirection,
+        walkerModel.bodySplatterSpeed * randomRange(0.8, 1.2),
+        0.55,
+        -0.08,
+        0.24,
+        0.28,
+      );
+      shard.angularVelocity.set(
+        randomRange(-10, 10),
+        randomRange(-10, 10),
+        randomRange(-10, 10),
+      );
+    }
+  }
+
+  private spawnBloodBurst(zombie: ActiveZombie): void {
+    if (zombie.type !== 'walker') {
+      return;
+    }
+
+    const burst = this.bloodBursts.find((entry) => !entry.active);
+    if (!burst) {
+      return;
+    }
+
+    const walkerModel = this.config.enemies.walkerModel;
+    burst.active = true;
+    if (burst.group.parent !== this.scene) {
+      this.scene.add(burst.group);
+    }
+    burst.group.visible = true;
+    burst.life = walkerModel.bloodBurstLifetime;
+    burst.maxLife = walkerModel.bloodBurstLifetime;
+    burst.gravity = walkerModel.bloodGravity;
+    burst.stickToRoad = true;
+    burst.material.color.setHex(0x5c0808);
+    burst.material.opacity = 1;
+    this.getImpactWorldPoint(zombie, this.effectPosition);
+    this.getImpactDirection(zombie, this.effectDirection);
+    burst.group.position.copy(
+      this.effectPosition.addScaledVector(this.effectDirection, 0.04 * zombie.config.scale),
+    );
+    this.prepareBurstBasis(this.effectDirection);
+
+    for (let index = 0; index < burst.shards.length; index += 1) {
+      const shard = burst.shards[index];
+      const enabled = index < walkerModel.bloodBurstCount;
+      shard.mesh.visible = enabled;
+      shard.mesh.position.set(0, 0, 0);
+
+      if (!enabled) {
+        continue;
+      }
+
+      shard.mesh.rotation.set(
+        randomRange(0, Math.PI * 2),
+        randomRange(0, Math.PI * 2),
+        randomRange(0, Math.PI * 2),
+      );
+      const scale = walkerModel.bloodBurstSize * randomRange(0.7, 1.2);
+      shard.baseScale.set(
+        scale * randomRange(0.45, 0.82),
+        scale * randomRange(0.28, 0.56),
+        scale * randomRange(1.6, 2.7),
+      );
+      shard.mesh.scale.set(
+        shard.baseScale.x,
+        shard.baseScale.y,
+        shard.baseScale.z,
+      );
+      this.setSprayVelocity(
+        shard.velocity,
+        this.effectDirection,
+        walkerModel.bloodBurstSpeed * randomRange(0.7, 1.08),
+        0.62,
+        -0.42,
+        0.04,
+        0.12,
+      );
+      shard.angularVelocity.set(
+        randomRange(-8, 8),
+        randomRange(-8, 8),
+        randomRange(-8, 8),
+      );
+    }
+  }
+
+  private updateParticleBursts(
+    bursts: ParticleBurst[],
+    deltaTime: number,
+    worldScrollSpeed: number,
+  ): void {
+    for (const burst of bursts) {
+      if (!burst.active) {
+        continue;
+      }
+
+      burst.life -= deltaTime;
+      burst.group.position.z += worldScrollSpeed * deltaTime;
+
+      if (burst.life <= 0) {
+        this.deactivateParticleBurst(burst);
+        continue;
+      }
+
+      const lifeRatio = burst.life / burst.maxLife;
+      burst.material.opacity = lifeRatio * 0.95;
+
+      for (const shard of burst.shards) {
+        if (!shard.mesh.visible) {
+          continue;
+        }
+
+        shard.velocity.y -= burst.gravity * deltaTime;
+        shard.mesh.position.addScaledVector(shard.velocity, deltaTime);
+        if (burst.stickToRoad && this.tryStickBloodToRoad(burst, shard)) {
+          continue;
+        }
+        this.effectLookTarget.copy(shard.mesh.position).add(shard.velocity);
+        shard.mesh.lookAt(this.effectLookTarget);
+        const stretch = 1 + Math.min(shard.velocity.length() * 0.09, 2.6) * lifeRatio;
+        shard.mesh.scale.set(
+          shard.baseScale.x,
+          shard.baseScale.y,
+          shard.baseScale.z * stretch,
+        );
+        shard.mesh.rotation.z += shard.angularVelocity.z * deltaTime;
+      }
+    }
+  }
+
+  private deactivateParticleBurst(burst: ParticleBurst): void {
+    burst.active = false;
+    burst.group.visible = false;
+    burst.group.position.set(0, 0, 999);
+    burst.group.removeFromParent();
+    burst.material.opacity = 0;
+    burst.gravity = 0;
+    burst.stickToRoad = false;
+
+    for (const shard of burst.shards) {
+      shard.mesh.visible = false;
+      shard.mesh.position.set(0, 0, 0);
+      shard.mesh.scale.copy(shard.baseScale);
+    }
+  }
+
+  private updateRoadSplats(deltaTime: number, worldScrollSpeed: number): void {
+    for (const splat of this.roadSplats) {
+      if (!splat.active) {
+        continue;
+      }
+
+      splat.life -= deltaTime;
+      splat.group.position.z += worldScrollSpeed * deltaTime;
+
+      if (
+        splat.life <= 0 ||
+        splat.group.position.z > this.config.enemies.cleanupZ
+      ) {
+        this.deactivateRoadSplat(splat);
+        continue;
+      }
+
+      const lifeRatio = splat.life / splat.maxLife;
+      splat.material.opacity =
+        this.config.enemies.walkerModel.roadSplatOpacity * Math.pow(lifeRatio, 0.8);
+    }
+  }
+
+  private tryStickBloodToRoad(burst: ParticleBurst, shard: ParticleShard): boolean {
+    if (!shard.mesh.visible) {
+      return false;
+    }
+
+    const worldX = burst.group.position.x + shard.mesh.position.x;
+    const worldY = burst.group.position.y + shard.mesh.position.y;
+    const worldZ = burst.group.position.z + shard.mesh.position.z;
+    const withinRoad = Math.abs(worldX) <= this.config.world.roadHalfWidth - 0.35;
+
+    if (!withinRoad || worldY > this.config.world.roadSurfaceY) {
+      return false;
+    }
+
+    this.spawnRoadSplat(worldX, worldZ, burst.material.color.getHex());
+    shard.mesh.visible = false;
+    return true;
+  }
+
+  private spawnRoadSplat(x: number, z: number, color: number): void {
+    const splat = this.roadSplats.find((entry) => !entry.active);
+    if (!splat) {
+      return;
+    }
+
+    const walkerModel = this.config.enemies.walkerModel;
+    splat.active = true;
+    if (splat.group.parent !== this.scene) {
+      this.scene.add(splat.group);
+    }
+    splat.group.visible = true;
+    splat.group.position.set(x, this.config.world.roadSurfaceY, z);
+    splat.life = walkerModel.roadSplatLifetime;
+    splat.maxLife = walkerModel.roadSplatLifetime;
+    splat.material.color.setHex(color);
+    splat.material.opacity = walkerModel.roadSplatOpacity;
+
+    for (let index = 0; index < splat.blotches.length; index += 1) {
+      const blotch = splat.blotches[index];
+      blotch.position.set(
+        randomRange(-0.18, 0.18),
+        0,
+        randomRange(-0.18, 0.18),
+      );
+      blotch.rotation.set(
+        -Math.PI * 0.5,
+        randomRange(0, Math.PI * 2),
+        randomRange(-0.08, 0.08),
+      );
+      const scale = walkerModel.roadSplatSize * randomRange(0.7, 1.35);
+      blotch.scale.set(
+        scale * randomRange(0.8, 1.35),
+        scale * randomRange(0.55, 1.1),
+        1,
+      );
+    }
+  }
+
+  private deactivateRoadSplat(splat: RoadSplat): void {
+    splat.active = false;
+    splat.group.visible = false;
+    splat.group.position.set(0, this.config.world.roadSurfaceY, 999);
+    splat.group.removeFromParent();
+    splat.material.opacity = 0;
+  }
+
+  private captureImpactPoint(zombie: ActiveZombie, impactPoint?: Vector3): void {
+    if (!impactPoint) {
+      zombie.impactLocalPoint.set(0, 1.15, 0.32);
+      return;
+    }
+
+    zombie.impactLocalPoint.copy(impactPoint);
+    zombie.group.worldToLocal(zombie.impactLocalPoint);
+  }
+
+  private getImpactWorldPoint(zombie: ActiveZombie, target: Vector3): Vector3 {
+    target.copy(zombie.impactLocalPoint);
+    return zombie.group.localToWorld(target);
+  }
+
+  private getImpactDirection(zombie: ActiveZombie, target: Vector3): Vector3 {
+    target
+      .copy(zombie.impactLocalPoint)
+      .sub(this.getZombieLocalCenter(zombie, this.effectTangent));
+
+    if (target.lengthSq() < 0.0001) {
+      target.set(0, 0.12, 1);
+    }
+
+    target.normalize().applyQuaternion(zombie.group.quaternion).normalize();
+    return target;
+  }
+
+  private getZombieLocalCenter(zombie: ActiveZombie, target: Vector3): Vector3 {
+    target.set(0, 1.1 / Math.max(zombie.config.scale, 0.0001), 0);
+    return target;
+  }
+
+  private prepareBurstBasis(direction: Vector3): void {
+    this.effectTangent.crossVectors(direction, Object3D.DEFAULT_UP);
+    if (this.effectTangent.lengthSq() < 0.0001) {
+      this.effectTangent.set(1, 0, 0);
+    } else {
+      this.effectTangent.normalize();
+    }
+
+    this.effectBitangent.crossVectors(this.effectTangent, direction).normalize();
+  }
+
+  private setSprayVelocity(
+    target: Vector3,
+    direction: Vector3,
+    speed: number,
+    spread: number,
+    verticalMin: number,
+    verticalMax: number,
+    forwardJitter: number,
+  ): void {
+    target
+      .copy(direction)
+      .multiplyScalar(speed * randomRange(0.82, 1.18))
+      .addScaledVector(this.effectTangent, randomRange(-spread, spread) * speed)
+      .addScaledVector(this.effectBitangent, randomRange(-spread, spread) * speed);
+    target.y += randomRange(verticalMin, verticalMax) * speed;
+    target.addScaledVector(direction, forwardJitter * speed * randomRange(-0.2, 1));
   }
 
   // Walker assets are loaded once, then cloned per pooled slot to keep startup light.
@@ -557,6 +1225,9 @@ export class EnemySystem {
     const flashMaterial = material as FlashMaterial;
     flashMaterial.emissive.setHex(0x000000);
     flashMaterial.emissiveIntensity = 0;
+    flashMaterial.opacity = 1;
+    flashMaterial.transparent = false;
+    flashMaterial.depthWrite = true;
     target.push(flashMaterial);
   }
 
