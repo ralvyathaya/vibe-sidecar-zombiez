@@ -40,6 +40,7 @@ type HumanoidAssets = {
   template: Group;
   moveClip: AnimationClip;
   deathClip: AnimationClip;
+  spawnPoseClip: AnimationClip | null;
 };
 
 type CloneSkinnedScene = (source: Object3D) => Object3D;
@@ -130,6 +131,7 @@ export class EnemySystem {
 
     void this.loadHumanoidAssets('walker');
     void this.loadHumanoidAssets('runner');
+    void this.loadHumanoidAssets('tank');
   }
 
   reset(): void {
@@ -224,6 +226,8 @@ export class EnemySystem {
         if (!zombie.active) {
           continue;
         }
+
+        this.updateSpawnPose(zombie, deltaTime);
       } else if (zombie.state === 'dying') {
         zombie.deathElapsed += deltaTime;
         zombie.deathTimer -= deltaTime;
@@ -319,19 +323,31 @@ export class EnemySystem {
   }
 
   private isHumanoidType(type: ZombieType): type is HumanoidZombieType {
-    return type === 'walker' || type === 'runner';
+    return type === 'walker' || type === 'runner' || type === 'tank';
   }
 
   private getHumanoidConfig(type: HumanoidZombieType): HumanoidEnemyModelConfig {
-    return type === 'runner'
-      ? this.config.enemies.runnerModel
-      : this.config.enemies.walkerModel;
+    if (type === 'runner') {
+      return this.config.enemies.runnerModel;
+    }
+
+    if (type === 'tank') {
+      return this.config.enemies.tankModel;
+    }
+
+    return this.config.enemies.walkerModel;
   }
 
   private getEffectConfig(zombie: ActiveZombie): HumanoidEnemyModelConfig {
-    return zombie.type === 'runner'
-      ? this.config.enemies.runnerModel
-      : this.config.enemies.walkerModel;
+    if (zombie.type === 'runner') {
+      return this.config.enemies.runnerModel;
+    }
+
+    if (zombie.type === 'tank') {
+      return this.config.enemies.tankModel;
+    }
+
+    return this.config.enemies.walkerModel;
   }
 
   private getModelVariants(zombie: ActiveZombie): ZombieModelVariant[] {
@@ -404,6 +420,8 @@ export class EnemySystem {
       hitFlash: 0,
       deathTimer: 0,
       deathElapsed: 0,
+      spawnPoseTimer: 0,
+      spawnPoseActive: false,
       impactLocalPoint: new Vector3(0, 1.15, 0.32),
       bodySplatterTriggered: false,
       bloodBurstTriggered: false,
@@ -440,7 +458,10 @@ export class EnemySystem {
       this.chaseVector.multiplyScalar(1 / steeringLength);
     }
 
-    zombie.velocity.copy(this.chaseVector).multiplyScalar(zombie.config.speed);
+    const moveSpeedMultiplier = this.getMoveSpeedMultiplier(zombie);
+    zombie.velocity
+      .copy(this.chaseVector)
+      .multiplyScalar(zombie.config.speed * moveSpeedMultiplier);
     zombie.group.position.addScaledVector(zombie.velocity, deltaTime);
     zombie.group.lookAt(playerPosition.x, zombie.group.position.y + 1, playerPosition.z);
     zombie.group.rotation.x = 0;
@@ -541,15 +562,33 @@ export class EnemySystem {
     variant.root.position.set(posX, posY, posZ);
     variant.deathAction.stop();
     variant.deathAction.reset();
-    variant.moveAction.enabled = true;
-    variant.moveAction.reset();
-    variant.moveAction.time =
-      zombie.animationOffset % Math.max(variant.moveAction.getClip().duration, 0.001);
-    variant.moveAction
-      .setLoop(LoopRepeat, Infinity)
-      .setEffectiveTimeScale(modelConfig.moveAnimationSpeed)
-      .setEffectiveWeight(1)
-      .play();
+    variant.spawnPoseAction?.stop();
+    variant.spawnPoseAction?.reset();
+    zombie.spawnPoseActive = false;
+    zombie.spawnPoseTimer = 0;
+
+    if (
+      variant.spawnPoseAction &&
+      (modelConfig.spawnPoseChance ?? 0) > 0 &&
+      Math.random() < (modelConfig.spawnPoseChance ?? 0)
+    ) {
+      zombie.spawnPoseActive = true;
+      zombie.spawnPoseTimer =
+        modelConfig.spawnPoseDuration ?? variant.spawnPoseAction.getClip().duration;
+      variant.spawnPoseAction.enabled = true;
+      variant.spawnPoseAction.reset();
+      variant.spawnPoseAction
+        .setLoop(LoopOnce, 1)
+        .setEffectiveTimeScale(modelConfig.spawnPoseSpeed ?? 1)
+        .setEffectiveWeight(1)
+        .play();
+      variant.spawnPoseAction.clampWhenFinished = true;
+      variant.moveAction.stop();
+      variant.moveAction.reset();
+      return;
+    }
+
+    this.playHumanoidMoveAction(zombie, variant, modelConfig);
   }
 
   private startHumanoidDeath(
@@ -567,6 +606,8 @@ export class EnemySystem {
     zombie.deathElapsed = 0;
     zombie.bodySplatterTriggered = true;
     zombie.bloodBurstTriggered = false;
+    zombie.spawnPoseActive = false;
+    zombie.spawnPoseTimer = 0;
     zombie.deathTimer = modelConfig.fadeDelay + modelConfig.fadeDuration;
     this.spawnBodySplatter(zombie);
 
@@ -576,6 +617,7 @@ export class EnemySystem {
     }
 
     variant.moveAction.fadeOut(0.06);
+    variant.spawnPoseAction?.fadeOut(0.05);
     variant.deathAction.enabled = true;
     variant.deathAction.reset();
     variant.deathAction.time = 0;
@@ -624,6 +666,63 @@ export class EnemySystem {
       position[1] - fadeSink * fadeProgress,
       position[2],
     );
+  }
+
+  private updateSpawnPose(zombie: ActiveZombie, deltaTime: number): void {
+    if (!zombie.spawnPoseActive || !zombie.activeModelType) {
+      return;
+    }
+
+    const variant = this.getActiveModelVariant(zombie);
+    if (!variant) {
+      zombie.spawnPoseActive = false;
+      zombie.spawnPoseTimer = 0;
+      return;
+    }
+
+    zombie.spawnPoseTimer = Math.max(0, zombie.spawnPoseTimer - deltaTime);
+    if (zombie.spawnPoseTimer > 0) {
+      return;
+    }
+
+    zombie.spawnPoseActive = false;
+    variant.spawnPoseAction?.fadeOut(0.08);
+    this.playHumanoidMoveAction(
+      zombie,
+      variant,
+      this.getHumanoidConfig(variant.type),
+      0.08,
+    );
+  }
+
+  private getMoveSpeedMultiplier(zombie: ActiveZombie): number {
+    if (!zombie.spawnPoseActive || !zombie.activeModelType) {
+      return 1;
+    }
+
+    return this.getHumanoidConfig(zombie.activeModelType).spawnPoseMoveSpeedMultiplier ?? 1;
+  }
+
+  private playHumanoidMoveAction(
+    zombie: ActiveZombie,
+    variant: ZombieModelVariant,
+    modelConfig: HumanoidEnemyModelConfig,
+    fadeInSeconds = 0,
+  ): void {
+    variant.moveAction.enabled = true;
+    variant.moveAction.reset();
+    variant.moveAction.time =
+      zombie.animationOffset % Math.max(variant.moveAction.getClip().duration, 0.001);
+    variant.moveAction
+      .setLoop(LoopRepeat, Infinity)
+      .setEffectiveTimeScale(modelConfig.moveAnimationSpeed)
+      .setEffectiveWeight(1);
+
+    if (fadeInSeconds > 0) {
+      variant.moveAction.fadeIn(fadeInSeconds);
+    }
+
+    variant.moveAction.play();
   }
 
   private createLimbPivot(
@@ -687,6 +786,7 @@ export class EnemySystem {
     variant.mixer.stopAllAction();
     variant.moveAction.reset();
     variant.deathAction.reset();
+    variant.spawnPoseAction?.reset();
   }
 
   private deactivate(zombie: ActiveZombie): void {
@@ -699,6 +799,8 @@ export class EnemySystem {
     zombie.hitFlash = 0;
     zombie.deathTimer = 0;
     zombie.deathElapsed = 0;
+    zombie.spawnPoseTimer = 0;
+    zombie.spawnPoseActive = false;
     zombie.bodySplatterTriggered = false;
     zombie.bloodBurstTriggered = false;
     zombie.impactLocalPoint.set(0, 1.15, 0.32);
@@ -801,6 +903,9 @@ export class EnemySystem {
       runner.hitBloodCount,
       runner.bodySplatterCount,
       runner.bloodBurstCount,
+      this.config.enemies.tankModel.hitBloodCount,
+      this.config.enemies.tankModel.bodySplatterCount,
+      this.config.enemies.tankModel.bloodBurstCount,
     );
   }
 
@@ -1248,10 +1353,13 @@ export class EnemySystem {
       ]);
       const loader = new GLTFLoader();
       const modelConfig = this.getHumanoidConfig(type);
-      const [characterGltf, moveGltf, deathGltf] = await Promise.all([
+      const [characterGltf, moveGltf, deathGltf, spawnPoseGltf] = await Promise.all([
         loader.loadAsync(modelConfig.characterPath),
         loader.loadAsync(modelConfig.moveAnimationPath),
         loader.loadAsync(modelConfig.deathAnimationPath),
+        modelConfig.spawnPoseAnimationPath
+          ? loader.loadAsync(modelConfig.spawnPoseAnimationPath)
+          : Promise.resolve(null),
       ]);
 
       const moveClip = moveGltf.animations[0];
@@ -1264,6 +1372,7 @@ export class EnemySystem {
         template: characterGltf.scene,
         moveClip,
         deathClip,
+        spawnPoseClip: spawnPoseGltf?.animations[0] ?? null,
       };
 
       this.attachHumanoidVisuals(type, skeletonUtils.clone as CloneSkinnedScene);
@@ -1349,6 +1458,7 @@ export class EnemySystem {
       mixer,
       moveAction: mixer.clipAction(assets.moveClip),
       deathAction: mixer.clipAction(assets.deathClip),
+      spawnPoseAction: assets.spawnPoseClip ? mixer.clipAction(assets.spawnPoseClip) : null,
     };
 
     variant.deathAction.clampWhenFinished = true;

@@ -10,7 +10,7 @@ import type {
 export type GameStateType = 'menu' | 'running' | 'paused' | 'dead';
 
 export type ZombieType = 'walker' | 'runner' | 'tank';
-export type HumanoidZombieType = 'walker' | 'runner';
+export type HumanoidZombieType = 'walker' | 'runner' | 'tank';
 export type ZombieLifecycleState = 'inactive' | 'alive' | 'dying';
 
 export type Vec3Tuple = [number, number, number];
@@ -41,6 +41,11 @@ export interface HumanoidEnemyModelConfig {
   characterPath: string;
   moveAnimationPath: string;
   deathAnimationPath: string;
+  spawnPoseAnimationPath?: string;
+  spawnPoseChance?: number;
+  spawnPoseDuration?: number;
+  spawnPoseSpeed?: number;
+  spawnPoseMoveSpeedMultiplier?: number;
   position: Vec3Tuple;
   rotationDegrees: Vec3Tuple;
   scale: number;
@@ -75,6 +80,7 @@ export interface ZombieModelVariant {
   mixer: AnimationMixer;
   moveAction: AnimationAction;
   deathAction: AnimationAction;
+  spawnPoseAction: AnimationAction | null;
 }
 
 export interface GameConfig {
@@ -144,6 +150,7 @@ export interface GameConfig {
     contactRadius: number;
     walkerModel: HumanoidEnemyModelConfig;
     runnerModel: HumanoidEnemyModelConfig;
+    tankModel: HumanoidEnemyModelConfig;
     types: Record<ZombieType, ZombieConfig>;
   };
   spawn: {
@@ -213,6 +220,8 @@ export interface ActiveZombie {
   hitFlash: number;
   deathTimer: number;
   deathElapsed: number;
+  spawnPoseTimer: number;
+  spawnPoseActive: boolean;
   impactLocalPoint: Vector3;
   bodySplatterTriggered: boolean;
   bloodBurstTriggered: boolean;
