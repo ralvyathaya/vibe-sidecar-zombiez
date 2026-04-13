@@ -4,6 +4,8 @@ export type GameStateType = 'menu' | 'running' | 'paused' | 'dead';
 
 export type ZombieType = 'walker' | 'runner' | 'tank';
 
+export type Vec3Tuple = [number, number, number];
+
 export interface ZombieConfig {
   type: ZombieType;
   speed: number;
@@ -43,8 +45,27 @@ export interface GameConfig {
     reloadDuration: number;
     range: number;
     damagePerShot: number;
-    recoilKick: number;
+    cameraKick: number;
     recoilRecovery: number;
+    viewmodel: {
+      assetPath: string;
+      position: Vec3Tuple;
+      rotationDegrees: Vec3Tuple;
+      scale: number;
+      recoilBack: number;
+      recoilLift: number;
+      recoilPitchDegrees: number;
+      recoilRollDegrees: number;
+      recoilRecovery: number;
+      slideTravel: number;
+      slideRecovery: number;
+      magazineDrop: number;
+      magazineTiltDegrees: number;
+      reloadLift: number;
+      reloadTiltDegrees: number;
+      muzzleFlashSize: number;
+      muzzleFlashDuration: number;
+    };
   };
   enemies: {
     poolSize: number;
