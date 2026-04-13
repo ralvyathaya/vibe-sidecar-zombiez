@@ -10,6 +10,7 @@ import type {
 export type GameStateType = 'menu' | 'running' | 'paused' | 'dead';
 
 export type ZombieType = 'walker' | 'runner' | 'tank';
+export type HumanoidZombieType = 'walker' | 'runner';
 export type ZombieLifecycleState = 'inactive' | 'alive' | 'dying';
 
 export type Vec3Tuple = [number, number, number];
@@ -34,6 +35,46 @@ export interface ZombieConfig {
   bodyColor: number;
   accentColor: number;
   spawnWeight: number;
+}
+
+export interface HumanoidEnemyModelConfig {
+  characterPath: string;
+  moveAnimationPath: string;
+  deathAnimationPath: string;
+  position: Vec3Tuple;
+  rotationDegrees: Vec3Tuple;
+  scale: number;
+  moveAnimationSpeed: number;
+  deathAnimationSpeed: number;
+  fadeDelay: number;
+  fadeDuration: number;
+  fadeSink: number;
+  hitBloodCount: number;
+  hitBloodSize: number;
+  hitBloodSpeed: number;
+  hitBloodLifetime: number;
+  bodySplatterCount: number;
+  bodySplatterSize: number;
+  bodySplatterSpeed: number;
+  bodySplatterLifetime: number;
+  bloodDelay: number;
+  bloodBurstCount: number;
+  bloodBurstSize: number;
+  bloodBurstSpeed: number;
+  bloodBurstLifetime: number;
+  bloodGravity: number;
+  roadSplatSize: number;
+  roadSplatLifetime: number;
+  roadSplatOpacity: number;
+}
+
+export interface ZombieModelVariant {
+  type: HumanoidZombieType;
+  root: Group;
+  flashMaterials: FlashMaterial[];
+  mixer: AnimationMixer;
+  moveAction: AnimationAction;
+  deathAction: AnimationAction;
 }
 
 export interface GameConfig {
@@ -101,36 +142,8 @@ export interface GameConfig {
     spawnMaxZ: number;
     cleanupZ: number;
     contactRadius: number;
-    walkerModel: {
-      characterPath: string;
-      walkAnimationPath: string;
-      deathAnimationPath: string;
-      position: Vec3Tuple;
-      rotationDegrees: Vec3Tuple;
-      scale: number;
-      walkAnimationSpeed: number;
-      deathAnimationSpeed: number;
-      fadeDelay: number;
-      fadeDuration: number;
-      fadeSink: number;
-      hitBloodCount: number;
-      hitBloodSize: number;
-      hitBloodSpeed: number;
-      hitBloodLifetime: number;
-      bodySplatterCount: number;
-      bodySplatterSize: number;
-      bodySplatterSpeed: number;
-      bodySplatterLifetime: number;
-      bloodDelay: number;
-      bloodBurstCount: number;
-      bloodBurstSize: number;
-      bloodBurstSpeed: number;
-      bloodBurstLifetime: number;
-      bloodGravity: number;
-      roadSplatSize: number;
-      roadSplatLifetime: number;
-      roadSplatOpacity: number;
-    };
+    walkerModel: HumanoidEnemyModelConfig;
+    runnerModel: HumanoidEnemyModelConfig;
     types: Record<ZombieType, ZombieConfig>;
   };
   spawn: {
@@ -204,12 +217,9 @@ export interface ActiveZombie {
   bodySplatterTriggered: boolean;
   bloodBurstTriggered: boolean;
   primitiveFlashMaterials: FlashMaterial[];
-  modelFlashMaterials: FlashMaterial[];
   flashMaterials: FlashMaterial[];
-  walkerRoot: Group | null;
-  mixer: AnimationMixer | null;
-  walkAction: AnimationAction | null;
-  deathAction: AnimationAction | null;
+  activeModelType: HumanoidZombieType | null;
+  modelVariants: Partial<Record<HumanoidZombieType, ZombieModelVariant>>;
 }
 
 export interface ActiveObstacle {
