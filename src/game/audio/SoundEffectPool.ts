@@ -24,6 +24,7 @@ export class SoundEffectPool {
       audio.volume = this.defaultVolume;
       audio.playbackRate = this.defaultPlaybackRate;
       audio.crossOrigin = 'anonymous';
+      audio.load();
       return audio;
     });
   }
@@ -58,11 +59,6 @@ export class SoundEffectPool {
   }
 
   private pickVoice(): HTMLAudioElement {
-    const availableVoice = this.pool.find((voice) => voice.paused || voice.ended);
-    if (availableVoice) {
-      return availableVoice;
-    }
-
     const voice = this.pool[this.cursor];
     this.cursor = (this.cursor + 1) % this.pool.length;
     return voice;
