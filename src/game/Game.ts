@@ -99,6 +99,7 @@ export class Game {
         this.inputSystem,
         this.playerSystem,
         this.enemySystem,
+        this.worldSystem,
       );
 
       const obstacleDamage = this.worldSystem.update(

@@ -22,6 +22,7 @@ import { SoundEffectPool } from '../audio/SoundEffectPool';
 import type { EnemySystem } from '../systems/EnemySystem';
 import type { InputSystem } from '../systems/InputSystem';
 import type { PlayerSystem } from '../systems/PlayerSystem';
+import type { WorldSystem } from '../systems/WorldSystem';
 
 const SLIDE_NODE_PATTERN = /(slide|bolt|upper|top)/i;
 const MAGAZINE_NODE_PATTERN = /(mag|magazine|clip)/i;
@@ -166,6 +167,7 @@ export class PistolWeapon {
     input: InputSystem,
     player: PlayerSystem,
     enemies: EnemySystem,
+    world: WorldSystem,
   ): void {
     this.cooldown = Math.max(0, this.cooldown - deltaTime);
     this.hitConfirmTimer = Math.max(0, this.hitConfirmTimer - deltaTime);
@@ -179,7 +181,7 @@ export class PistolWeapon {
 
     if (!player.state.reloading && input.isFireHeld() && this.cooldown <= 0) {
       if (player.state.ammoInMagazine > 0) {
-        this.fire(player, enemies);
+        this.fire(player, enemies, world);
       } else {
         this.dryFireTimer = 0.16;
         this.cooldown = 0.12;
@@ -209,7 +211,7 @@ export class PistolWeapon {
         : 0,
       reserveAmmoText: Number.isFinite(player.state.ammoReserve)
         ? `${player.state.ammoReserve}`
-        : '∞',
+        : '\u221e',
       hitConfirm: this.hitConfirmTimer,
       crosshairKick: this.fireKick,
       canReload:
@@ -375,7 +377,11 @@ export class PistolWeapon {
     this.magazineTarget = this.captureAnimatedTarget(this.fallbackMagazineAnchor);
   }
 
-  private fire(player: PlayerSystem, enemies: EnemySystem): void {
+  private fire(
+    player: PlayerSystem,
+    enemies: EnemySystem,
+    world: WorldSystem,
+  ): void {
     this.cooldown = 1 / this.config.weapon.fireRate;
     this.muzzleFlashTimer = this.config.weapon.viewmodel.muzzleFlashDuration;
     this.muzzleFlash.visible = true;
@@ -391,12 +397,26 @@ export class PistolWeapon {
     this.randomizeMuzzleFlash();
 
     const hitZombie = enemies.raycast(this.camera, this.crosshair, this.config.weapon.range);
-    if (hitZombie) {
+    const hitBarrel = world.raycast(this.camera, this.crosshair, this.config.weapon.range);
+    const hitEnemyFirst =
+      hitZombie &&
+      (!hitBarrel || hitZombie.distance <= hitBarrel.distance);
+
+    if (hitEnemyFirst && hitZombie) {
       const scoreValue = enemies.damage(
         hitZombie.zombie,
         this.config.weapon.damagePerShot,
         hitZombie.point,
       );
+      this.hitConfirmTimer = 0.1;
+      if (scoreValue > 0) {
+        player.state.score += scoreValue;
+      }
+      return;
+    }
+
+    if (hitBarrel) {
+      const scoreValue = world.triggerBarrelExplosion(hitBarrel.obstacle, enemies);
       this.hitConfirmTimer = 0.1;
       if (scoreValue > 0) {
         player.state.score += scoreValue;

@@ -174,6 +174,20 @@ export interface GameConfig {
     obstacleDamage: number;
     obstacleHitboxDepth: number;
     roadSurfaceY: number;
+    barrel: {
+      assetPath: string;
+      normalMapPath: string;
+      scale: number;
+      tintColor: number;
+      spawnChance: number;
+      spawnSpacingMin: number;
+      spawnSpacingMax: number;
+      collisionDamage: number;
+      explosionRadius: number;
+      tankDamage: number;
+      flashDuration: number;
+      flashSize: number;
+    };
   };
 }
 
@@ -251,5 +265,5 @@ export interface ActiveObstacle {
   damage: number;
   hasHitPlayer: boolean;
   poolId: number;
-  type: 'barrier' | 'wreck';
+  type: 'barrier' | 'wreck' | 'barrel';
 }

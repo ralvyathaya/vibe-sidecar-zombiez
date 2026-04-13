@@ -1,20 +1,43 @@
 import {
   BoxGeometry,
+  Camera,
+  CylinderGeometry,
   Group,
+  IcosahedronGeometry,
   Mesh,
+  MeshBasicMaterial,
   MeshStandardMaterial,
+  PointLight,
+  Raycaster,
   Scene,
+  SphereGeometry,
+  Texture,
+  TextureLoader,
+  Vector2,
+  Vector3,
 } from 'three';
 import type { ActiveObstacle, GameConfig } from '../../core/types';
 import { randomInt, randomRange } from '../../core/utils';
+import type { EnemySystem } from './EnemySystem';
 
 type ObstacleRecord = ActiveObstacle & {
   barrierVariant: Group;
   wreckVariant: Group;
+  barrelVariant: Group;
 };
 
 type HighwayChunk = {
   group: Group;
+};
+
+type ExplosionEffect = {
+  group: Group;
+  core: Mesh;
+  shell: Mesh;
+  light: PointLight;
+  active: boolean;
+  life: number;
+  maxLife: number;
 };
 
 const ROAD_GEOMETRY = new BoxGeometry(22, 0.4, 40);
@@ -23,12 +46,23 @@ const TERRAIN_GEOMETRY = new BoxGeometry(12.5, 0.18, 40);
 const DASH_GEOMETRY = new BoxGeometry(0.24, 0.03, 2.4);
 const GUARD_GEOMETRY = new BoxGeometry(0.18, 0.4, 6.2);
 const DEBRIS_GEOMETRY = new BoxGeometry(0.6, 0.35, 0.8);
+const BARREL_BODY_GEOMETRY = new CylinderGeometry(0.58, 0.62, 1.55, 10, 3);
+const BARREL_BAND_GEOMETRY = new CylinderGeometry(0.66, 0.66, 0.08, 10, 1, true);
+const EXPLOSION_CORE_GEOMETRY = new IcosahedronGeometry(1, 0);
+const EXPLOSION_SHELL_GEOMETRY = new SphereGeometry(1, 10, 10);
 
 export class WorldSystem {
   private readonly worldRoot = new Group();
   private readonly chunks: HighwayChunk[] = [];
   private readonly obstacles: ObstacleRecord[] = [];
+  private readonly explosions: ExplosionEffect[] = [];
+  private readonly raycaster = new Raycaster();
+  private readonly explosionCenter = new Vector3();
+
   private nextObstacleZ = -34;
+  private nextBarrelEligibleZ = -72;
+  private barrelTemplate: Group | null = null;
+  private barrelLoadPromise: Promise<void> | null = null;
 
   constructor(
     private readonly scene: Scene,
@@ -37,13 +71,20 @@ export class WorldSystem {
     this.scene.add(this.worldRoot);
     this.createChunks();
     this.createObstacles();
+    this.createExplosionPool();
     this.reset();
+    void this.loadBarrelAssets();
   }
 
   reset(): void {
     this.positionChunks();
-
     this.nextObstacleZ = -34;
+    this.nextBarrelEligibleZ = -72;
+
+    for (const explosion of this.explosions) {
+      this.deactivateExplosion(explosion);
+    }
+
     for (const obstacle of this.obstacles) {
       this.recycleObstacle(obstacle);
     }
@@ -58,6 +99,8 @@ export class WorldSystem {
         chunk.group.position.z -= this.config.world.chunkLength * this.config.world.chunkCount;
       }
     }
+
+    this.updateExplosions(deltaTime, scrollDistance);
 
     let collisionDamage = 0;
     for (const obstacle of this.obstacles) {
@@ -78,10 +121,69 @@ export class WorldSystem {
       if (!obstacle.hasHitPlayer && closeEnoughInZ && closeEnoughInX) {
         obstacle.hasHitPlayer = true;
         collisionDamage += obstacle.damage;
+        if (obstacle.type === 'barrel') {
+          this.recycleObstacle(obstacle);
+        }
       }
     }
 
     return collisionDamage;
+  }
+
+  raycast(
+    camera: Camera,
+    crosshair: Vector2,
+    range: number,
+  ): { obstacle: ObstacleRecord; point: Vector3; distance: number } | null {
+    const activeBarrels = this.obstacles
+      .filter((entry) => entry.active && entry.type === 'barrel')
+      .map((entry) => entry.barrelVariant);
+
+    if (activeBarrels.length === 0) {
+      return null;
+    }
+
+    this.raycaster.setFromCamera(crosshair, camera);
+    this.raycaster.near = 0;
+    this.raycaster.far = range;
+
+    const hits = this.raycaster.intersectObjects(activeBarrels, true);
+    for (const hit of hits) {
+      const obstacleId = hit.object.userData.obstacleId as number | undefined;
+      if (obstacleId === undefined) {
+        continue;
+      }
+
+      const obstacle = this.obstacles[obstacleId];
+      if (!obstacle || !obstacle.active || obstacle.type !== 'barrel') {
+        continue;
+      }
+
+      return {
+        obstacle,
+        point: hit.point.clone(),
+        distance: hit.distance,
+      };
+    }
+
+    return null;
+  }
+
+  triggerBarrelExplosion(obstacle: ObstacleRecord, enemies: EnemySystem): number {
+    if (!obstacle.active || obstacle.type !== 'barrel') {
+      return 0;
+    }
+
+    this.explosionCenter.copy(obstacle.mesh.position);
+    this.explosionCenter.y = 0.72;
+    this.spawnExplosion(this.explosionCenter);
+    const scoreGain = enemies.applyExplosionDamage(
+      this.explosionCenter,
+      this.config.world.barrel.explosionRadius,
+      this.config.world.barrel.tankDamage,
+    );
+    this.recycleObstacle(obstacle);
+    return scoreGain;
   }
 
   private createChunks(): void {
@@ -196,8 +298,10 @@ export class WorldSystem {
       const mesh = new Group();
       const barrierVariant = this.createBarrierVariant();
       const wreckVariant = this.createWreckVariant();
+      const barrelVariant = this.createBarrelVariant();
+      this.assignObstacleId(barrelVariant, index);
 
-      mesh.add(barrierVariant, wreckVariant);
+      mesh.add(barrierVariant, wreckVariant, barrelVariant);
       this.worldRoot.add(mesh);
 
       this.obstacles.push({
@@ -213,6 +317,40 @@ export class WorldSystem {
         type: 'barrier',
         barrierVariant,
         wreckVariant,
+        barrelVariant,
+      });
+    }
+  }
+
+  private createExplosionPool(): void {
+    for (let index = 0; index < 6; index += 1) {
+      const coreMaterial = new MeshBasicMaterial({
+        color: 0xffb04a,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+      });
+      const shellMaterial = new MeshBasicMaterial({
+        color: 0xff6a2d,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+      });
+      const core = new Mesh(EXPLOSION_CORE_GEOMETRY, coreMaterial);
+      const shell = new Mesh(EXPLOSION_SHELL_GEOMETRY, shellMaterial);
+      const light = new PointLight(0xff9240, 0, 12, 2);
+      const group = new Group();
+      group.visible = false;
+      group.add(core, shell, light);
+      this.scene.add(group);
+      this.explosions.push({
+        group,
+        core,
+        shell,
+        light,
+        active: false,
+        life: 0,
+        maxLife: 0,
       });
     }
   }
@@ -227,21 +365,43 @@ export class WorldSystem {
   private recycleObstacle(obstacle: ObstacleRecord): void {
     const laneIndex = randomInt(0, this.config.world.laneCenters.length - 1);
     const laneCenter = this.config.world.laneCenters[laneIndex] ?? 0;
+    const spawnZ = this.nextObstacleZ;
+    const canSpawnBarrel = spawnZ <= this.nextBarrelEligibleZ;
+    const spawnBarrel =
+      canSpawnBarrel && Math.random() < this.config.world.barrel.spawnChance;
 
+    obstacle.active = true;
     obstacle.mesh.position.set(
       laneCenter + randomRange(-0.45, 0.45),
       0,
-      this.nextObstacleZ,
+      spawnZ,
     );
     obstacle.mesh.rotation.y = randomRange(-0.28, 0.28);
     obstacle.hasHitPlayer = false;
     obstacle.lane = laneIndex;
-    obstacle.damage = this.config.world.obstacleDamage + randomInt(0, 3);
-    obstacle.type = Math.random() < 0.55 ? 'barrier' : 'wreck';
-    obstacle.barrierVariant.visible = obstacle.type === 'barrier';
-    obstacle.wreckVariant.visible = obstacle.type === 'wreck';
-    obstacle.width = obstacle.type === 'barrier' ? 2.4 : 2.9;
-    obstacle.depth = obstacle.type === 'barrier' ? 2.2 : 3.2;
+
+    if (spawnBarrel) {
+      obstacle.type = 'barrel';
+      obstacle.damage = this.config.world.barrel.collisionDamage;
+      obstacle.width = 1.45;
+      obstacle.depth = 1.45;
+      obstacle.barrierVariant.visible = false;
+      obstacle.wreckVariant.visible = false;
+      obstacle.barrelVariant.visible = true;
+      this.nextBarrelEligibleZ =
+        spawnZ - randomRange(
+          this.config.world.barrel.spawnSpacingMin,
+          this.config.world.barrel.spawnSpacingMax,
+        );
+    } else {
+      obstacle.damage = this.config.world.obstacleDamage + randomInt(0, 3);
+      obstacle.type = Math.random() < 0.55 ? 'barrier' : 'wreck';
+      obstacle.barrierVariant.visible = obstacle.type === 'barrier';
+      obstacle.wreckVariant.visible = obstacle.type === 'wreck';
+      obstacle.barrelVariant.visible = false;
+      obstacle.width = obstacle.type === 'barrier' ? 2.4 : 2.9;
+      obstacle.depth = obstacle.type === 'barrier' ? 2.2 : 3.2;
+    }
 
     this.nextObstacleZ -= randomRange(
       this.config.world.obstacleSpacingMin,
@@ -316,5 +476,158 @@ export class WorldSystem {
     group.add(hood);
 
     return group;
+  }
+
+  private createBarrelVariant(): Group {
+    const group = new Group();
+    group.position.y = 0.56;
+    group.add(this.createFallbackBarrelMesh());
+    return group;
+  }
+
+  private createFallbackBarrelMesh(): Group {
+    const group = new Group();
+    const body = new Mesh(
+      BARREL_BODY_GEOMETRY,
+      new MeshStandardMaterial({
+        color: this.config.world.barrel.tintColor,
+        roughness: 0.94,
+        metalness: 0.02,
+      }),
+    );
+    body.position.y = 0.18;
+    group.add(body);
+
+    for (const y of [-0.36, 0.18, 0.72]) {
+      const band = new Mesh(
+        BARREL_BAND_GEOMETRY,
+        new MeshStandardMaterial({
+          color: 0x756b64,
+          roughness: 0.72,
+          metalness: 0.3,
+        }),
+      );
+      band.position.y = y + 0.18;
+      group.add(band);
+    }
+
+    return group;
+  }
+
+  private async loadBarrelAssets(): Promise<void> {
+    if (this.barrelLoadPromise) {
+      return this.barrelLoadPromise;
+    }
+
+    this.barrelLoadPromise = (async () => {
+      const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
+      const loader = new GLTFLoader();
+      const textureLoader = new TextureLoader();
+      const [gltf, normalMap] = await Promise.all([
+        loader.loadAsync(this.config.world.barrel.assetPath),
+        textureLoader.loadAsync(this.config.world.barrel.normalMapPath),
+      ]);
+
+      normalMap.flipY = false;
+      this.prepareBarrelTemplate(gltf.scene, normalMap);
+      this.barrelTemplate = gltf.scene;
+
+      for (const obstacle of this.obstacles) {
+        this.applyBarrelVisual(obstacle);
+      }
+    })().catch((error) => {
+      console.warn('Failed to load optimized barrel obstacle, using fallback mesh.', error);
+    });
+
+    return this.barrelLoadPromise;
+  }
+
+  private prepareBarrelTemplate(root: Group, normalMap: Texture): void {
+    root.traverse((object) => {
+      const maybeMesh = object as Mesh;
+      if (!maybeMesh.isMesh) {
+        return;
+      }
+
+      maybeMesh.frustumCulled = false;
+      maybeMesh.material = new MeshStandardMaterial({
+        color: this.config.world.barrel.tintColor,
+        roughness: 0.93,
+        metalness: 0.04,
+        normalMap,
+      });
+    });
+  }
+
+  private applyBarrelVisual(obstacle: ObstacleRecord): void {
+    obstacle.barrelVariant.clear();
+    obstacle.barrelVariant.position.y = 0.56;
+
+    const visual = this.barrelTemplate
+      ? this.barrelTemplate.clone(true)
+      : this.createFallbackBarrelMesh();
+    visual.scale.setScalar(this.config.world.barrel.scale);
+    obstacle.barrelVariant.add(visual);
+    this.assignObstacleId(obstacle.barrelVariant, obstacle.id);
+  }
+
+  private assignObstacleId(root: Group, obstacleId: number): void {
+    root.traverse((object) => {
+      object.userData.obstacleId = obstacleId;
+    });
+  }
+
+  private spawnExplosion(position: Vector3): void {
+    const effect = this.explosions.find((entry) => !entry.active);
+    if (!effect) {
+      return;
+    }
+
+    effect.active = true;
+    effect.life = this.config.world.barrel.flashDuration;
+    effect.maxLife = this.config.world.barrel.flashDuration;
+    effect.group.visible = true;
+    effect.group.position.copy(position);
+    effect.core.scale.setScalar(0.2);
+    effect.shell.scale.setScalar(0.2);
+    (effect.core.material as MeshBasicMaterial).opacity = 0.95;
+    (effect.shell.material as MeshBasicMaterial).opacity = 0.75;
+    effect.light.intensity = 2.8;
+  }
+
+  private updateExplosions(deltaTime: number, scrollDistance: number): void {
+    for (const effect of this.explosions) {
+      if (!effect.active) {
+        continue;
+      }
+
+      effect.life -= deltaTime;
+      effect.group.position.z += scrollDistance * deltaTime;
+
+      if (effect.life <= 0) {
+        this.deactivateExplosion(effect);
+        continue;
+      }
+
+      const progress = 1 - effect.life / effect.maxLife;
+      const alpha = 1 - progress;
+      const flashSize = this.config.world.barrel.flashSize;
+      effect.core.scale.setScalar((0.4 + progress * flashSize * 0.72) * alpha);
+      effect.shell.scale.setScalar(0.85 + progress * flashSize);
+      (effect.core.material as MeshBasicMaterial).opacity = 0.95 * alpha;
+      (effect.shell.material as MeshBasicMaterial).opacity = 0.5 * alpha;
+      effect.light.intensity = 2.8 * alpha;
+    }
+  }
+
+  private deactivateExplosion(effect: ExplosionEffect): void {
+    effect.active = false;
+    effect.life = 0;
+    effect.maxLife = 0;
+    effect.group.visible = false;
+    effect.group.position.set(0, 0, 999);
+    (effect.core.material as MeshBasicMaterial).opacity = 0;
+    (effect.shell.material as MeshBasicMaterial).opacity = 0;
+    effect.light.intensity = 0;
   }
 }

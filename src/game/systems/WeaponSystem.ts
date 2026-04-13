@@ -4,6 +4,7 @@ import { PistolWeapon } from '../weapons/PistolWeapon';
 import type { EnemySystem } from './EnemySystem';
 import type { InputSystem } from './InputSystem';
 import type { PlayerSystem } from './PlayerSystem';
+import type { WorldSystem } from './WorldSystem';
 
 type ActiveWeapon = {
   reset(player: PlayerSystem): void;
@@ -12,6 +13,7 @@ type ActiveWeapon = {
     input: InputSystem,
     player: PlayerSystem,
     enemies: EnemySystem,
+    world: WorldSystem,
   ): void;
   updateIdle(deltaTime: number): void;
   getStatus(player: PlayerSystem): WeaponStatus;
@@ -34,8 +36,9 @@ export class WeaponSystem {
     input: InputSystem,
     player: PlayerSystem,
     enemies: EnemySystem,
+    world: WorldSystem,
   ): void {
-    this.activeWeapon.updateRunning(deltaTime, input, player, enemies);
+    this.activeWeapon.updateRunning(deltaTime, input, player, enemies, world);
   }
 
   updateIdle(deltaTime: number): void {

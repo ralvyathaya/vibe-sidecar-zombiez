@@ -265,7 +265,7 @@ export class EnemySystem {
     camera: Camera,
     crosshair: Vector2,
     range: number,
-  ): { zombie: ActiveZombie; point: Vector3 } | null {
+  ): { zombie: ActiveZombie; point: Vector3; distance: number } | null {
     this.raycaster.setFromCamera(crosshair, camera);
     this.raycaster.near = 0;
     this.raycaster.far = range;
@@ -290,6 +290,7 @@ export class EnemySystem {
         return {
           zombie,
           point: hit.point.clone(),
+          distance: hit.distance,
         };
       }
     }
@@ -325,6 +326,37 @@ export class EnemySystem {
 
   getActiveCount(): number {
     return this.pool.reduce((count, zombie) => count + (zombie.active ? 1 : 0), 0);
+  }
+
+  applyExplosionDamage(center: Vector3, radius: number, tankDamage: number): number {
+    let scoreGain = 0;
+    const impactPoint = new Vector3();
+
+    for (const zombie of this.pool) {
+      if (!zombie.active || zombie.state !== 'alive') {
+        continue;
+      }
+
+      const distanceToBlast = zombie.group.position
+        .clone()
+        .setY(0)
+        .distanceTo(center.clone().setY(0));
+      if (distanceToBlast > radius) {
+        continue;
+      }
+
+      impactPoint.copy(zombie.group.position);
+      impactPoint.y += 1.1;
+
+      if (zombie.type === 'tank') {
+        scoreGain += this.damage(zombie, tankDamage, impactPoint);
+        continue;
+      }
+
+      scoreGain += this.damage(zombie, zombie.health, impactPoint);
+    }
+
+    return scoreGain;
   }
 
   getRadarContacts(
