@@ -19,6 +19,7 @@ type HighwayChunk = {
 
 const ROAD_GEOMETRY = new BoxGeometry(22, 0.4, 40);
 const SHOULDER_GEOMETRY = new BoxGeometry(3.2, 0.25, 40);
+const TERRAIN_GEOMETRY = new BoxGeometry(12.5, 0.18, 40);
 const DASH_GEOMETRY = new BoxGeometry(0.24, 0.03, 2.4);
 const GUARD_GEOMETRY = new BoxGeometry(0.18, 0.4, 6.2);
 const DEBRIS_GEOMETRY = new BoxGeometry(0.6, 0.35, 0.8);
@@ -90,9 +91,9 @@ export class WorldSystem {
       const road = new Mesh(
         ROAD_GEOMETRY,
         new MeshStandardMaterial({
-          color: 0x2f2d32,
+          color: 0x2d3035,
           flatShading: true,
-          roughness: 1,
+          roughness: 0.98,
         }),
       );
       road.position.y = -0.42;
@@ -101,9 +102,9 @@ export class WorldSystem {
       const leftShoulder = new Mesh(
         SHOULDER_GEOMETRY,
         new MeshStandardMaterial({
-          color: 0x76614f,
+          color: 0x6b655f,
           flatShading: true,
-          roughness: 1,
+          roughness: 0.99,
         }),
       );
       leftShoulder.position.set(-12.5, -0.52, 0);
@@ -113,14 +114,29 @@ export class WorldSystem {
       rightShoulder.position.x = 12.5;
       chunkGroup.add(rightShoulder);
 
+      const leftTerrain = new Mesh(
+        TERRAIN_GEOMETRY,
+        new MeshStandardMaterial({
+          color: 0x8b907c,
+          flatShading: true,
+          roughness: 1,
+        }),
+      );
+      leftTerrain.position.set(-20.4, -0.58, 0);
+      chunkGroup.add(leftTerrain);
+
+      const rightTerrain = leftTerrain.clone();
+      rightTerrain.position.x = 20.4;
+      chunkGroup.add(rightTerrain);
+
       for (const x of [-3.66, 3.66]) {
         for (let dashIndex = 0; dashIndex < 10; dashIndex += 1) {
           const dash = new Mesh(
             DASH_GEOMETRY,
             new MeshStandardMaterial({
-              color: 0xf0e6c8,
+              color: 0xf2f0d7,
               flatShading: true,
-              roughness: 0.9,
+              roughness: 0.82,
             }),
           );
           dash.position.set(x, -0.18, -18 + dashIndex * 4.1);
@@ -137,9 +153,9 @@ export class WorldSystem {
           const rail = new Mesh(
             GUARD_GEOMETRY,
             new MeshStandardMaterial({
-              color: 0x8d7662,
+              color: 0x9da4aa,
               flatShading: true,
-              roughness: 0.85,
+              roughness: 0.86,
             }),
           );
           rail.position.set(side * 10.9, -0.02, -15 + railIndex * 8);
@@ -151,7 +167,7 @@ export class WorldSystem {
         const debris = new Mesh(
           DEBRIS_GEOMETRY,
           new MeshStandardMaterial({
-            color: debrisIndex % 2 === 0 ? 0x5b493d : 0x7e5a48,
+            color: debrisIndex % 2 === 0 ? 0x6f655e : 0x8a8078,
             flatShading: true,
             roughness: 1,
           }),
@@ -239,9 +255,9 @@ export class WorldSystem {
     const base = new Mesh(
       new BoxGeometry(2.2, 1.05, 1.1),
       new MeshStandardMaterial({
-        color: 0xba9166,
+        color: 0xe1ddd3,
         flatShading: true,
-        roughness: 0.92,
+        roughness: 0.95,
       }),
     );
     base.position.y = 0.42;
@@ -250,9 +266,9 @@ export class WorldSystem {
     const stripe = new Mesh(
       new BoxGeometry(2.28, 0.16, 1.16),
       new MeshStandardMaterial({
-        color: 0x3c2415,
+        color: 0xd06d2f,
         flatShading: true,
-        roughness: 0.9,
+        roughness: 0.88,
       }),
     );
     stripe.position.y = 0.62;
@@ -267,9 +283,9 @@ export class WorldSystem {
     const body = new Mesh(
       new BoxGeometry(2.5, 0.9, 1.55),
       new MeshStandardMaterial({
-        color: 0x5b2121,
+        color: 0x6e3f39,
         flatShading: true,
-        roughness: 0.88,
+        roughness: 0.86,
       }),
     );
     body.position.y = 0.5;
@@ -278,7 +294,7 @@ export class WorldSystem {
     const roof = new Mesh(
       new BoxGeometry(1.5, 0.44, 1.2),
       new MeshStandardMaterial({
-        color: 0x8b3a2a,
+        color: 0x946259,
         flatShading: true,
         roughness: 0.8,
       }),
@@ -290,9 +306,9 @@ export class WorldSystem {
     const hood = new Mesh(
       new BoxGeometry(1.1, 0.24, 0.92),
       new MeshStandardMaterial({
-        color: 0x332222,
+        color: 0x3f3a39,
         flatShading: true,
-        roughness: 0.96,
+        roughness: 0.94,
       }),
     );
     hood.position.set(0.66, 0.82, 0);

@@ -34,6 +34,7 @@ npm run build
 ## Asset Workflow
 
 - Runtime pistol asset uses `public/models/weapons/pistol-web.glb`, a browser-friendly optimized build.
+- Runtime zombie textures use `public/models/enemies/*/texture-web.glb`. These files are material sources only; the game still uses the rigged `character.glb` files for animation.
 - Recommended workflow for new weapon assets:
 
 ```bash

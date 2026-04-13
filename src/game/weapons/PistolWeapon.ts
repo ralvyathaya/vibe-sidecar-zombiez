@@ -3,11 +3,13 @@ import {
   Box3,
   BoxGeometry,
   Camera,
+  Color,
   Group,
   MathUtils,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
+  Vector2 as ThreeVector2,
   Object3D,
   OctahedronGeometry,
   PointLight,
@@ -62,6 +64,8 @@ export class PistolWeapon {
     this.muzzleFlashStreakMaterial,
   );
   private readonly muzzleLight = new PointLight(0xffb060, 0, 5, 2);
+  private readonly viewmodelKeyLight = new PointLight(0xffd3a3, 0.18, 1.8, 2);
+  private readonly viewmodelFillLight = new PointLight(0xe8dfd3, 0.015, 1.45, 2);
   private readonly gunshotSound: SoundEffectPool;
   private readonly emptySound: SoundEffectPool;
   private readonly reloadSound: SoundEffectPool;
@@ -118,8 +122,12 @@ export class PistolWeapon {
     this.muzzleFlashStreak.position.x = -0.55;
     this.muzzleFlash.add(this.muzzleFlashCore, this.muzzleFlashStreak, this.muzzleLight);
     this.muzzleFlash.visible = false;
+    this.viewmodelKeyLight.position.set(0.18, 0.08, 0.24);
+    this.viewmodelFillLight.position.set(-0.1, 0.03, 0.12);
     this.muzzleAnchor.add(this.muzzleFlash);
     this.contentRoot.add(
+      this.viewmodelKeyLight,
+      this.viewmodelFillLight,
       this.muzzleAnchor,
       this.fallbackSlideAnchor,
       this.fallbackMagazineAnchor,
@@ -203,6 +211,7 @@ export class PistolWeapon {
         ? `${player.state.ammoReserve}`
         : 'INF',
       hitConfirm: this.hitConfirmTimer,
+      crosshairKick: this.fireKick,
       canReload:
         !player.state.reloading &&
         player.state.ammoInMagazine < this.config.weapon.magazineSize,
@@ -297,8 +306,31 @@ export class PistolWeapon {
         : [maybeMesh.material];
 
       for (const material of materials) {
-        if ('depthWrite' in material) {
-          material.depthWrite = true;
+        const litMaterial = material as Partial<MeshStandardMaterial> & {
+          color?: Color;
+          emissiveIntensity?: number;
+          depthWrite?: boolean;
+          normalScale?: ThreeVector2;
+        };
+
+        if ('depthWrite' in litMaterial) {
+          litMaterial.depthWrite = true;
+        }
+
+        if (litMaterial.color instanceof Color) {
+          litMaterial.color.multiply(new Color(0.78, 0.75, 0.7));
+        }
+
+        if (typeof litMaterial.roughness === 'number') {
+          litMaterial.roughness = Math.max(litMaterial.roughness, 1);
+        }
+
+        if (typeof litMaterial.metalness === 'number') {
+          litMaterial.metalness = Math.min(litMaterial.metalness, 0.015);
+        }
+
+        if (litMaterial.normalScale instanceof ThreeVector2) {
+          litMaterial.normalScale.setScalar(0.32);
         }
       }
     });

@@ -39,6 +39,7 @@ export interface ZombieConfig {
 
 export interface HumanoidEnemyModelConfig {
   characterPath: string;
+  textureMaterialPath?: string;
   moveAnimationPath: string;
   deathAnimationPath: string;
   spawnPoseAnimationPath?: string;
@@ -89,6 +90,7 @@ export interface GameConfig {
     fogColor: number;
     fogNear: number;
     fogFar: number;
+    exposure: number;
   };
   player: {
     maxHealth: number;
@@ -195,6 +197,7 @@ export interface WeaponStatus {
   reloadProgress: number;
   reserveAmmoText: string;
   hitConfirm: number;
+  crosshairKick: number;
   canReload: boolean;
 }
 

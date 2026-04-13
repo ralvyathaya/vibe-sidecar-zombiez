@@ -7,6 +7,7 @@ import {
   Group,
   LoopOnce,
   LoopRepeat,
+  Material,
   MathUtils,
   Mesh,
   MeshBasicMaterial,
@@ -38,6 +39,7 @@ const HIT_FLASH_COLOR = 0x5a1405;
 
 type HumanoidAssets = {
   template: Group;
+  textureMaterials: Array<Material | Material[]>;
   moveClip: AnimationClip;
   deathClip: AnimationClip;
   spawnPoseClip: AnimationClip | null;
@@ -1353,8 +1355,11 @@ export class EnemySystem {
       ]);
       const loader = new GLTFLoader();
       const modelConfig = this.getHumanoidConfig(type);
-      const [characterGltf, moveGltf, deathGltf, spawnPoseGltf] = await Promise.all([
+      const [characterGltf, textureGltf, moveGltf, deathGltf, spawnPoseGltf] = await Promise.all([
         loader.loadAsync(modelConfig.characterPath),
+        modelConfig.textureMaterialPath
+          ? loader.loadAsync(modelConfig.textureMaterialPath)
+          : Promise.resolve(null),
         loader.loadAsync(modelConfig.moveAnimationPath),
         loader.loadAsync(modelConfig.deathAnimationPath),
         modelConfig.spawnPoseAnimationPath
@@ -1370,6 +1375,7 @@ export class EnemySystem {
 
       this.humanoidAssets[type] = {
         template: characterGltf.scene,
+        textureMaterials: this.collectTemplateMaterials(textureGltf?.scene ?? null),
         moveClip,
         deathClip,
         spawnPoseClip: spawnPoseGltf?.animations[0] ?? null,
@@ -1446,7 +1452,12 @@ export class EnemySystem {
     root.scale.setScalar(modelConfig.scale);
     root.visible = false;
 
-    this.prepareHumanoidClone(clone, zombie.poolId, flashMaterials);
+    this.prepareHumanoidClone(
+      clone,
+      zombie.poolId,
+      flashMaterials,
+      assets.textureMaterials,
+    );
     root.add(clone);
     zombie.group.add(root);
     const mixer = new AnimationMixer(clone);
@@ -1471,7 +1482,10 @@ export class EnemySystem {
     root: Object3D,
     poolId: number,
     flashMaterials: FlashMaterial[],
+    textureMaterials: Array<Material | Material[]>,
   ): void {
+    let meshIndex = 0;
+
     root.traverse((object) => {
       object.userData.poolId = poolId;
 
@@ -1481,17 +1495,49 @@ export class EnemySystem {
 
       object.frustumCulled = false;
 
+      const templateMaterial =
+        textureMaterials[meshIndex] ?? null;
+      meshIndex += 1;
+
+      object.material = templateMaterial
+        ? this.cloneMaterialAssignment(templateMaterial)
+        : this.cloneMaterialAssignment(object.material);
+
       if (Array.isArray(object.material)) {
-        object.material = object.material.map((material) => material.clone());
         for (const material of object.material) {
           this.registerFlashMaterial(material, flashMaterials);
         }
+      } else {
+        this.registerFlashMaterial(object.material, flashMaterials);
+      }
+    });
+  }
+
+  private collectTemplateMaterials(root: Object3D | null): Array<Material | Material[]> {
+    if (!root) {
+      return [];
+    }
+
+    const materials: Array<Material | Material[]> = [];
+    root.traverse((object) => {
+      if (!(object instanceof Mesh)) {
         return;
       }
 
-      object.material = object.material.clone();
-      this.registerFlashMaterial(object.material, flashMaterials);
+      materials.push(object.material);
     });
+
+    return materials;
+  }
+
+  private cloneMaterialAssignment(
+    source: Material | Material[],
+  ): Material | Material[] {
+    if (Array.isArray(source)) {
+      return source.map((material) => material.clone());
+    }
+
+    return source.clone();
   }
 
   private registerFlashMaterial(

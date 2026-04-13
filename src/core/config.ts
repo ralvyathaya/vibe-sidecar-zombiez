@@ -2,10 +2,11 @@ import type { GameConfig } from './types';
 
 export const GAME_CONFIG: GameConfig = {
   renderer: {
-    clearColor: 0xf0b46a,
-    fogColor: 0xd89054,
-    fogNear: 28,
-    fogFar: 170,
+    clearColor: 0x76b8ec,
+    fogColor: 0xc8dff2,
+    fogNear: 50,
+    fogFar: 225,
+    exposure: 0.98,
   },
   player: {
     maxHealth: 100,
@@ -39,8 +40,8 @@ export const GAME_CONFIG: GameConfig = {
     },
     viewmodel: {
       assetPath: '/models/weapons/pistol-web.glb',
-      position: [0.36, -0.32, -0.62],
-      rotationDegrees: [0, -90, -3],
+      position: [0.34, -0.45, -0.64],
+      rotationDegrees: [1.5, -95, -1.2],
       scale: 0.34,
       recoilBack: 0.065,
       recoilLift: 0.014,
@@ -67,6 +68,7 @@ export const GAME_CONFIG: GameConfig = {
     contactRadius: 1.35,
     walkerModel: {
       characterPath: '/models/enemies/walker/character.glb',
+      textureMaterialPath: '/models/enemies/walker/texture-web.glb',
       moveAnimationPath: '/models/enemies/walker/walk.glb',
       deathAnimationPath: '/models/enemies/walker/death.glb',
       position: [0, 0, 0],
@@ -78,7 +80,7 @@ export const GAME_CONFIG: GameConfig = {
       fadeDuration: 0.55,
       fadeSink: 0.18,
       hitBloodCount: 12,
-      hitBloodSize: 1.0,
+      hitBloodSize: 1.5,
       hitBloodSpeed: 4.6,
       hitBloodLifetime: 0.42,
       bodySplatterCount: 10,
@@ -97,6 +99,7 @@ export const GAME_CONFIG: GameConfig = {
     },
     runnerModel: {
       characterPath: '/models/enemies/runner/character.glb',
+      textureMaterialPath: '/models/enemies/runner/texture-web.glb',
       moveAnimationPath: '/models/enemies/runner/move.glb',
       deathAnimationPath: '/models/enemies/runner/death.glb',
       position: [0, 0, 0],
@@ -108,7 +111,7 @@ export const GAME_CONFIG: GameConfig = {
       fadeDuration: 0.5,
       fadeSink: 0.16,
       hitBloodCount: 12,
-      hitBloodSize: 0.15,
+      hitBloodSize: 0.3,
       hitBloodSpeed: 5.2,
       hitBloodLifetime: 0.42,
       bodySplatterCount: 10,
@@ -127,6 +130,7 @@ export const GAME_CONFIG: GameConfig = {
     },
     tankModel: {
       characterPath: '/models/enemies/tank/character.glb',
+      textureMaterialPath: '/models/enemies/tank/texture-web.glb',
       moveAnimationPath: '/models/enemies/tank/move.glb',
       deathAnimationPath: '/models/enemies/tank/death.glb',
       spawnPoseAnimationPath: '/models/enemies/tank/pose.glb',

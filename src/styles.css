@@ -142,33 +142,34 @@ body {
 
 .crosshair {
   position: absolute;
+  --crosshair-spread: 0px;
   left: 50%;
   top: 50%;
-  width: 20px;
-  height: 20px;
+  width: 28px;
+  height: 28px;
   transform: translate(-50%, -50%);
-  border: 2px solid rgba(255, 239, 213, 0.86);
-  border-radius: 50%;
-  box-shadow: 0 0 18px rgba(255, 255, 255, 0.18);
+  color: rgba(255, 239, 213, 0.86);
+  filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.18));
 }
 
 .crosshair::before,
 .crosshair::after {
   content: "";
   position: absolute;
-  background: rgba(255, 239, 213, 0.82);
+  background: currentColor;
+  border-radius: 999px;
 }
 
 .crosshair::before {
   width: 2px;
-  height: 26px;
+  height: calc(18px + var(--crosshair-spread));
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
 }
 
 .crosshair::after {
-  width: 26px;
+  width: calc(18px + var(--crosshair-spread));
   height: 2px;
   left: 50%;
   top: 50%;
@@ -176,8 +177,8 @@ body {
 }
 
 .crosshair[data-hit="true"] {
-  border-color: var(--accent-strong);
-  box-shadow: 0 0 22px rgba(255, 124, 67, 0.45);
+  color: var(--accent-strong);
+  filter: drop-shadow(0 0 12px rgba(255, 124, 67, 0.45));
 }
 
 .overlay {

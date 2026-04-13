@@ -137,6 +137,13 @@ export class UISystem {
     this.timerValue.textContent = `Time ${snapshot.elapsedSeconds.toFixed(1)}s`;
 
     this.crosshair.dataset.hit = snapshot.weapon.hitConfirm > 0 ? 'true' : 'false';
+    this.crosshair.style.setProperty(
+      '--crosshair-spread',
+      `${(snapshot.weapon.crosshairKick * 6).toFixed(2)}px`,
+    );
+    this.crosshair.style.transform = `translate(-50%, -50%) scale(${(
+      1 + snapshot.weapon.crosshairKick * 0.035
+    ).toFixed(3)})`;
     this.vignette.style.opacity = `${(snapshot.player.hitFlash * 0.55).toFixed(2)}`;
     this.root.dataset.state = snapshot.gameState;
   }
