@@ -125,6 +125,15 @@ export interface GameConfig {
     damagePerShot: number;
     cameraKick: number;
     recoilRecovery: number;
+    tracer: {
+      duration: number;
+      width: number;
+      glowWidth: number;
+      color: number;
+      glowColor: number;
+      opacity: number;
+      missLength: number;
+    };
     audio: {
       gunshotPath: string;
       emptyPath: string;

@@ -30,6 +30,15 @@ export const GAME_CONFIG: GameConfig = {
     damagePerShot: 1,
     cameraKick: 0.04,
     recoilRecovery: 8.5,
+    tracer: {
+      duration: 0.06,
+      width: 0.018,
+      glowWidth: 0.045,
+      color: 0xfff0de,
+      glowColor: 0xffad63,
+      opacity: 0.88,
+      missLength: 42,
+    },
     audio: {
       gunshotPath: '/audio/weapons/9mm-gunshot.ogg',
       emptyPath: '/audio/weapons/no-ammo.ogg',

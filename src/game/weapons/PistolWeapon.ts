@@ -26,6 +26,7 @@ import type { WorldSystem } from '../systems/WorldSystem';
 
 const SLIDE_NODE_PATTERN = /(slide|bolt|upper|top)/i;
 const MAGAZINE_NODE_PATTERN = /(mag|magazine|clip)/i;
+const TRACER_AXIS = new Vector3(1, 0, 0);
 
 type AnimatedTarget = {
   node: Object3D;
@@ -33,12 +34,25 @@ type AnimatedTarget = {
   baseRotation: Vector3;
 };
 
+type TracerEffect = {
+  group: Group;
+  beam: Mesh;
+  glow: Mesh;
+  tip: Mesh;
+  active: boolean;
+  life: number;
+  maxLife: number;
+  length: number;
+};
+
 export class PistolWeapon {
   private readonly viewmodelRoot = new Group();
   private readonly contentRoot = new Group();
+  private readonly worldEffectsRoot = new Group();
   private readonly muzzleAnchor = new Group();
   private readonly fallbackSlideAnchor = new Group();
   private readonly fallbackMagazineAnchor = new Group();
+  private readonly tracers: TracerEffect[] = [];
   private readonly muzzleFlash = new Group();
   private readonly muzzleFlashCoreMaterial = new MeshBasicMaterial({
     color: 0xffcf75,
@@ -73,6 +87,9 @@ export class PistolWeapon {
   private readonly crosshair = new Vector2(0, 0);
   private readonly basePosition: Vector3;
   private readonly baseRotation = new Vector3();
+  private readonly muzzleWorld = new Vector3();
+  private readonly traceEnd = new Vector3();
+  private readonly traceDirection = new Vector3();
 
   private loadedScene: Object3D | null = null;
   private slideTarget: AnimatedTarget | null = null;
@@ -112,6 +129,7 @@ export class PistolWeapon {
 
     this.viewmodelRoot.name = 'PistolViewmodel';
     this.contentRoot.name = 'PistolContentRoot';
+    this.worldEffectsRoot.name = 'PistolWorldEffects';
     this.muzzleAnchor.name = 'PistolMuzzleAnchor';
     this.fallbackSlideAnchor.name = 'PistolSlideAnchor';
     this.fallbackMagazineAnchor.name = 'PistolMagazineAnchor';
@@ -135,7 +153,9 @@ export class PistolWeapon {
     );
     this.viewmodelRoot.add(this.contentRoot);
     this.camera.add(this.viewmodelRoot);
+    this.camera.parent?.add(this.worldEffectsRoot);
 
+    this.createTracerPool();
     this.applyViewmodelPose(false);
     void this.loadViewmodel();
   }
@@ -151,6 +171,7 @@ export class PistolWeapon {
     this.slideOffset = 0;
     this.muzzleFlash.visible = false;
     this.muzzleLight.intensity = 0;
+    this.resetTracers();
     this.gunshotSound.stopAll();
     this.emptySound.stopAll();
     this.reloadSound.stopAll();
@@ -192,12 +213,14 @@ export class PistolWeapon {
       }
     }
 
+    this.updateTracers(deltaTime);
     this.updatePresentation(deltaTime, player.state.reloading);
   }
 
   updateIdle(deltaTime: number): void {
     this.hitConfirmTimer = Math.max(0, this.hitConfirmTimer - deltaTime);
     this.dryFireTimer = Math.max(0, this.dryFireTimer - deltaTime);
+    this.updateTracers(deltaTime);
     this.updatePresentation(deltaTime, this.reloadTimer > 0);
   }
 
@@ -222,9 +245,11 @@ export class PistolWeapon {
 
   destroy(): void {
     this.camera.remove(this.viewmodelRoot);
+    this.worldEffectsRoot.removeFromParent();
     this.disposeObject(this.loadedScene);
     this.disposeObject(this.fallbackSlideAnchor);
     this.disposeObject(this.fallbackMagazineAnchor);
+    this.disposeTracerPool();
     this.muzzleFlashCore.geometry.dispose();
     this.muzzleFlashStreak.geometry.dispose();
     this.muzzleFlashCoreMaterial.dispose();
@@ -377,6 +402,152 @@ export class PistolWeapon {
     this.magazineTarget = this.captureAnimatedTarget(this.fallbackMagazineAnchor);
   }
 
+  private createTracerPool(): void {
+    for (let index = 0; index < 6; index += 1) {
+      const beamMaterial = new MeshBasicMaterial({
+        color: this.config.weapon.tracer.color,
+        transparent: true,
+        opacity: 0,
+        blending: AdditiveBlending,
+        depthWrite: false,
+      });
+      const glowMaterial = new MeshBasicMaterial({
+        color: this.config.weapon.tracer.glowColor,
+        transparent: true,
+        opacity: 0,
+        blending: AdditiveBlending,
+        depthWrite: false,
+      });
+      const tipMaterial = new MeshBasicMaterial({
+        color: this.config.weapon.tracer.color,
+        transparent: true,
+        opacity: 0,
+        blending: AdditiveBlending,
+        depthWrite: false,
+      });
+
+      const beam = new Mesh(new BoxGeometry(1, 1, 1), beamMaterial);
+      const glow = new Mesh(new BoxGeometry(1, 1, 1), glowMaterial);
+      const tip = new Mesh(new OctahedronGeometry(1, 0), tipMaterial);
+      const group = new Group();
+
+      beam.renderOrder = 13;
+      glow.renderOrder = 12;
+      tip.renderOrder = 13;
+      group.visible = false;
+      group.add(glow, beam, tip);
+      this.worldEffectsRoot.add(group);
+      this.tracers.push({
+        group,
+        beam,
+        glow,
+        tip,
+        active: false,
+        life: 0,
+        maxLife: 0,
+        length: 0,
+      });
+    }
+  }
+
+  private spawnTracer(start: Vector3, end: Vector3): void {
+    const tracer = this.tracers.find((entry) => !entry.active);
+    if (!tracer) {
+      return;
+    }
+
+    this.traceDirection.copy(end).sub(start);
+    const length = this.traceDirection.length();
+    if (length <= 0.05) {
+      return;
+    }
+
+    this.traceDirection.divideScalar(length);
+    tracer.active = true;
+    tracer.life = this.config.weapon.tracer.duration;
+    tracer.maxLife = this.config.weapon.tracer.duration;
+    tracer.length = length;
+    tracer.group.visible = true;
+    tracer.group.position.copy(start);
+    tracer.group.quaternion.setFromUnitVectors(TRACER_AXIS, this.traceDirection);
+
+    tracer.beam.position.set(length * 0.5, 0, 0);
+    tracer.glow.position.set(length * 0.5, 0, 0);
+    tracer.tip.position.set(length, 0, 0);
+    tracer.beam.scale.set(
+      length,
+      this.config.weapon.tracer.width,
+      this.config.weapon.tracer.width,
+    );
+    tracer.glow.scale.set(
+      length,
+      this.config.weapon.tracer.glowWidth,
+      this.config.weapon.tracer.glowWidth,
+    );
+    tracer.tip.scale.setScalar(this.config.weapon.tracer.glowWidth * 1.25);
+
+    (tracer.beam.material as MeshBasicMaterial).opacity = this.config.weapon.tracer.opacity;
+    (tracer.glow.material as MeshBasicMaterial).opacity =
+      this.config.weapon.tracer.opacity * 0.36;
+    (tracer.tip.material as MeshBasicMaterial).opacity =
+      this.config.weapon.tracer.opacity * 0.82;
+  }
+
+  private updateTracers(deltaTime: number): void {
+    const scrollDistance = this.config.player.forwardSpeed * deltaTime;
+
+    for (const tracer of this.tracers) {
+      if (!tracer.active) {
+        continue;
+      }
+
+      tracer.life -= deltaTime;
+      tracer.group.position.z += scrollDistance;
+
+      if (tracer.life <= 0) {
+        this.deactivateTracer(tracer);
+        continue;
+      }
+
+      const alpha = clamp(tracer.life / tracer.maxLife, 0, 1);
+      (tracer.beam.material as MeshBasicMaterial).opacity =
+        this.config.weapon.tracer.opacity * alpha;
+      (tracer.glow.material as MeshBasicMaterial).opacity =
+        this.config.weapon.tracer.opacity * 0.36 * alpha;
+      (tracer.tip.material as MeshBasicMaterial).opacity =
+        this.config.weapon.tracer.opacity * 0.82 * alpha;
+    }
+  }
+
+  private resetTracers(): void {
+    for (const tracer of this.tracers) {
+      this.deactivateTracer(tracer);
+    }
+  }
+
+  private deactivateTracer(tracer: TracerEffect): void {
+    tracer.active = false;
+    tracer.life = 0;
+    tracer.maxLife = 0;
+    tracer.length = 0;
+    tracer.group.visible = false;
+    tracer.group.position.set(0, 0, 999);
+    (tracer.beam.material as MeshBasicMaterial).opacity = 0;
+    (tracer.glow.material as MeshBasicMaterial).opacity = 0;
+    (tracer.tip.material as MeshBasicMaterial).opacity = 0;
+  }
+
+  private disposeTracerPool(): void {
+    for (const tracer of this.tracers) {
+      tracer.beam.geometry.dispose();
+      tracer.glow.geometry.dispose();
+      tracer.tip.geometry.dispose();
+      (tracer.beam.material as MeshBasicMaterial).dispose();
+      (tracer.glow.material as MeshBasicMaterial).dispose();
+      (tracer.tip.material as MeshBasicMaterial).dispose();
+    }
+  }
+
   private fire(
     player: PlayerSystem,
     enemies: EnemySystem,
@@ -395,6 +566,14 @@ export class PistolWeapon {
     this.fireKick = 1;
     this.slideOffset = this.config.weapon.viewmodel.slideTravel;
     this.randomizeMuzzleFlash();
+    this.muzzleAnchor.getWorldPosition(this.muzzleWorld);
+    this.camera.getWorldDirection(this.traceDirection);
+    this.traceEnd
+      .copy(this.muzzleWorld)
+      .addScaledVector(
+        this.traceDirection,
+        Math.min(this.config.weapon.range, this.config.weapon.tracer.missLength),
+      );
 
     const hitZombie = enemies.raycast(this.camera, this.crosshair, this.config.weapon.range);
     const hitBarrel = world.raycast(this.camera, this.crosshair, this.config.weapon.range);
@@ -403,6 +582,8 @@ export class PistolWeapon {
       (!hitBarrel || hitZombie.distance <= hitBarrel.distance);
 
     if (hitEnemyFirst && hitZombie) {
+      this.traceEnd.copy(hitZombie.point);
+      this.spawnTracer(this.muzzleWorld, this.traceEnd);
       const scoreValue = enemies.damage(
         hitZombie.zombie,
         this.config.weapon.damagePerShot,
@@ -416,12 +597,17 @@ export class PistolWeapon {
     }
 
     if (hitBarrel) {
+      this.traceEnd.copy(hitBarrel.point);
+      this.spawnTracer(this.muzzleWorld, this.traceEnd);
       const scoreValue = world.triggerBarrelExplosion(hitBarrel.obstacle, enemies);
       this.hitConfirmTimer = 0.1;
       if (scoreValue > 0) {
         player.state.score += scoreValue;
       }
+      return;
     }
+
+    this.spawnTracer(this.muzzleWorld, this.traceEnd);
   }
 
   private startReload(player: PlayerSystem): void {
