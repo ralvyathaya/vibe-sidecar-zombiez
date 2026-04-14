@@ -4,6 +4,7 @@ import { GameLoop } from '../core/GameLoop';
 import { RendererSystem } from '../core/Renderer';
 import type { GameStateType } from '../core/types';
 import { UISystem } from '../ui/UISystem';
+import { LoopingSound } from './audio/LoopingSound';
 import { EnemySystem } from './systems/EnemySystem';
 import { InputSystem } from './systems/InputSystem';
 import { PlayerSystem } from './systems/PlayerSystem';
@@ -22,6 +23,7 @@ export class Game {
   private readonly worldSystem: WorldSystem;
   private readonly uiSystem: UISystem;
   private readonly gameLoop: GameLoop;
+  private readonly engineLoop: LoopingSound;
   private readonly playerPosition = new Vector3();
   private readonly playerForward = new Vector3();
 
@@ -42,6 +44,12 @@ export class Game {
     this.weaponSystem = new WeaponSystem(this.rendererSystem.camera, GAME_CONFIG);
     this.spawnSystem = new SpawnSystem(GAME_CONFIG);
     this.uiSystem = new UISystem(root);
+    this.engineLoop = new LoopingSound(GAME_CONFIG.vehicle.engineAudioPath, {
+      volume: GAME_CONFIG.vehicle.engineVolume,
+      playbackRate: GAME_CONFIG.vehicle.enginePlaybackRate,
+      highpassHz: GAME_CONFIG.vehicle.engineHighpassHz,
+      lowpassHz: GAME_CONFIG.vehicle.engineLowpassHz,
+    });
     this.gameLoop = new GameLoop(
       (deltaTime) => this.update(deltaTime),
       () => this.rendererSystem.render(),
@@ -79,6 +87,7 @@ export class Game {
     this.gameLoop.stop();
     this.inputSystem.destroy();
     this.weaponSystem.destroy();
+    this.engineLoop.destroy();
     this.rendererSystem.destroy();
   }
 
@@ -153,5 +162,13 @@ export class Game {
   private setState(nextState: GameStateType): void {
     this.state = nextState;
     this.uiSystem.setState(nextState);
+    if (nextState === 'running') {
+      this.engineLoop.play(
+        GAME_CONFIG.vehicle.engineVolume,
+        GAME_CONFIG.vehicle.enginePlaybackRate,
+      );
+    } else {
+      this.engineLoop.pause();
+    }
   }
 }

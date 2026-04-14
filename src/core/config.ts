@@ -22,6 +22,13 @@ export const GAME_CONFIG: GameConfig = {
     bobAmplitude: 0.045,
     bobFrequency: 0.19,
   },
+  vehicle: {
+    engineAudioPath: '/audio/vehicle/engine-sound.ogg',
+    engineVolume: 0.22,
+    enginePlaybackRate: 1.02,
+    engineHighpassHz: 90,
+    engineLowpassHz: 2600,
+  },
   weapon: {
     fireRate: 7.5,
     magazineSize: 12,

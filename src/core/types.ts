@@ -117,6 +117,13 @@ export interface GameConfig {
     bobAmplitude: number;
     bobFrequency: number;
   };
+  vehicle: {
+    engineAudioPath: string;
+    engineVolume: number;
+    enginePlaybackRate: number;
+    engineHighpassHz: number;
+    engineLowpassHz: number;
+  };
   weapon: {
     fireRate: number;
     magazineSize: number;
