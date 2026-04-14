@@ -374,6 +374,11 @@ export class PistolWeapon {
       box.min.y + size.y * 0.56,
       center.z,
     ).sub(gripPivot);
+    const [muzzleOffsetX, muzzleOffsetY, muzzleOffsetZ] =
+      this.config.weapon.viewmodel.muzzleOffset;
+    muzzlePosition.x += muzzleOffsetX;
+    muzzlePosition.y += muzzleOffsetY;
+    muzzlePosition.z += muzzleOffsetZ;
     this.muzzleAnchor.position.copy(muzzlePosition);
     this.muzzleAnchor.rotation.set(0, 0, 0);
 

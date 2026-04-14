@@ -160,6 +160,7 @@ export interface GameConfig {
       reloadLift: number;
       reloadPushBack: number;
       reloadTiltDegrees: number;
+      muzzleOffset: Vec3Tuple;
       muzzleFlashSize: number;
       muzzleFlashDuration: number;
     };
