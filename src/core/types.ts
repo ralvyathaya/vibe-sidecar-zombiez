@@ -74,6 +74,17 @@ export interface HumanoidEnemyModelConfig {
   roadSplatOpacity: number;
 }
 
+export interface StaticObstacleModelConfig {
+  assetPath: string;
+  scale: number;
+  yOffset: number;
+  tintColor: number;
+  width: number;
+  depth: number;
+  collisionDamage: number;
+  spawnWeight: number;
+}
+
 export interface ZombieModelVariant {
   type: HumanoidZombieType;
   root: Group;
@@ -172,11 +183,13 @@ export interface GameConfig {
     obstacleSpacingMax: number;
     obstacleCleanupZ: number;
     obstacleDamage: number;
+    wreckSpawnWeight: number;
     obstacleHitboxDepth: number;
     roadSurfaceY: number;
+    barricade: StaticObstacleModelConfig;
+    concreteBlock: StaticObstacleModelConfig;
     barrel: {
       assetPath: string;
-      normalMapPath: string;
       scale: number;
       tintColor: number;
       spawnChance: number;
@@ -187,6 +200,16 @@ export interface GameConfig {
       tankDamage: number;
       flashDuration: number;
       flashSize: number;
+    };
+    breakEffect: {
+      pieceCount: number;
+      dustCount: number;
+      lifetime: number;
+      gravity: number;
+      horizontalSpeed: number;
+      upwardSpeed: number;
+      pieceSize: number;
+      dustSize: number;
     };
   };
 }
@@ -265,5 +288,5 @@ export interface ActiveObstacle {
   damage: number;
   hasHitPlayer: boolean;
   poolId: number;
-  type: 'barrier' | 'wreck' | 'barrel';
+  type: 'barricade' | 'concreteBlock' | 'wreck' | 'barrel';
 }
