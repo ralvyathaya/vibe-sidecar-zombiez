@@ -23,6 +23,7 @@ type ObstacleRecord = ActiveObstacle & {
   barricadeVariant: Group;
   concreteBlockVariant: Group;
   wreckVariant: Group;
+  carVariant: Group;
   barrelVariant: Group;
 };
 
@@ -65,6 +66,10 @@ const DEBRIS_GEOMETRY = new BoxGeometry(0.6, 0.35, 0.8);
 const BARRICADE_FALLBACK_BASE = new BoxGeometry(2.2, 1.05, 0.82);
 const CONCRETE_FALLBACK_BASE = new BoxGeometry(2.08, 1.1, 1.16);
 const CONCRETE_FALLBACK_CAP = new BoxGeometry(1.96, 0.14, 1.02);
+const CAR_FALLBACK_BODY = new BoxGeometry(1.78, 0.42, 3.3);
+const CAR_FALLBACK_CABIN = new BoxGeometry(1.34, 0.46, 1.68);
+const CAR_FALLBACK_HOOD = new BoxGeometry(1.46, 0.18, 1.08);
+const CAR_FALLBACK_WHEEL = new CylinderGeometry(0.32, 0.32, 0.26, 10, 1);
 const BARREL_BODY_GEOMETRY = new CylinderGeometry(0.58, 0.62, 1.55, 10, 3);
 const BARREL_BAND_GEOMETRY = new CylinderGeometry(0.66, 0.66, 0.08, 10, 1, true);
 const BREAK_PIECE_GEOMETRY = new BoxGeometry(1, 1, 1);
@@ -84,12 +89,15 @@ export class WorldSystem {
 
   private nextObstacleZ = -34;
   private nextBarrelEligibleZ = -72;
+  private nextCarEligibleZ = -124;
   private barrelTemplate: Group | null = null;
   private barricadeTemplate: Group | null = null;
   private concreteBlockTemplate: Group | null = null;
+  private carTemplate: Group | null = null;
   private barrelLoadPromise: Promise<void> | null = null;
   private barricadeLoadPromise: Promise<void> | null = null;
   private concreteBlockLoadPromise: Promise<void> | null = null;
+  private carLoadPromise: Promise<void> | null = null;
 
   constructor(
     private readonly scene: Scene,
@@ -108,12 +116,14 @@ export class WorldSystem {
     void this.loadBarrelAssets();
     void this.loadBarricadeAssets();
     void this.loadConcreteBlockAssets();
+    void this.loadCarAssets();
   }
 
   reset(): void {
     this.positionChunks();
     this.nextObstacleZ = -34;
     this.nextBarrelEligibleZ = -72;
+    this.nextCarEligibleZ = -124;
     this.obstacleImpactSound.stopAll();
 
     for (const explosion of this.explosions) {
@@ -170,6 +180,10 @@ export class WorldSystem {
 
         if (obstacle.type === 'barrel') {
           this.recycleObstacle(obstacle);
+          continue;
+        }
+
+        if (obstacle.type === 'car') {
           continue;
         }
 
@@ -350,10 +364,11 @@ export class WorldSystem {
       const barricadeVariant = this.createBarricadeVariant();
       const concreteBlockVariant = this.createConcreteBlockVariant();
       const wreckVariant = this.createWreckVariant();
+      const carVariant = this.createCarVariant();
       const barrelVariant = this.createBarrelVariant();
       this.assignObstacleId(barrelVariant, index);
 
-      mesh.add(barricadeVariant, concreteBlockVariant, wreckVariant, barrelVariant);
+      mesh.add(barricadeVariant, concreteBlockVariant, wreckVariant, carVariant, barrelVariant);
       this.worldRoot.add(mesh);
 
       this.obstacles.push({
@@ -370,6 +385,7 @@ export class WorldSystem {
         barricadeVariant,
         concreteBlockVariant,
         wreckVariant,
+        carVariant,
         barrelVariant,
       });
     }
@@ -476,21 +492,33 @@ export class WorldSystem {
     const laneIndex = randomInt(0, this.config.world.laneCenters.length - 1);
     const laneCenter = this.config.world.laneCenters[laneIndex] ?? 0;
     const spawnZ = this.nextObstacleZ;
+    const canSpawnCar = spawnZ <= this.nextCarEligibleZ;
+    const spawnCar =
+      canSpawnCar && Math.random() < this.config.world.car.spawnChance;
     const canSpawnBarrel = spawnZ <= this.nextBarrelEligibleZ;
     const spawnBarrel =
-      canSpawnBarrel && Math.random() < this.config.world.barrel.spawnChance;
+      !spawnCar && canSpawnBarrel && Math.random() < this.config.world.barrel.spawnChance;
 
     obstacle.active = true;
-    obstacle.mesh.position.set(
-      laneCenter + randomRange(-0.45, 0.45),
-      0,
-      spawnZ,
-    );
-    obstacle.mesh.rotation.y = randomRange(-0.28, 0.28);
     obstacle.hasHitPlayer = false;
     obstacle.lane = laneIndex;
 
-    if (spawnBarrel) {
+    if (spawnCar) {
+      obstacle.type = 'car';
+      obstacle.damage = this.config.world.car.collisionDamage;
+      obstacle.width = this.config.world.car.width;
+      obstacle.depth = this.config.world.car.depth;
+      obstacle.barricadeVariant.visible = false;
+      obstacle.concreteBlockVariant.visible = false;
+      obstacle.wreckVariant.visible = false;
+      obstacle.carVariant.visible = true;
+      obstacle.barrelVariant.visible = false;
+      this.nextCarEligibleZ =
+        spawnZ - randomRange(
+          this.config.world.car.spawnSpacingMin,
+          this.config.world.car.spawnSpacingMax,
+        );
+    } else if (spawnBarrel) {
       obstacle.type = 'barrel';
       obstacle.damage = this.config.world.barrel.collisionDamage;
       obstacle.width = 1.45;
@@ -498,6 +526,7 @@ export class WorldSystem {
       obstacle.barricadeVariant.visible = false;
       obstacle.concreteBlockVariant.visible = false;
       obstacle.wreckVariant.visible = false;
+      obstacle.carVariant.visible = false;
       obstacle.barrelVariant.visible = true;
       this.nextBarrelEligibleZ =
         spawnZ - randomRange(
@@ -507,6 +536,14 @@ export class WorldSystem {
     } else {
       this.applyRoadObstacleType(obstacle, this.chooseRoadObstacleType());
     }
+
+    const laneOffset = obstacle.type === 'car'
+      ? randomRange(-0.08, 0.08)
+      : randomRange(-0.45, 0.45);
+    obstacle.mesh.position.set(laneCenter + laneOffset, 0, spawnZ);
+    obstacle.mesh.rotation.y = obstacle.type === 'car'
+      ? randomRange(-0.06, 0.06)
+      : randomRange(-0.28, 0.28);
 
     this.nextObstacleZ -= randomRange(
       this.config.world.obstacleSpacingMin,
@@ -522,6 +559,7 @@ export class WorldSystem {
     obstacle.barricadeVariant.visible = type === 'barricade';
     obstacle.concreteBlockVariant.visible = type === 'concreteBlock';
     obstacle.wreckVariant.visible = type === 'wreck';
+    obstacle.carVariant.visible = false;
     obstacle.barrelVariant.visible = false;
 
     if (type === 'barricade') {
@@ -683,6 +721,69 @@ export class WorldSystem {
     return group;
   }
 
+  private createCarVariant(): Group {
+    const group = new Group();
+    group.position.y = this.config.world.car.yOffset;
+    group.add(this.createFallbackCarMesh());
+    return group;
+  }
+
+  private createFallbackCarMesh(): Group {
+    const group = new Group();
+    group.rotation.y = Math.PI * 0.5;
+
+    const bodyMaterial = new MeshStandardMaterial({
+      color: 0x4e5963,
+      flatShading: true,
+      roughness: 0.9,
+      metalness: 0.08,
+    });
+    const trimMaterial = new MeshStandardMaterial({
+      color: 0x202328,
+      flatShading: true,
+      roughness: 0.94,
+      metalness: 0.04,
+    });
+    const glassMaterial = new MeshStandardMaterial({
+      color: 0x8ca6bb,
+      flatShading: true,
+      roughness: 0.42,
+      metalness: 0.06,
+    });
+
+    const body = new Mesh(CAR_FALLBACK_BODY, bodyMaterial);
+    body.position.y = 0.44;
+    group.add(body);
+
+    const cabin = new Mesh(CAR_FALLBACK_CABIN, bodyMaterial);
+    cabin.position.set(0, 0.87, -0.08);
+    group.add(cabin);
+
+    const hood = new Mesh(CAR_FALLBACK_HOOD, trimMaterial);
+    hood.position.set(0, 0.58, 1.04);
+    hood.rotation.x = -0.06;
+    group.add(hood);
+
+    const windshield = new Mesh(
+      new BoxGeometry(1.18, 0.22, 0.68),
+      glassMaterial,
+    );
+    windshield.position.set(0, 0.95, 0.34);
+    windshield.rotation.x = -0.22;
+    group.add(windshield);
+
+    for (const x of [-0.86, 0.86]) {
+      for (const z of [-1.08, 1.08]) {
+        const wheel = new Mesh(CAR_FALLBACK_WHEEL, trimMaterial);
+        wheel.rotation.z = Math.PI * 0.5;
+        wheel.position.set(x, 0.24, z);
+        group.add(wheel);
+      }
+    }
+
+    return group;
+  }
+
   private createBarrelVariant(): Group {
     const group = new Group();
     group.position.y = 0.56;
@@ -803,6 +904,14 @@ export class WorldSystem {
       };
     }
 
+    if (type === 'car') {
+      return {
+        base: 0x4e5963,
+        accent: 0x23272c,
+        dust: 0x5b6168,
+      };
+    }
+
     return {
       base: 0x6e3f39,
       accent: 0x3f3a39,
@@ -820,6 +929,11 @@ export class WorldSystem {
 
     if (obstacle.type === 'wreck') {
       this.obstacleImpactSound.play(baseVolume * 0.9, randomRange(0.84, 0.92));
+      return;
+    }
+
+    if (obstacle.type === 'car') {
+      this.obstacleImpactSound.play(baseVolume * 1.06, randomRange(0.72, 0.82));
       return;
     }
 
@@ -894,6 +1008,31 @@ export class WorldSystem {
     return this.concreteBlockLoadPromise;
   }
 
+  private async loadCarAssets(): Promise<void> {
+    if (this.carLoadPromise) {
+      return this.carLoadPromise;
+    }
+
+    this.carLoadPromise = this.loadObstacleTemplate(
+      this.config.world.car.assetPath,
+    )
+      .catch(async (error) => {
+        console.warn('Failed to load textured car obstacle, falling back to base mesh.', error);
+        return this.loadObstacleTemplate(this.config.world.car.fallbackAssetPath);
+      })
+      .then((template) => {
+        this.carTemplate = template;
+        for (const obstacle of this.obstacles) {
+          this.applyCarVisual(obstacle);
+        }
+      })
+      .catch((error) => {
+        console.warn('Failed to load car obstacle, using fallback mesh.', error);
+      });
+
+    return this.carLoadPromise;
+  }
+
   private async loadObstacleTemplate(assetPath: string): Promise<Group> {
     const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
     const loader = new GLTFLoader();
@@ -949,6 +1088,14 @@ export class WorldSystem {
       0.56,
       obstacle.id,
     );
+  }
+
+  private applyCarVisual(obstacle: ObstacleRecord): void {
+    obstacle.carVariant.clear();
+    obstacle.carVariant.position.y = this.config.world.car.yOffset;
+    const visual = this.carTemplate ? this.carTemplate.clone(true) : this.createFallbackCarMesh();
+    visual.scale.setScalar(this.config.world.car.scale);
+    obstacle.carVariant.add(visual);
   }
 
   private replaceVariantVisual(

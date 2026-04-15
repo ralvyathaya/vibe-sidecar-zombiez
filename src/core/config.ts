@@ -303,6 +303,18 @@ export const GAME_CONFIG: GameConfig = {
       collisionDamage: 14,
       spawnWeight: 0.9,
     },
+    car: {
+      assetPath: '/models/obstacles/car/car-web.glb',
+      fallbackAssetPath: '/models/obstacles/car/car-base.glb',
+      scale: 4.00,
+      yOffset: 0.82,
+      width: 5.25,
+      depth: 3.2,
+      collisionDamage: 999,
+      spawnChance: 0.36,
+      spawnSpacingMin: 132,
+      spawnSpacingMax: 188,
+    },
     barrel: {
       assetPath: '/models/obstacles/barrel/barrel-web.glb',
       scale: 0.58,

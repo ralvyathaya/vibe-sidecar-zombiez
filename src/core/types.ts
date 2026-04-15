@@ -79,6 +79,7 @@ export interface HumanoidEnemyModelConfig {
 
 export interface StaticObstacleModelConfig {
   assetPath: string;
+  fallbackAssetPath?: string;
   scale: number;
   yOffset: number;
   tintColor: number;
@@ -254,6 +255,18 @@ export interface GameConfig {
     roadSurfaceY: number;
     barricade: StaticObstacleModelConfig;
     concreteBlock: StaticObstacleModelConfig;
+    car: {
+      assetPath: string;
+      fallbackAssetPath: string;
+      scale: number;
+      yOffset: number;
+      width: number;
+      depth: number;
+      collisionDamage: number;
+      spawnChance: number;
+      spawnSpacingMin: number;
+      spawnSpacingMax: number;
+    };
     barrel: {
       assetPath: string;
       scale: number;
@@ -382,7 +395,7 @@ export interface ActiveObstacle {
   damage: number;
   hasHitPlayer: boolean;
   poolId: number;
-  type: 'barricade' | 'concreteBlock' | 'wreck' | 'barrel';
+  type: 'barricade' | 'concreteBlock' | 'wreck' | 'barrel' | 'car';
 }
 
 export interface ActivePickup {
