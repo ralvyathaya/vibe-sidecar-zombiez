@@ -16,6 +16,7 @@ import {
 } from 'three';
 import type { ActiveObstacle, GameConfig } from '../../core/types';
 import { randomInt, randomRange } from '../../core/utils';
+import { SoundEffectPool } from '../audio/SoundEffectPool';
 import type { EnemySystem } from './EnemySystem';
 
 type ObstacleRecord = ActiveObstacle & {
@@ -79,6 +80,7 @@ export class WorldSystem {
   private readonly breakEffects: BreakEffect[] = [];
   private readonly raycaster = new Raycaster();
   private readonly explosionCenter = new Vector3();
+  private readonly obstacleImpactSound: SoundEffectPool;
 
   private nextObstacleZ = -34;
   private nextBarrelEligibleZ = -72;
@@ -93,6 +95,10 @@ export class WorldSystem {
     private readonly scene: Scene,
     private readonly config: GameConfig,
   ) {
+    this.obstacleImpactSound = new SoundEffectPool(this.config.world.audio.obstacleImpactPath, {
+      poolSize: 4,
+      volume: this.config.world.audio.obstacleImpactVolume,
+    });
     this.scene.add(this.worldRoot);
     this.createChunks();
     this.createObstacles();
@@ -108,6 +114,7 @@ export class WorldSystem {
     this.positionChunks();
     this.nextObstacleZ = -34;
     this.nextBarrelEligibleZ = -72;
+    this.obstacleImpactSound.stopAll();
 
     for (const explosion of this.explosions) {
       this.deactivateExplosion(explosion);
@@ -120,6 +127,11 @@ export class WorldSystem {
     for (const obstacle of this.obstacles) {
       this.recycleObstacle(obstacle);
     }
+  }
+
+  destroy(): void {
+    this.reset();
+    this.obstacleImpactSound.destroy();
   }
 
   update(deltaTime: number, playerX: number): number {
@@ -154,6 +166,7 @@ export class WorldSystem {
       if (!obstacle.hasHitPlayer && closeEnoughInZ && closeEnoughInX) {
         obstacle.hasHitPlayer = true;
         collisionDamage += obstacle.damage;
+        this.playObstacleImpactSound(obstacle);
 
         if (obstacle.type === 'barrel') {
           this.recycleObstacle(obstacle);
@@ -795,6 +808,27 @@ export class WorldSystem {
       accent: 0x3f3a39,
       dust: 0x58514e,
     };
+  }
+
+  private playObstacleImpactSound(obstacle: ObstacleRecord): void {
+    const baseVolume = this.config.world.audio.obstacleImpactVolume;
+
+    if (obstacle.type === 'barrel') {
+      this.obstacleImpactSound.play(baseVolume * 0.82, randomRange(0.88, 0.95));
+      return;
+    }
+
+    if (obstacle.type === 'wreck') {
+      this.obstacleImpactSound.play(baseVolume * 0.9, randomRange(0.84, 0.92));
+      return;
+    }
+
+    if (obstacle.type === 'concreteBlock') {
+      this.obstacleImpactSound.play(baseVolume, randomRange(0.9, 0.98));
+      return;
+    }
+
+    this.obstacleImpactSound.play(baseVolume * 0.96, randomRange(0.96, 1.04));
   }
 
   private async loadBarrelAssets(): Promise<void> {

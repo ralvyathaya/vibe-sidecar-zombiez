@@ -87,6 +87,8 @@ export class Game {
     this.gameLoop.stop();
     this.inputSystem.destroy();
     this.weaponSystem.destroy();
+    this.enemySystem.destroy();
+    this.worldSystem.destroy();
     this.engineLoop.destroy();
     this.rendererSystem.destroy();
   }

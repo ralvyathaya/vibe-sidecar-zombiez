@@ -29,6 +29,7 @@ import type {
   ZombieType,
 } from '../../core/types';
 import { randomRange } from '../../core/utils';
+import { SoundEffectPool } from '../audio/SoundEffectPool';
 
 const TORSO_GEOMETRY = new BoxGeometry(0.8, 1.05, 0.5);
 const HEAD_GEOMETRY = new BoxGeometry(0.54, 0.52, 0.48);
@@ -94,16 +95,33 @@ export class EnemySystem {
   private readonly effectLookTarget = new Vector3();
   private readonly radarDirection = new Vector3();
   private readonly radarRight = new Vector3();
+  private readonly normalDeathSound: SoundEffectPool;
+  private readonly tankDeathSound: SoundEffectPool;
+  private readonly approachSound: SoundEffectPool;
 
   private readonly humanoidAssets: Partial<Record<HumanoidZombieType, HumanoidAssets>> = {};
   private readonly humanoidAssetPromises: Partial<
     Record<HumanoidZombieType, Promise<void>>
   > = {};
+  private approachCueCooldown = 0;
 
   constructor(
     private readonly scene: Scene,
     private readonly config: GameConfig,
   ) {
+    this.normalDeathSound = new SoundEffectPool(this.config.enemies.audio.normalDeathPath, {
+      poolSize: 4,
+      volume: this.config.enemies.audio.normalDeathVolume,
+    });
+    this.tankDeathSound = new SoundEffectPool(this.config.enemies.audio.tankDeathPath, {
+      poolSize: 2,
+      volume: this.config.enemies.audio.tankDeathVolume,
+    });
+    this.approachSound = new SoundEffectPool(this.config.enemies.audio.approachPath, {
+      poolSize: 2,
+      volume: this.config.enemies.audio.approachVolume,
+    });
+
     for (let index = 0; index < this.config.enemies.poolSize; index += 1) {
       const zombie = this.createZombie(index);
       this.pool.push(zombie);
@@ -140,6 +158,11 @@ export class EnemySystem {
   }
 
   reset(): void {
+    this.approachCueCooldown = 0;
+    this.normalDeathSound.stopAll();
+    this.tankDeathSound.stopAll();
+    this.approachSound.stopAll();
+
     for (const zombie of this.pool) {
       this.deactivate(zombie);
     }
@@ -159,6 +182,13 @@ export class EnemySystem {
     for (const splat of this.roadSplats) {
       this.deactivateRoadSplat(splat);
     }
+  }
+
+  destroy(): void {
+    this.reset();
+    this.normalDeathSound.destroy();
+    this.tankDeathSound.destroy();
+    this.approachSound.destroy();
   }
 
   spawn(type: ZombieType, laneX: number, zPosition: number): boolean {
@@ -185,6 +215,7 @@ export class EnemySystem {
     zombie.hitFlash = 0;
     zombie.deathTimer = 0;
     zombie.deathElapsed = 0;
+    zombie.approachCueTriggered = false;
     zombie.impactLocalPoint.set(0, 1.15, 0.32);
     zombie.bodySplatterTriggered = false;
     zombie.bloodBurstTriggered = false;
@@ -209,6 +240,7 @@ export class EnemySystem {
     worldScrollSpeed: number,
     onPlayerHit: (damage: number, sourceX: number) => void,
   ): void {
+    this.approachCueCooldown = Math.max(0, this.approachCueCooldown - deltaTime);
     this.updateParticleBursts(this.hitBloodBursts, deltaTime, worldScrollSpeed);
     this.updateParticleBursts(this.bodySplatterBursts, deltaTime, worldScrollSpeed);
     this.updateParticleBursts(this.bloodBursts, deltaTime, worldScrollSpeed);
@@ -315,6 +347,7 @@ export class EnemySystem {
       if (this.isHumanoidType(zombie.type) && this.getActiveModelVariant(zombie)) {
         this.startHumanoidDeath(zombie, zombie.type);
       } else {
+        this.playDeathSound(zombie);
         this.deactivate(zombie);
       }
 
@@ -511,6 +544,7 @@ export class EnemySystem {
       deathElapsed: 0,
       spawnPoseTimer: 0,
       spawnPoseActive: false,
+      approachCueTriggered: false,
       impactLocalPoint: new Vector3(0, 1.15, 0.32),
       bodySplatterTriggered: false,
       bloodBurstTriggered: false,
@@ -559,6 +593,24 @@ export class EnemySystem {
     const collisionRadius =
       this.config.player.collisionRadius +
       this.config.enemies.contactRadius * zombie.config.scale;
+    const approachDistance = Math.max(
+      this.config.enemies.audio.approachDistance,
+      collisionRadius + 0.2,
+    );
+
+    if (
+      !zombie.approachCueTriggered &&
+      this.approachCueCooldown <= 0 &&
+      distanceToPlayer <= approachDistance
+    ) {
+      zombie.approachCueTriggered = true;
+      this.approachCueCooldown = this.config.enemies.audio.approachCooldown;
+      this.approachSound.play(
+        this.config.enemies.audio.approachVolume,
+        randomRange(0.97, 1.03),
+      );
+    }
+
     if (
       distanceToPlayer < collisionRadius ||
       this.didSweepIntoPlayer(
@@ -698,6 +750,7 @@ export class EnemySystem {
     zombie.spawnPoseActive = false;
     zombie.spawnPoseTimer = 0;
     zombie.deathTimer = modelConfig.fadeDelay + modelConfig.fadeDuration;
+    this.playDeathSound(zombie);
     this.spawnBodySplatter(zombie);
 
     if (modelConfig.bloodDelay <= 0) {
@@ -716,6 +769,21 @@ export class EnemySystem {
       .setEffectiveWeight(1)
       .play();
     variant.deathAction.clampWhenFinished = true;
+  }
+
+  private playDeathSound(zombie: ActiveZombie): void {
+    if (zombie.type === 'tank') {
+      this.tankDeathSound.play(
+        this.config.enemies.audio.tankDeathVolume,
+        randomRange(0.98, 1.02),
+      );
+      return;
+    }
+
+    this.normalDeathSound.play(
+      this.config.enemies.audio.normalDeathVolume,
+      randomRange(0.98, 1.04),
+    );
   }
 
   private triggerDelayedDeathEffects(zombie: ActiveZombie): void {
@@ -890,6 +958,7 @@ export class EnemySystem {
     zombie.deathElapsed = 0;
     zombie.spawnPoseTimer = 0;
     zombie.spawnPoseActive = false;
+    zombie.approachCueTriggered = false;
     zombie.bodySplatterTriggered = false;
     zombie.bloodBurstTriggered = false;
     zombie.impactLocalPoint.set(0, 1.15, 0.32);

@@ -178,6 +178,16 @@ export interface GameConfig {
     spawnMaxZ: number;
     cleanupZ: number;
     contactRadius: number;
+    audio: {
+      normalDeathPath: string;
+      tankDeathPath: string;
+      approachPath: string;
+      normalDeathVolume: number;
+      tankDeathVolume: number;
+      approachVolume: number;
+      approachDistance: number;
+      approachCooldown: number;
+    };
     walkerModel: HumanoidEnemyModelConfig;
     runnerModel: HumanoidEnemyModelConfig;
     tankModel: HumanoidEnemyModelConfig;
@@ -217,6 +227,10 @@ export interface GameConfig {
       tankDamage: number;
       flashDuration: number;
       flashSize: number;
+    };
+    audio: {
+      obstacleImpactPath: string;
+      obstacleImpactVolume: number;
     };
     breakEffect: {
       pieceCount: number;
@@ -286,6 +300,7 @@ export interface ActiveZombie {
   deathElapsed: number;
   spawnPoseTimer: number;
   spawnPoseActive: boolean;
+  approachCueTriggered: boolean;
   impactLocalPoint: Vector3;
   bodySplatterTriggered: boolean;
   bloodBurstTriggered: boolean;

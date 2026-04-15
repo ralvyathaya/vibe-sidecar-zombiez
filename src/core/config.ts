@@ -83,6 +83,16 @@ export const GAME_CONFIG: GameConfig = {
     spawnMaxZ: -78,
     cleanupZ: 12,
     contactRadius: 1.35,
+    audio: {
+      normalDeathPath: '/audio/enemies/normal-zombie-death.ogg',
+      tankDeathPath: '/audio/enemies/tank-zombie-death.ogg',
+      approachPath: '/audio/enemies/zombie-approaching.ogg',
+      normalDeathVolume: 0.36,
+      tankDeathVolume: 0.42,
+      approachVolume: 0.24,
+      approachDistance: 2.55,
+      approachCooldown: 0.42,
+    },
     walkerModel: {
       characterPath: '/models/enemies/walker/character.glb',
       textureMaterialPath: '/models/enemies/walker/texture-web.glb',
@@ -269,6 +279,10 @@ export const GAME_CONFIG: GameConfig = {
       tankDamage: 2,
       flashDuration: 0.28,
       flashSize: 3.8,
+    },
+    audio: {
+      obstacleImpactPath: '/audio/world/concrete-barrier-crack.ogg',
+      obstacleImpactVolume: 0.72,
     },
     breakEffect: {
       pieceCount: 8,
