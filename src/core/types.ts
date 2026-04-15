@@ -183,8 +183,10 @@ export interface GameConfig {
     damagePerPellet: number;
     spread: number;
     cameraKick: number;
-    tracerCount: number;
-    tracerMissLength: number;
+    pelletVisualCount: number;
+    pelletTraceMinLength: number;
+    pelletTraceMaxLength: number;
+    pelletTraceDuration: number;
     audio: {
       gunshotPath: string;
       gunshotVolume: number;
@@ -201,6 +203,9 @@ export interface GameConfig {
       recoilRecovery: number;
       pumpTravel: number;
       pumpRecovery: number;
+      pumpDelay: number;
+      spinDuration: number;
+      spinTurns: number;
       muzzleOffset: Vec3Tuple;
       muzzleFlashSize: number;
       muzzleFlashDuration: number;

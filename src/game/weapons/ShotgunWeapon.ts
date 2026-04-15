@@ -86,6 +86,8 @@ export class ShotgunWeapon {
   private hitConfirmTimer = 0;
   private fireKick = 0;
   private pumpOffset = 0;
+  private pumpDelayTimer = 0;
+  private spinTimer = 0;
 
   constructor(
     private readonly camera: Camera,
@@ -110,8 +112,8 @@ export class ShotgunWeapon {
 
     this.muzzleFlashCore.renderOrder = 14;
     this.muzzleFlashStreak.renderOrder = 14;
-    this.muzzleFlashCore.position.x = -0.06;
-    this.muzzleFlashStreak.position.x = -0.72;
+    this.muzzleFlashCore.position.x = -0.08;
+    this.muzzleFlashStreak.position.x = -0.96;
     this.muzzleFlash.add(this.muzzleFlashCore, this.muzzleFlashStreak, this.muzzleLight);
     this.muzzleFlash.visible = false;
     this.viewmodelKeyLight.position.set(0.2, 0.08, 0.28);
@@ -138,6 +140,8 @@ export class ShotgunWeapon {
     this.hitConfirmTimer = 0;
     this.fireKick = 0;
     this.pumpOffset = 0;
+    this.pumpDelayTimer = 0;
+    this.spinTimer = 0;
     this.muzzleFlash.visible = false;
     this.muzzleLight.intensity = 0;
     this.resetTracers();
@@ -306,6 +310,8 @@ export class ShotgunWeapon {
     this.muzzleFlash.visible = true;
     this.fireKick = 1;
     this.pumpOffset = 1;
+    this.pumpDelayTimer = this.config.shotgun.viewmodel.pumpDelay;
+    this.spinTimer = 0;
     player.applyRecoil(this.config.shotgun.cameraKick);
     this.gunshotSound.play(
       this.config.shotgun.audio.gunshotVolume,
@@ -340,8 +346,19 @@ export class ShotgunWeapon {
         );
         this.hitConfirmTimer = 0.12;
 
-        if (pelletIndex < this.config.shotgun.tracerCount) {
-          this.spawnTracer(this.muzzleWorld, hitZombie.point);
+        if (pelletIndex < this.config.shotgun.pelletVisualCount) {
+          this.missRaycaster.setFromCamera(this.spreadCrosshair, this.camera);
+          this.traceEnd.copy(this.muzzleWorld).addScaledVector(
+            this.missRaycaster.ray.direction,
+            Math.min(
+              this.muzzleWorld.distanceTo(hitZombie.point),
+              randomRange(
+                this.config.shotgun.pelletTraceMinLength,
+                this.config.shotgun.pelletTraceMaxLength,
+              ),
+            ),
+          );
+          this.spawnTracer(this.muzzleWorld, this.traceEnd);
         }
         continue;
       }
@@ -350,17 +367,31 @@ export class ShotgunWeapon {
         scoreGain += world.triggerBarrelExplosion(hitBarrel.obstacle, enemies);
         this.hitConfirmTimer = 0.1;
 
-        if (pelletIndex < this.config.shotgun.tracerCount) {
-          this.spawnTracer(this.muzzleWorld, hitBarrel.point);
+        if (pelletIndex < this.config.shotgun.pelletVisualCount) {
+          this.missRaycaster.setFromCamera(this.spreadCrosshair, this.camera);
+          this.traceEnd.copy(this.muzzleWorld).addScaledVector(
+            this.missRaycaster.ray.direction,
+            Math.min(
+              this.muzzleWorld.distanceTo(hitBarrel.point),
+              randomRange(
+                this.config.shotgun.pelletTraceMinLength,
+                this.config.shotgun.pelletTraceMaxLength,
+              ),
+            ),
+          );
+          this.spawnTracer(this.muzzleWorld, this.traceEnd);
         }
         continue;
       }
 
-      if (pelletIndex < this.config.shotgun.tracerCount) {
+      if (pelletIndex < this.config.shotgun.pelletVisualCount) {
         this.missRaycaster.setFromCamera(this.spreadCrosshair, this.camera);
-        this.traceEnd.copy(this.missRaycaster.ray.origin).addScaledVector(
+        this.traceEnd.copy(this.muzzleWorld).addScaledVector(
           this.missRaycaster.ray.direction,
-          Math.min(this.config.shotgun.range, this.config.shotgun.tracerMissLength),
+          randomRange(
+            this.config.shotgun.pelletTraceMinLength,
+            this.config.shotgun.pelletTraceMaxLength,
+          ),
         );
         this.spawnTracer(this.muzzleWorld, this.traceEnd);
       }
@@ -373,14 +404,31 @@ export class ShotgunWeapon {
 
   private updatePresentation(deltaTime: number): void {
     this.fireKick = approach(this.fireKick, 0, deltaTime * this.config.shotgun.viewmodel.recoilRecovery);
-    this.pumpOffset = approach(this.pumpOffset, 0, deltaTime * this.config.shotgun.viewmodel.pumpRecovery);
+
+    if (this.pumpDelayTimer > 0) {
+      this.pumpDelayTimer = Math.max(0, this.pumpDelayTimer - deltaTime);
+      this.pumpOffset = 1;
+      if (this.pumpDelayTimer <= 0) {
+        this.spinTimer = this.config.shotgun.viewmodel.spinDuration;
+      }
+    } else {
+      this.pumpOffset = approach(
+        this.pumpOffset,
+        0,
+        deltaTime * this.config.shotgun.viewmodel.pumpRecovery,
+      );
+    }
+
+    if (this.spinTimer > 0) {
+      this.spinTimer = Math.max(0, this.spinTimer - deltaTime);
+    }
 
     if (this.muzzleFlashTimer > 0) {
       this.muzzleFlashTimer = Math.max(0, this.muzzleFlashTimer - deltaTime);
       const flashAlpha = this.muzzleFlashTimer / this.config.shotgun.viewmodel.muzzleFlashDuration;
       this.muzzleFlashCoreMaterial.opacity = 0.95 * flashAlpha;
-      this.muzzleFlashStreakMaterial.opacity = 0.86 * flashAlpha;
-      this.muzzleLight.intensity = 2.7 * flashAlpha;
+      this.muzzleFlashStreakMaterial.opacity = 0.92 * flashAlpha;
+      this.muzzleLight.intensity = 4.6 * flashAlpha;
       this.muzzleFlash.visible = flashAlpha > 0.01;
     } else {
       this.muzzleFlash.visible = false;
@@ -395,14 +443,22 @@ export class ShotgunWeapon {
     const recoilLift = this.config.shotgun.viewmodel.recoilLift * this.fireKick;
     const recoilPitch = MathUtils.degToRad(this.config.shotgun.viewmodel.recoilPitchDegrees) * this.fireKick;
     const recoilRoll = MathUtils.degToRad(this.config.shotgun.viewmodel.recoilRollDegrees) * this.fireKick;
+    const spinProgress =
+      this.spinTimer > 0
+        ? 1 - this.spinTimer / this.config.shotgun.viewmodel.spinDuration
+        : 0;
+    const easedSpin = MathUtils.smootherstep(spinProgress, 0, 1);
+    const spinRoll = Math.PI * 2 * this.config.shotgun.viewmodel.spinTurns * easedSpin;
+    const spinPitch = Math.sin(easedSpin * Math.PI) * 0.2;
+    const spinDrop = Math.sin(easedSpin * Math.PI) * 0.07;
 
     this.viewmodelRoot.position.copy(this.basePosition);
     this.viewmodelRoot.position.x -= recoilBack;
-    this.viewmodelRoot.position.y += recoilLift;
+    this.viewmodelRoot.position.y += recoilLift - spinDrop;
     this.viewmodelRoot.rotation.set(
-      this.baseRotation.x + recoilPitch,
+      this.baseRotation.x + recoilPitch + spinPitch,
       this.baseRotation.y,
-      this.baseRotation.z - recoilRoll,
+      this.baseRotation.z - recoilRoll + spinRoll,
     );
     this.viewmodelRoot.scale.setScalar(this.config.shotgun.viewmodel.scale);
 
@@ -418,25 +474,25 @@ export class ShotgunWeapon {
     this.muzzleFlash.rotation.x = randomRange(-0.3, 0.3);
     this.muzzleFlash.rotation.y = randomRange(-0.15, 0.15);
     this.muzzleFlash.rotation.z = randomRange(-0.6, 0.6);
-    this.muzzleFlashCore.scale.setScalar(flashSize * randomRange(0.92, 1.24));
+    this.muzzleFlashCore.scale.setScalar(flashSize * randomRange(1.02, 1.42));
     this.muzzleFlashStreak.scale.set(
-      flashSize * randomRange(2.4, 3.2),
-      flashSize * randomRange(0.22, 0.34),
-      flashSize * randomRange(0.22, 0.34),
+      flashSize * randomRange(3.2, 4.4),
+      flashSize * randomRange(0.28, 0.42),
+      flashSize * randomRange(0.28, 0.42),
     );
   }
 
   private createTracerPool(): void {
-    for (let index = 0; index < 6; index += 1) {
+    for (let index = 0; index < 16; index += 1) {
       const beamMaterial = new MeshBasicMaterial({
-        color: this.config.weapon.tracer.color,
+        color: 0xffe2bb,
         transparent: true,
         opacity: 0,
         blending: AdditiveBlending,
         depthWrite: false,
       });
       const glowMaterial = new MeshBasicMaterial({
-        color: this.config.weapon.tracer.glowColor,
+        color: 0xffa865,
         transparent: true,
         opacity: 0,
         blending: AdditiveBlending,
@@ -451,14 +507,14 @@ export class ShotgunWeapon {
       });
 
       const beam = new Mesh(
-        new BoxGeometry(1, this.config.weapon.tracer.width, this.config.weapon.tracer.width),
+        new BoxGeometry(1, 0.018, 0.018),
         beamMaterial,
       );
       const glow = new Mesh(
-        new BoxGeometry(1, this.config.weapon.tracer.glowWidth, this.config.weapon.tracer.glowWidth),
+        new BoxGeometry(1, 0.045, 0.045),
         glowMaterial,
       );
-      const tip = new Mesh(new OctahedronGeometry(this.config.weapon.tracer.glowWidth * 0.8, 0), tipMaterial);
+      const tip = new Mesh(new OctahedronGeometry(0.04, 0), tipMaterial);
 
       beam.visible = false;
       glow.visible = false;
@@ -493,8 +549,8 @@ export class ShotgunWeapon {
     }
 
     tracer.active = true;
-    tracer.life = this.config.weapon.tracer.duration;
-    tracer.maxLife = this.config.weapon.tracer.duration;
+    tracer.life = this.config.shotgun.pelletTraceDuration;
+    tracer.maxLife = this.config.shotgun.pelletTraceDuration;
     tracer.group.visible = true;
     tracer.group.position.copy(start).addScaledVector(this.traceDirection, 0.5);
     tracer.group.quaternion.setFromUnitVectors(TRACER_AXIS, this.traceDirection.normalize());
@@ -504,9 +560,9 @@ export class ShotgunWeapon {
     tracer.beam.scale.set(length, 1, 1);
     tracer.glow.scale.set(length, 1, 1);
     tracer.tip.position.set(length * 0.5, 0, 0);
-    (tracer.beam.material as MeshBasicMaterial).opacity = this.config.weapon.tracer.opacity;
-    (tracer.glow.material as MeshBasicMaterial).opacity = this.config.weapon.tracer.opacity * 0.52;
-    (tracer.tip.material as MeshBasicMaterial).opacity = this.config.weapon.tracer.opacity;
+    (tracer.beam.material as MeshBasicMaterial).opacity = 0.72;
+    (tracer.glow.material as MeshBasicMaterial).opacity = 0.42;
+    (tracer.tip.material as MeshBasicMaterial).opacity = 0.65;
   }
 
   private updateTracers(deltaTime: number): void {
@@ -526,9 +582,9 @@ export class ShotgunWeapon {
       }
 
       const alpha = tracer.life / tracer.maxLife;
-      (tracer.beam.material as MeshBasicMaterial).opacity = this.config.weapon.tracer.opacity * alpha;
-      (tracer.glow.material as MeshBasicMaterial).opacity = this.config.weapon.tracer.opacity * 0.5 * alpha;
-      (tracer.tip.material as MeshBasicMaterial).opacity = this.config.weapon.tracer.opacity * alpha;
+      (tracer.beam.material as MeshBasicMaterial).opacity = 0.72 * alpha;
+      (tracer.glow.material as MeshBasicMaterial).opacity = 0.42 * alpha;
+      (tracer.tip.material as MeshBasicMaterial).opacity = 0.65 * alpha;
     }
   }
 
