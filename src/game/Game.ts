@@ -8,6 +8,7 @@ import { LoopingSound } from './audio/LoopingSound';
 import { EnemySystem } from './systems/EnemySystem';
 import { InputSystem } from './systems/InputSystem';
 import { PlayerSystem } from './systems/PlayerSystem';
+import { PickupSystem } from './systems/PickupSystem';
 import { SpawnSystem } from './systems/SpawnSystem';
 import { WeaponSystem } from './systems/WeaponSystem';
 import { WorldSystem } from './systems/WorldSystem';
@@ -21,6 +22,7 @@ export class Game {
   private readonly enemySystem: EnemySystem;
   private readonly spawnSystem: SpawnSystem;
   private readonly worldSystem: WorldSystem;
+  private readonly pickupSystem: PickupSystem;
   private readonly uiSystem: UISystem;
   private readonly gameLoop: GameLoop;
   private readonly engineLoop: LoopingSound;
@@ -40,6 +42,7 @@ export class Game {
     this.rendererSystem.scene.add(this.rendererSystem.camera);
 
     this.worldSystem = new WorldSystem(this.rendererSystem.scene, GAME_CONFIG);
+    this.pickupSystem = new PickupSystem(this.rendererSystem.scene, GAME_CONFIG);
     this.enemySystem = new EnemySystem(this.rendererSystem.scene, GAME_CONFIG);
     this.weaponSystem = new WeaponSystem(this.rendererSystem.camera, GAME_CONFIG);
     this.spawnSystem = new SpawnSystem(GAME_CONFIG);
@@ -89,6 +92,7 @@ export class Game {
     this.weaponSystem.destroy();
     this.enemySystem.destroy();
     this.worldSystem.destroy();
+    this.pickupSystem.destroy();
     this.engineLoop.destroy();
     this.rendererSystem.destroy();
   }
@@ -119,6 +123,16 @@ export class Game {
       );
       if (obstacleDamage > 0) {
         this.playerSystem.applyDamage(obstacleDamage);
+      }
+
+      const pickupEvents = this.pickupSystem.update(
+        deltaTime,
+        this.playerSystem.state.strafeX,
+        this.spawnSystem.elapsedSeconds,
+        this.weaponSystem.hasUnlockedShotgun(),
+      );
+      for (const pickupEvent of pickupEvents) {
+        this.weaponSystem.applyPickup(pickupEvent, this.playerSystem);
       }
 
       if (!this.playerSystem.state.alive) {
@@ -159,6 +173,7 @@ export class Game {
     this.enemySystem.reset();
     this.spawnSystem.reset();
     this.worldSystem.reset();
+    this.pickupSystem.reset();
   }
 
   private setState(nextState: GameStateType): void {

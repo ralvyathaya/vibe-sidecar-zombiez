@@ -12,6 +12,9 @@ export type GameStateType = 'menu' | 'running' | 'paused' | 'dead';
 export type ZombieType = 'walker' | 'runner' | 'tank';
 export type HumanoidZombieType = 'walker' | 'runner' | 'tank';
 export type ZombieLifecycleState = 'inactive' | 'alive' | 'dying';
+export type WeaponKind = 'pistol' | 'shotgun';
+export type AmmoRoundStyle = 'bullet' | 'shell';
+export type PickupType = 'shotgun' | 'shotgunAmmo';
 
 export type Vec3Tuple = [number, number, number];
 
@@ -172,6 +175,37 @@ export interface GameConfig {
       muzzleFlashDuration: number;
     };
   };
+  shotgun: {
+    fireRate: number;
+    maxAmmo: number;
+    range: number;
+    pelletsPerShot: number;
+    damagePerPellet: number;
+    spread: number;
+    cameraKick: number;
+    tracerCount: number;
+    tracerMissLength: number;
+    audio: {
+      gunshotPath: string;
+      gunshotVolume: number;
+    };
+    viewmodel: {
+      assetPath: string;
+      position: Vec3Tuple;
+      rotationDegrees: Vec3Tuple;
+      scale: number;
+      recoilBack: number;
+      recoilLift: number;
+      recoilPitchDegrees: number;
+      recoilRollDegrees: number;
+      recoilRecovery: number;
+      pumpTravel: number;
+      pumpRecovery: number;
+      muzzleOffset: Vec3Tuple;
+      muzzleFlashSize: number;
+      muzzleFlashDuration: number;
+    };
+  };
   enemies: {
     poolSize: number;
     spawnMinZ: number;
@@ -243,6 +277,24 @@ export interface GameConfig {
       dustSize: number;
     };
   };
+  pickups: {
+    unlockTimeSeconds: number;
+    poolSize: number;
+    spawnMinZ: number;
+    spawnMaxZ: number;
+    cleanupZ: number;
+    hitboxDepth: number;
+    shotgunPickupAmmo: number;
+    shotgunPickupSpacingMin: number;
+    shotgunPickupSpacingMax: number;
+    ammoCrateSpacingMin: number;
+    ammoCrateSpacingMax: number;
+    ammoCrateChance: number;
+    ammoCrateMin: number;
+    ammoCrateMax: number;
+    shotgunPickupScale: number;
+    ammoCrateScale: number;
+  };
 }
 
 export interface PlayerState {
@@ -259,11 +311,16 @@ export interface PlayerState {
 }
 
 export interface WeaponStatus {
+  weaponType: WeaponKind;
+  weaponLabel: string;
   ammoInMagazine: number;
   magazineSize: number;
   reloading: boolean;
   reloadProgress: number;
   reserveAmmoText: string;
+  showReserve: boolean;
+  showReloadHint: boolean;
+  roundStyle: AmmoRoundStyle;
   hitConfirm: number;
   crosshairKick: number;
   canReload: boolean;
@@ -321,4 +378,22 @@ export interface ActiveObstacle {
   hasHitPlayer: boolean;
   poolId: number;
   type: 'barricade' | 'concreteBlock' | 'wreck' | 'barrel';
+}
+
+export interface ActivePickup {
+  id: number;
+  mesh: Group;
+  active: boolean;
+  kind: PickupType;
+  lane: number;
+  width: number;
+  depth: number;
+  ammo: number;
+  bobOffset: number;
+  spinSpeed: number;
+}
+
+export interface PickupEvent {
+  type: PickupType;
+  ammo: number;
 }

@@ -224,8 +224,22 @@ export class PistolWeapon {
     this.updatePresentation(deltaTime, this.reloadTimer > 0);
   }
 
+  setEquipped(equipped: boolean): void {
+    this.viewmodelRoot.visible = equipped;
+  }
+
+  cancelReload(player: PlayerSystem): void {
+    player.state.reloading = false;
+    this.reloadTimer = 0;
+    this.reloadElapsed = 0;
+    this.restoreAnimatedNodes();
+    this.applyViewmodelPose(false);
+  }
+
   getStatus(player: PlayerSystem): WeaponStatus {
     return {
+      weaponType: 'pistol',
+      weaponLabel: 'Pistol',
       ammoInMagazine: player.state.ammoInMagazine,
       magazineSize: this.config.weapon.magazineSize,
       reloading: player.state.reloading,
@@ -235,6 +249,9 @@ export class PistolWeapon {
       reserveAmmoText: Number.isFinite(player.state.ammoReserve)
         ? `${player.state.ammoReserve}`
         : '\u221e',
+      showReserve: true,
+      showReloadHint: true,
+      roundStyle: 'bullet',
       hitConfirm: this.hitConfirmTimer,
       crosshairKick: this.fireKick,
       canReload:

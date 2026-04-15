@@ -26,6 +26,9 @@ export class UISystem {
   private readonly healthValue = document.createElement('span');
   private readonly healthState = document.createElement('span');
   private readonly ammoPanel = document.createElement('div');
+  private readonly weaponHeader = document.createElement('div');
+  private readonly weaponIcon = document.createElement('div');
+  private readonly weaponName = document.createElement('span');
   private readonly ammoValue = document.createElement('span');
   private readonly ammoReserve = document.createElement('span');
   private readonly reloadHint = document.createElement('div');
@@ -105,6 +108,11 @@ export class UISystem {
     ammoLabel.className = 'panel-label';
     ammoLabel.textContent = 'Ammo';
 
+    this.weaponHeader.className = 'weapon-header';
+    this.weaponIcon.className = 'weapon-icon';
+    this.weaponName.className = 'weapon-name';
+    this.weaponHeader.append(this.weaponIcon, this.weaponName);
+
     const ammoHeader = document.createElement('div');
     ammoHeader.className = 'ammo-header';
     this.ammoValue.className = 'ammo-value';
@@ -120,7 +128,7 @@ export class UISystem {
       this.ammoRounds.push(round);
     }
 
-    this.ammoPanel.append(ammoLabel, ammoRack, ammoHeader);
+    this.ammoPanel.append(ammoLabel, this.weaponHeader, ammoRack, ammoHeader);
 
     this.reloadHint.className = 'reload-hint';
     this.reloadHintTextBefore.className = 'reload-hint-text';
@@ -204,16 +212,24 @@ export class UISystem {
         ? 'empty'
         : 'ready';
     this.ammoPanel.dataset.state = ammoState;
+    this.ammoPanel.dataset.weapon = snapshot.weapon.weaponType;
     this.ammoValue.dataset.state = ammoState;
     this.ammoReserve.dataset.state = ammoState;
+    this.weaponIcon.dataset.weapon = snapshot.weapon.weaponType;
+    this.weaponName.textContent = snapshot.weapon.weaponLabel;
     this.ammoValue.textContent = `${snapshot.weapon.ammoInMagazine}`;
     this.ammoReserve.textContent = snapshot.weapon.reserveAmmoText;
+    this.ammoReserve.hidden = !snapshot.weapon.showReserve;
 
     for (let index = 0; index < this.ammoRounds.length; index += 1) {
       const round = this.ammoRounds[index];
+      round.hidden = index >= snapshot.weapon.magazineSize;
       round.dataset.loaded = index < snapshot.weapon.ammoInMagazine ? 'true' : 'false';
       round.dataset.state = ammoState;
+      round.dataset.shape = snapshot.weapon.roundStyle;
     }
+
+    this.reloadHint.hidden = !snapshot.weapon.showReloadHint;
 
     this.scoreValue.textContent = `Score ${snapshot.player.score}`;
     this.distanceValue.textContent = `Distance ${formatDistance(snapshot.player.distance)}`;
