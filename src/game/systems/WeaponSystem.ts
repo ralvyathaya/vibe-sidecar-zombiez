@@ -38,7 +38,7 @@ export class WeaponSystem {
   ): void {
     if (this.activeWeapon === 'shotgun') {
       this.shotgunWeapon.updateRunning(deltaTime, input, player, enemies, world);
-      if (this.shotgunWeapon.getAmmo() <= 0) {
+      if (this.shotgunWeapon.getAmmo() <= 0 && !this.shotgunWeapon.isCycling()) {
         this.equipPistol(player);
       }
       return;

@@ -12,6 +12,7 @@ export class PlayerSystem {
   private pitch = 0;
   private recoilPitch = 0;
   private hurtRoll = 0;
+  private engineTurnAmount = 0;
 
   constructor(
     private readonly camera: PerspectiveCamera,
@@ -27,15 +28,17 @@ export class PlayerSystem {
     this.pitch = 0;
     this.recoilPitch = 0;
     this.hurtRoll = 0;
+    this.engineTurnAmount = 0;
     this.applyCameraTransform(0);
   }
 
   updateRunning(deltaTime: number, input: InputSystem): void {
     const moveAxis = input.getStrafeAxis();
     this.lookDelta.copy(input.consumeLookDelta(this.lookDelta));
+    const yawStep = this.lookDelta.x * this.config.player.mouseSensitivity;
 
     this.yaw = clamp(
-      this.yaw - this.lookDelta.x * this.config.player.mouseSensitivity,
+      this.yaw - yawStep,
       -this.config.player.maxYaw,
       this.config.player.maxYaw,
     );
@@ -58,6 +61,13 @@ export class PlayerSystem {
       this.config.weapon.recoilRecovery * deltaTime,
     );
     this.hurtRoll = approach(this.hurtRoll, 0, deltaTime * 4.2);
+    const yawVelocity = Math.abs(yawStep) / Math.max(deltaTime, 1 / 120);
+    const normalizedYaw = clamp(yawVelocity / 1.4, 0, 1);
+    this.engineTurnAmount = clamp(
+      Math.max(Math.abs(moveAxis), normalizedYaw * 0.65),
+      0,
+      1,
+    );
     this.applyCameraTransform(moveAxis);
   }
 
@@ -69,6 +79,7 @@ export class PlayerSystem {
       this.config.weapon.recoilRecovery * deltaTime,
     );
     this.hurtRoll = approach(this.hurtRoll, 0, deltaTime * 3.5);
+    this.engineTurnAmount = approach(this.engineTurnAmount, 0, deltaTime * 8);
     this.applyCameraTransform(0);
   }
 
@@ -105,6 +116,10 @@ export class PlayerSystem {
       target.set(0, 0, -1);
     }
     return target.normalize();
+  }
+
+  getEngineTurnAmount(): number {
+    return this.engineTurnAmount;
   }
 
   private applyCameraTransform(moveAxis: number): void {

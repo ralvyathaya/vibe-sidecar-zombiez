@@ -24,10 +24,15 @@ export const GAME_CONFIG: GameConfig = {
   },
   vehicle: {
     engineAudioPath: '/audio/vehicle/engine-sound.ogg',
-    engineVolume: 0.22,
+    engineVolume: 0.14,
     enginePlaybackRate: 1.02,
     engineHighpassHz: 90,
     engineLowpassHz: 2600,
+    turnVolume: 0.18,
+    turnPlaybackRate: 0.99,
+    turnLowpassHz: 1650,
+    turnEnterSmoothing: 0.12,
+    turnReleaseSmoothing: 0.18,
   },
   weapon: {
     fireRate: 7.5,
@@ -90,8 +95,10 @@ export const GAME_CONFIG: GameConfig = {
     pelletTraceMaxLength: 8.5,
     pelletTraceDuration: 0.045,
     audio: {
-      gunshotPath: '/audio/weapons/9mm-gunshot.ogg',
-      gunshotVolume: 0.18,
+      gunshotPath: '/audio/weapons/shotgun-shot.ogg',
+      delayPath: '/audio/weapons/shotgun-delay.ogg',
+      gunshotVolume: 0.24,
+      delayVolume: 0.2,
     },
     viewmodel: {
       assetPath: '/models/weapons/shotgun-web.glb',

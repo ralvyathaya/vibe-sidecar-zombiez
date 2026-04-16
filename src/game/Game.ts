@@ -5,6 +5,7 @@ import { RendererSystem } from '../core/Renderer';
 import type { GameStateType } from '../core/types';
 import { UISystem } from '../ui/UISystem';
 import { LoopingSound } from './audio/LoopingSound';
+import { SoundEffectPool } from './audio/SoundEffectPool';
 import { EnemySystem } from './systems/EnemySystem';
 import { InputSystem } from './systems/InputSystem';
 import { PlayerSystem } from './systems/PlayerSystem';
@@ -52,6 +53,11 @@ export class Game {
       playbackRate: GAME_CONFIG.vehicle.enginePlaybackRate,
       highpassHz: GAME_CONFIG.vehicle.engineHighpassHz,
       lowpassHz: GAME_CONFIG.vehicle.engineLowpassHz,
+      turnVolume: GAME_CONFIG.vehicle.turnVolume,
+      turnPlaybackRate: GAME_CONFIG.vehicle.turnPlaybackRate,
+      turnLowpassHz: GAME_CONFIG.vehicle.turnLowpassHz,
+      turnEnterSmoothing: GAME_CONFIG.vehicle.turnEnterSmoothing,
+      turnReleaseSmoothing: GAME_CONFIG.vehicle.turnReleaseSmoothing,
     });
     this.gameLoop = new GameLoop(
       (deltaTime) => this.update(deltaTime),
@@ -73,6 +79,7 @@ export class Game {
         this.resetGame();
       }
 
+      SoundEffectPool.unlockAudio();
       this.inputSystem.clearTransientInput();
       this.setState('running');
       this.inputSystem.requestPointerLock();
@@ -100,6 +107,7 @@ export class Game {
   private update(deltaTime: number): void {
     if (this.state === 'running') {
       this.playerSystem.updateRunning(deltaTime, this.inputSystem);
+      this.engineLoop.setTurnAmount(this.playerSystem.getEngineTurnAmount());
       this.spawnSystem.update(deltaTime, this.enemySystem);
       this.enemySystem.update(
         deltaTime,
@@ -140,6 +148,7 @@ export class Game {
       }
     } else {
       this.playerSystem.updateIdle(deltaTime);
+      this.engineLoop.setTurnAmount(0);
       this.weaponSystem.updateIdle(deltaTime);
     }
 
@@ -185,6 +194,7 @@ export class Game {
         GAME_CONFIG.vehicle.enginePlaybackRate,
       );
     } else {
+      this.engineLoop.setTurnAmount(0);
       this.engineLoop.pause();
     }
   }

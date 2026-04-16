@@ -121,6 +121,9 @@ export class EnemySystem {
       poolSize: 2,
       volume: this.config.enemies.audio.approachVolume,
     });
+    this.normalDeathSound.prime();
+    this.tankDeathSound.prime();
+    this.approachSound.prime();
 
     for (let index = 0; index < this.config.enemies.poolSize; index += 1) {
       const zombie = this.createZombie(index);

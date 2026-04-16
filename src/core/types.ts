@@ -127,6 +127,11 @@ export interface GameConfig {
     enginePlaybackRate: number;
     engineHighpassHz: number;
     engineLowpassHz: number;
+    turnVolume: number;
+    turnPlaybackRate: number;
+    turnLowpassHz: number;
+    turnEnterSmoothing: number;
+    turnReleaseSmoothing: number;
   };
   weapon: {
     fireRate: number;
@@ -190,7 +195,9 @@ export interface GameConfig {
     pelletTraceDuration: number;
     audio: {
       gunshotPath: string;
+      delayPath: string;
       gunshotVolume: number;
+      delayVolume: number;
     };
     viewmodel: {
       assetPath: string;

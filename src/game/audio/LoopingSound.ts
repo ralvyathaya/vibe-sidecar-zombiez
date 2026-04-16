@@ -3,6 +3,11 @@ type LoopingSoundOptions = {
   playbackRate?: number;
   highpassHz?: number;
   lowpassHz?: number;
+  turnVolume?: number;
+  turnPlaybackRate?: number;
+  turnLowpassHz?: number;
+  turnEnterSmoothing?: number;
+  turnReleaseSmoothing?: number;
 };
 
 type LoopWindow = {
@@ -15,6 +20,11 @@ export class LoopingSound {
   private readonly defaultPlaybackRate: number;
   private readonly highpassHz: number;
   private readonly lowpassHz: number;
+  private readonly turnVolume: number;
+  private readonly turnPlaybackRate: number;
+  private readonly turnLowpassHz: number;
+  private readonly turnEnterSmoothing: number;
+  private readonly turnReleaseSmoothing: number;
 
   private context: AudioContext | null = null;
   private gainNode: GainNode | null = null;
@@ -24,8 +34,11 @@ export class LoopingSound {
   private bufferPromise: Promise<AudioBuffer> | null = null;
   private loopWindow: LoopWindow | null = null;
   private desiredPlaying = false;
+  private baseVolume: number;
+  private basePlaybackRate: number;
   private currentVolume: number;
   private currentPlaybackRate: number;
+  private currentTurnAmount = 0;
 
   constructor(
     private readonly source: string,
@@ -35,6 +48,13 @@ export class LoopingSound {
     this.defaultPlaybackRate = options.playbackRate ?? 1;
     this.highpassHz = options.highpassHz ?? 0;
     this.lowpassHz = options.lowpassHz ?? 0;
+    this.turnVolume = options.turnVolume ?? this.defaultVolume;
+    this.turnPlaybackRate = options.turnPlaybackRate ?? this.defaultPlaybackRate;
+    this.turnLowpassHz = options.turnLowpassHz ?? this.lowpassHz;
+    this.turnEnterSmoothing = options.turnEnterSmoothing ?? 0.12;
+    this.turnReleaseSmoothing = options.turnReleaseSmoothing ?? 0.18;
+    this.baseVolume = this.defaultVolume;
+    this.basePlaybackRate = this.defaultPlaybackRate;
     this.currentVolume = this.defaultVolume;
     this.currentPlaybackRate = this.defaultPlaybackRate;
   }
@@ -44,13 +64,44 @@ export class LoopingSound {
     playbackRate = this.defaultPlaybackRate,
   ): void {
     this.desiredPlaying = true;
-    this.currentVolume = volume;
-    this.currentPlaybackRate = playbackRate;
+    this.baseVolume = volume;
+    this.basePlaybackRate = playbackRate;
+    this.currentVolume = this.lerp(this.baseVolume, this.turnVolume, this.currentTurnAmount);
+    this.currentPlaybackRate = this.lerp(
+      this.basePlaybackRate,
+      this.turnPlaybackRate,
+      this.currentTurnAmount,
+    );
     void this.ensurePlaying();
+  }
+
+  setTurnAmount(turnAmount: number): void {
+    const clampedTurnAmount = Math.max(0, Math.min(1, turnAmount));
+    const smoothing =
+      clampedTurnAmount > this.currentTurnAmount
+        ? this.turnEnterSmoothing
+        : this.turnReleaseSmoothing;
+
+    this.currentTurnAmount = clampedTurnAmount;
+    this.currentVolume = this.lerp(this.baseVolume, this.turnVolume, clampedTurnAmount);
+    this.currentPlaybackRate = this.lerp(
+      this.basePlaybackRate,
+      this.turnPlaybackRate,
+      clampedTurnAmount,
+    );
+
+    if (!this.context) {
+      return;
+    }
+
+    this.applyTargets(smoothing);
   }
 
   pause(): void {
     this.desiredPlaying = false;
+    this.currentTurnAmount = 0;
+    this.currentVolume = this.baseVolume;
+    this.currentPlaybackRate = this.basePlaybackRate;
     if (!this.context) {
       return;
     }
@@ -106,10 +157,7 @@ export class LoopingSound {
       this.startSource(buffer);
     }
 
-    const now = context.currentTime;
-    this.gainNode?.gain.cancelScheduledValues(now);
-    this.gainNode?.gain.setTargetAtTime(this.currentVolume, now, 0.02);
-    this.sourceNode?.playbackRate.setTargetAtTime(this.currentPlaybackRate, now, 0.03);
+    this.applyTargets(0.03);
   }
 
   private ensureContext(): AudioContext {
@@ -221,6 +269,32 @@ export class LoopingSound {
     };
     sourceNode.start(0, this.loopWindow?.start ?? 0);
     this.sourceNode = sourceNode;
+  }
+
+  private applyTargets(smoothing: number): void {
+    if (!this.context) {
+      return;
+    }
+
+    const now = this.context.currentTime;
+    this.gainNode?.gain.cancelScheduledValues(now);
+    this.gainNode?.gain.setTargetAtTime(this.currentVolume, now, smoothing);
+    this.sourceNode?.playbackRate.cancelScheduledValues(now);
+    this.sourceNode?.playbackRate.setTargetAtTime(this.currentPlaybackRate, now, smoothing);
+
+    if (this.lowpassNode) {
+      const lowpassTarget = this.lerp(
+        this.lowpassHz,
+        this.turnLowpassHz,
+        this.currentTurnAmount,
+      );
+      this.lowpassNode.frequency.cancelScheduledValues(now);
+      this.lowpassNode.frequency.setTargetAtTime(lowpassTarget, now, smoothing);
+    }
+  }
+
+  private lerp(start: number, end: number, amount: number): number {
+    return start + (end - start) * amount;
   }
 
   private stopSource(): void {

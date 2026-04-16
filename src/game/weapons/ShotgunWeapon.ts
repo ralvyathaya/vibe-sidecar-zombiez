@@ -76,10 +76,12 @@ export class ShotgunWeapon {
   private readonly viewmodelKeyLight = new PointLight(0xffcd99, 0.14, 2.4, 2);
   private readonly viewmodelFillLight = new PointLight(0xdccfbd, 0.02, 1.6, 2);
   private readonly gunshotSound: SoundEffectPool;
+  private readonly delaySound: SoundEffectPool;
   private readonly basePosition: Vector3;
   private readonly baseRotation = new Vector3();
 
   private loadedScene: Object3D | null = null;
+  private delayTimingProbe: HTMLAudioElement | null = null;
   private cooldown = 0;
   private ammo = 0;
   private muzzleFlashTimer = 0;
@@ -88,6 +90,10 @@ export class ShotgunWeapon {
   private pumpOffset = 0;
   private pumpDelayTimer = 0;
   private spinTimer = 0;
+  private resolvedSpinDuration = 0;
+  private activeSpinDuration = 0;
+  private cycleActive = false;
+  private pendingDelaySound = false;
 
   constructor(
     private readonly camera: Camera,
@@ -104,6 +110,14 @@ export class ShotgunWeapon {
       poolSize: 3,
       volume: this.config.shotgun.audio.gunshotVolume,
     });
+    this.delaySound = new SoundEffectPool(this.config.shotgun.audio.delayPath, {
+      poolSize: 3,
+      volume: this.config.shotgun.audio.delayVolume,
+    });
+    this.gunshotSound.prime();
+    this.delaySound.prime();
+    this.resolvedSpinDuration = this.config.shotgun.viewmodel.spinDuration;
+    this.activeSpinDuration = this.config.shotgun.viewmodel.spinDuration;
 
     this.viewmodelRoot.name = 'ShotgunViewmodel';
     this.contentRoot.name = 'ShotgunContentRoot';
@@ -130,6 +144,7 @@ export class ShotgunWeapon {
     this.createTracerPool();
     this.applyViewmodelPose();
     this.setEquipped(false);
+    this.preloadDelayTiming();
     void this.loadViewmodel();
   }
 
@@ -142,15 +157,34 @@ export class ShotgunWeapon {
     this.pumpOffset = 0;
     this.pumpDelayTimer = 0;
     this.spinTimer = 0;
+    this.activeSpinDuration = this.resolvedSpinDuration;
+    this.cycleActive = false;
+    this.pendingDelaySound = false;
     this.muzzleFlash.visible = false;
     this.muzzleLight.intensity = 0;
     this.resetTracers();
     this.gunshotSound.stopAll();
+    this.delaySound.stopAll();
     this.applyViewmodelPose();
   }
 
   setEquipped(equipped: boolean): void {
     this.viewmodelRoot.visible = equipped;
+    if (equipped) {
+      return;
+    }
+
+    this.cooldown = 0;
+    this.delaySound.stopAll();
+    this.muzzleFlash.visible = false;
+    this.muzzleLight.intensity = 0;
+    this.pumpOffset = 0;
+    this.pumpDelayTimer = 0;
+    this.spinTimer = 0;
+    this.activeSpinDuration = this.resolvedSpinDuration;
+    this.cycleActive = false;
+    this.pendingDelaySound = false;
+    this.applyViewmodelPose();
   }
 
   setAmmo(ammo: number): number {
@@ -166,6 +200,10 @@ export class ShotgunWeapon {
     return this.ammo;
   }
 
+  isCycling(): boolean {
+    return this.cycleActive || this.pendingDelaySound || this.pumpDelayTimer > 0 || this.spinTimer > 0;
+  }
+
   updateRunning(
     deltaTime: number,
     input: InputSystem,
@@ -177,7 +215,12 @@ export class ShotgunWeapon {
     this.hitConfirmTimer = Math.max(0, this.hitConfirmTimer - deltaTime);
     input.consumeReloadPressed();
 
-    if (input.isFireHeld() && this.cooldown <= 0 && this.ammo > 0) {
+    if (
+      input.isFireHeld() &&
+      this.cooldown <= 0 &&
+      this.ammo > 0 &&
+      !this.isCycling()
+    ) {
       this.fire(player, enemies, world);
     }
 
@@ -219,6 +262,8 @@ export class ShotgunWeapon {
     this.muzzleFlashCoreMaterial.dispose();
     this.muzzleFlashStreakMaterial.dispose();
     this.gunshotSound.destroy();
+    this.delaySound.destroy();
+    this.disposeDelayTimingProbe();
   }
 
   private async loadViewmodel(): Promise<void> {
@@ -304,8 +349,11 @@ export class ShotgunWeapon {
   }
 
   private fire(player: PlayerSystem, enemies: EnemySystem, world: WorldSystem): void {
-    this.cooldown = 1 / this.config.shotgun.fireRate;
+    this.activeSpinDuration = this.resolvedSpinDuration;
+    this.cooldown = this.getCycleDuration();
     this.ammo = Math.max(0, this.ammo - 1);
+    this.cycleActive = true;
+    this.pendingDelaySound = true;
     this.muzzleFlashTimer = this.config.shotgun.viewmodel.muzzleFlashDuration;
     this.muzzleFlash.visible = true;
     this.fireKick = 1;
@@ -315,7 +363,7 @@ export class ShotgunWeapon {
     player.applyRecoil(this.config.shotgun.cameraKick);
     this.gunshotSound.play(
       this.config.shotgun.audio.gunshotVolume,
-      randomRange(0.76, 0.84),
+      1,
     );
     this.randomizeMuzzleFlash();
     this.muzzleAnchor.getWorldPosition(this.muzzleWorld);
@@ -408,8 +456,13 @@ export class ShotgunWeapon {
     if (this.pumpDelayTimer > 0) {
       this.pumpDelayTimer = Math.max(0, this.pumpDelayTimer - deltaTime);
       this.pumpOffset = 1;
-      if (this.pumpDelayTimer <= 0) {
-        this.spinTimer = this.config.shotgun.viewmodel.spinDuration;
+      if (this.pumpDelayTimer <= 0 && this.pendingDelaySound) {
+        this.spinTimer = this.activeSpinDuration;
+        this.pendingDelaySound = false;
+        this.delaySound.play(
+          this.config.shotgun.audio.delayVolume,
+          1,
+        );
       }
     } else {
       this.pumpOffset = approach(
@@ -421,6 +474,15 @@ export class ShotgunWeapon {
 
     if (this.spinTimer > 0) {
       this.spinTimer = Math.max(0, this.spinTimer - deltaTime);
+    }
+
+    if (
+      this.cycleActive &&
+      !this.pendingDelaySound &&
+      this.pumpDelayTimer <= 0 &&
+      this.spinTimer <= 0
+    ) {
+      this.cycleActive = false;
     }
 
     if (this.muzzleFlashTimer > 0) {
@@ -438,14 +500,66 @@ export class ShotgunWeapon {
     this.applyViewmodelPose();
   }
 
+  private preloadDelayTiming(): void {
+    if (this.delayTimingProbe) {
+      return;
+    }
+
+    const probe = new Audio();
+    probe.preload = 'metadata';
+    probe.crossOrigin = 'anonymous';
+    this.delayTimingProbe = probe;
+
+    const cleanup = () => {
+      probe.removeEventListener('loadedmetadata', handleMetadata);
+      probe.removeEventListener('error', handleError);
+      if (this.delayTimingProbe === probe) {
+        this.delayTimingProbe = null;
+      }
+    };
+
+    const handleMetadata = () => {
+      if (Number.isFinite(probe.duration) && probe.duration > 0) {
+        this.resolvedSpinDuration = clamp(probe.duration, 0.32, 0.6);
+        if (this.pumpDelayTimer <= 0 && this.spinTimer <= 0) {
+          this.activeSpinDuration = this.resolvedSpinDuration;
+        }
+      }
+      cleanup();
+    };
+
+    const handleError = () => {
+      cleanup();
+    };
+
+    probe.addEventListener('loadedmetadata', handleMetadata);
+    probe.addEventListener('error', handleError);
+    probe.src = this.config.shotgun.audio.delayPath;
+    probe.load();
+  }
+
+  private disposeDelayTimingProbe(): void {
+    if (!this.delayTimingProbe) {
+      return;
+    }
+
+    this.delayTimingProbe.removeAttribute('src');
+    this.delayTimingProbe.load();
+    this.delayTimingProbe = null;
+  }
+
+  private getCycleDuration(): number {
+    return this.config.shotgun.viewmodel.pumpDelay + this.activeSpinDuration;
+  }
+
   private applyViewmodelPose(): void {
     const recoilBack = this.config.shotgun.viewmodel.recoilBack * this.fireKick;
     const recoilLift = this.config.shotgun.viewmodel.recoilLift * this.fireKick;
     const recoilPitch = MathUtils.degToRad(this.config.shotgun.viewmodel.recoilPitchDegrees) * this.fireKick;
     const recoilRoll = MathUtils.degToRad(this.config.shotgun.viewmodel.recoilRollDegrees) * this.fireKick;
     const spinProgress =
-      this.spinTimer > 0
-        ? 1 - this.spinTimer / this.config.shotgun.viewmodel.spinDuration
+      this.spinTimer > 0 && this.activeSpinDuration > 0
+        ? 1 - this.spinTimer / this.activeSpinDuration
         : 0;
     const easedSpin = MathUtils.smootherstep(spinProgress, 0, 1);
     const spinRoll = Math.PI * 2 * this.config.shotgun.viewmodel.spinTurns * easedSpin;
