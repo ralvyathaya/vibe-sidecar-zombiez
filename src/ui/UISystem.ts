@@ -43,6 +43,13 @@ export class UISystem {
   private readonly radarContactLayer = document.createElement('div');
   private readonly radarCaret = document.createElement('div');
   private readonly crosshair = document.createElement('div');
+  private readonly crosshairLeft = document.createElement('span');
+  private readonly crosshairRight = document.createElement('span');
+  private readonly crosshairTop = document.createElement('span');
+  private readonly crosshairBottom = document.createElement('span');
+  private readonly crosshairDot = document.createElement('span');
+  private readonly crosshairBracketLeft = document.createElement('span');
+  private readonly crosshairBracketRight = document.createElement('span');
   private readonly vignette = document.createElement('div');
   private readonly ammoRounds: HTMLSpanElement[] = [];
   private readonly radarDots: HTMLSpanElement[] = [];
@@ -145,6 +152,22 @@ export class UISystem {
     hud.append(hudTop, hudMiddle, hudBottom);
 
     this.crosshair.className = 'crosshair';
+    this.crosshairLeft.className = 'crosshair-line crosshair-line--left';
+    this.crosshairRight.className = 'crosshair-line crosshair-line--right';
+    this.crosshairTop.className = 'crosshair-line crosshair-line--top';
+    this.crosshairBottom.className = 'crosshair-line crosshair-line--bottom';
+    this.crosshairDot.className = 'crosshair-dot';
+    this.crosshairBracketLeft.className = 'crosshair-bracket crosshair-bracket--left';
+    this.crosshairBracketRight.className = 'crosshair-bracket crosshair-bracket--right';
+    this.crosshair.append(
+      this.crosshairLeft,
+      this.crosshairRight,
+      this.crosshairTop,
+      this.crosshairBottom,
+      this.crosshairDot,
+      this.crosshairBracketLeft,
+      this.crosshairBracketRight,
+    );
     this.vignette.className = 'damage-vignette';
 
     this.overlay.className = 'overlay';
@@ -253,12 +276,25 @@ export class UISystem {
     }
 
     this.crosshair.dataset.hit = snapshot.weapon.hitConfirm > 0 ? 'true' : 'false';
+    this.crosshair.dataset.style = snapshot.weapon.crosshairStyle;
     this.crosshair.style.setProperty(
-      '--crosshair-spread',
-      `${(snapshot.weapon.crosshairKick * 6).toFixed(2)}px`,
+      '--crosshair-gap',
+      `${snapshot.weapon.crosshairGap.toFixed(2)}px`,
+    );
+    this.crosshair.style.setProperty(
+      '--crosshair-arm-length',
+      `${(snapshot.weapon.crosshairStyle === 'pistol' ? 7.5 + snapshot.weapon.crosshairKick * 1.3 : 0).toFixed(2)}px`,
+    );
+    this.crosshair.style.setProperty(
+      '--crosshair-bracket-width',
+      `${(8 + snapshot.weapon.crosshairGap * 0.16).toFixed(2)}px`,
+    );
+    this.crosshair.style.setProperty(
+      '--crosshair-bracket-height',
+      `${(18 + snapshot.weapon.crosshairGap * 0.7).toFixed(2)}px`,
     );
     this.crosshair.style.transform = `translate(-50%, -50%) scale(${(
-      1 + snapshot.weapon.crosshairKick * 0.035
+      1 + snapshot.weapon.crosshairKick * (snapshot.weapon.crosshairStyle === 'shotgun' ? 0.04 : 0.022)
     ).toFixed(3)})`;
     this.vignette.style.opacity = `${(snapshot.player.hitFlash * 0.55).toFixed(2)}`;
     this.root.dataset.state = snapshot.gameState;

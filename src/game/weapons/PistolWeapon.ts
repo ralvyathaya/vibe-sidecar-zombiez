@@ -253,6 +253,8 @@ export class PistolWeapon {
       showReloadHint: true,
       roundStyle: 'bullet',
       hitConfirm: this.hitConfirmTimer,
+      crosshairStyle: 'pistol',
+      crosshairGap: 5.2 + this.fireKick * 1.6 + this.dryFireTimer * 2.4,
       crosshairKick: this.fireKick,
       canReload:
         !player.state.reloading &&

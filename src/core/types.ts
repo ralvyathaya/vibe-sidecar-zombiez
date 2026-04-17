@@ -15,6 +15,7 @@ export type ZombieLifecycleState = 'inactive' | 'alive' | 'dying';
 export type WeaponKind = 'pistol' | 'shotgun';
 export type AmmoRoundStyle = 'bullet' | 'shell';
 export type PickupType = 'shotgun' | 'shotgunAmmo';
+export type CrosshairStyle = 'pistol' | 'shotgun';
 
 export type Vec3Tuple = [number, number, number];
 
@@ -188,6 +189,7 @@ export interface GameConfig {
     pelletsPerShot: number;
     damagePerPellet: number;
     spread: number;
+    spreadKick: number;
     cameraKick: number;
     pelletVisualCount: number;
     pelletTraceMinLength: number;
@@ -347,6 +349,8 @@ export interface WeaponStatus {
   showReloadHint: boolean;
   roundStyle: AmmoRoundStyle;
   hitConfirm: number;
+  crosshairStyle: CrosshairStyle;
+  crosshairGap: number;
   crosshairKick: number;
   canReload: boolean;
 }

@@ -247,6 +247,8 @@ export class ShotgunWeapon {
       showReloadHint: false,
       roundStyle: 'shell',
       hitConfirm: this.hitConfirmTimer,
+      crosshairStyle: 'shotgun',
+      crosshairGap: this.getCrosshairGap(),
       crosshairKick: this.fireKick,
       canReload: false,
     };
@@ -349,6 +351,7 @@ export class ShotgunWeapon {
   }
 
   private fire(player: PlayerSystem, enemies: EnemySystem, world: WorldSystem): void {
+    const shotSpread = this.getCurrentSpread();
     this.activeSpinDuration = this.resolvedSpinDuration;
     this.cooldown = this.getCycleDuration();
     this.ammo = Math.max(0, this.ammo - 1);
@@ -374,10 +377,7 @@ export class ShotgunWeapon {
       if (pelletIndex === 0) {
         this.spreadCrosshair.set(0, 0);
       } else {
-        this.spreadCrosshair.set(
-          randomRange(-1, 1) * this.config.shotgun.spread,
-          randomRange(-1, 1) * this.config.shotgun.spread,
-        );
+        this.setPelletSpreadOffset(shotSpread);
       }
 
       const hitZombie = enemies.raycast(this.camera, this.spreadCrosshair, this.config.shotgun.range);
@@ -550,6 +550,25 @@ export class ShotgunWeapon {
 
   private getCycleDuration(): number {
     return this.config.shotgun.viewmodel.pumpDelay + this.activeSpinDuration;
+  }
+
+  // The shotgun UI bracket width is derived from the same spread value used by pellets,
+  // so crosshair tuning and gameplay spread stay visually honest.
+  private getCurrentSpread(): number {
+    return this.config.shotgun.spread + this.fireKick * this.config.shotgun.spreadKick;
+  }
+
+  private getCrosshairGap(): number {
+    return clamp(14 + this.getCurrentSpread() * 780, 18, 32);
+  }
+
+  private setPelletSpreadOffset(spread: number): void {
+    const angle = randomRange(0, Math.PI * 2);
+    const radius = Math.sqrt(Math.random()) * spread;
+    this.spreadCrosshair.set(
+      Math.cos(angle) * radius,
+      Math.sin(angle) * radius,
+    );
   }
 
   private applyViewmodelPose(): void {

@@ -499,38 +499,112 @@ body {
 
 .crosshair {
   position: absolute;
-  --crosshair-spread: 0px;
+  --crosshair-gap: 6px;
+  --crosshair-arm-length: 8px;
+  --crosshair-bracket-width: 10px;
+  --crosshair-bracket-height: 28px;
   left: 50%;
   top: 50%;
-  width: 28px;
-  height: 28px;
+  width: 0;
+  height: 0;
   transform: translate(-50%, -50%);
-  color: rgba(255, 239, 213, 0.86);
-  filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.18));
+  color: rgba(255, 239, 213, 0.84);
+  filter: drop-shadow(0 0 8px rgba(255, 248, 234, 0.14));
 }
 
-.crosshair::before,
-.crosshair::after {
-  content: "";
+.crosshair-line,
+.crosshair-dot,
+.crosshair-bracket {
   position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.crosshair-line,
+.crosshair-dot {
   background: currentColor;
   border-radius: 999px;
+  opacity: 1;
 }
 
-.crosshair::before {
-  width: 2px;
-  height: calc(18px + var(--crosshair-spread));
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-}
-
-.crosshair::after {
-  width: calc(18px + var(--crosshair-spread));
+.crosshair-line--left,
+.crosshair-line--right {
+  width: var(--crosshair-arm-length);
   height: 2px;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
+}
+
+.crosshair-line--top,
+.crosshair-line--bottom {
+  width: 2px;
+  height: var(--crosshair-arm-length);
+}
+
+.crosshair-line--left {
+  left: calc(50% - var(--crosshair-gap) - var(--crosshair-arm-length) * 0.5);
+}
+
+.crosshair-line--right {
+  left: calc(50% + var(--crosshair-gap) + var(--crosshair-arm-length) * 0.5);
+}
+
+.crosshair-line--top {
+  top: calc(50% - var(--crosshair-gap) - var(--crosshair-arm-length) * 0.5);
+}
+
+.crosshair-line--bottom {
+  top: calc(50% + var(--crosshair-gap) + var(--crosshair-arm-length) * 0.5);
+}
+
+.crosshair-dot {
+  width: 2px;
+  height: 2px;
+}
+
+.crosshair-bracket {
+  width: var(--crosshair-bracket-width);
+  height: var(--crosshair-bracket-height);
+  border-top: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  opacity: 0;
+}
+
+.crosshair-bracket--left {
+  left: calc(50% - var(--crosshair-gap) - var(--crosshair-bracket-width) * 0.5 - 3px);
+  border-left: 2px solid currentColor;
+  border-right: 0;
+  border-radius: 999px 0 0 999px;
+}
+
+.crosshair-bracket--right {
+  left: calc(50% + var(--crosshair-gap) + var(--crosshair-bracket-width) * 0.5 + 3px);
+  border-right: 2px solid currentColor;
+  border-left: 0;
+  border-radius: 0 999px 999px 0;
+}
+
+.crosshair[data-style="pistol"] {
+  color: #67ef87;
+  filter: drop-shadow(0 0 8px rgba(70, 219, 118, 0.18));
+}
+
+.crosshair[data-style="shotgun"] {
+  color: rgba(255, 239, 213, 0.88);
+  filter: drop-shadow(0 0 10px rgba(255, 224, 182, 0.18));
+}
+
+.crosshair[data-style="shotgun"] .crosshair-line,
+.crosshair[data-style="shotgun"] .crosshair-dot {
+  opacity: 0;
+}
+
+.crosshair[data-style="shotgun"] .crosshair-bracket {
+  opacity: 1;
+}
+
+.crosshair[data-style="pistol"] .crosshair-bracket {
+  opacity: 0;
 }
 
 .crosshair[data-hit="true"] {
