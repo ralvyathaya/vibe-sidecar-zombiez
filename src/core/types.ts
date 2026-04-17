@@ -203,6 +203,7 @@ export interface GameConfig {
     };
     viewmodel: {
       assetPath: string;
+      muzzleFlashSpritePath: string;
       position: Vec3Tuple;
       rotationDegrees: Vec3Tuple;
       scale: number;
