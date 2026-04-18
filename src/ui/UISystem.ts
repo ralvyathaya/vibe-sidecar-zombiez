@@ -2,6 +2,7 @@ import type {
   GameStateType,
   PlayerState,
   RadarContact,
+  RewardState,
   WeaponStatus,
 } from '../core/types';
 import { formatDistance } from '../core/utils';
@@ -10,6 +11,7 @@ type HUDSnapshot = {
   gameState: GameStateType;
   player: PlayerState;
   weapon: WeaponStatus;
+  reward: RewardState;
   elapsedSeconds: number;
   radarContacts: RadarContact[];
 };
@@ -21,6 +23,8 @@ export class UISystem {
   private readonly overlay = document.createElement('div');
   private readonly overlayTitle = document.createElement('h1');
   private readonly overlayText = document.createElement('p');
+  private readonly overlayMeta = document.createElement('div');
+  private readonly overlayBreakdown = document.createElement('div');
   private readonly overlayButton = document.createElement('button');
   private readonly healthFill = document.createElement('div');
   private readonly healthValue = document.createElement('span');
@@ -36,8 +40,13 @@ export class UISystem {
   private readonly reloadKey = document.createElement('span');
   private readonly reloadLabel = document.createElement('span');
   private readonly scoreValue = document.createElement('span');
+  private readonly multiplierValue = document.createElement('span');
+  private readonly chainPanel = document.createElement('div');
+  private readonly chainFill = document.createElement('div');
+  private readonly chainLabel = document.createElement('span');
   private readonly distanceValue = document.createElement('span');
   private readonly timerValue = document.createElement('span');
+  private readonly rewardCallout = document.createElement('div');
   private readonly radarPanel = document.createElement('div');
   private readonly radarTrack = document.createElement('div');
   private readonly radarContactLayer = document.createElement('div');
@@ -87,9 +96,20 @@ export class UISystem {
     const statsPanel = document.createElement('div');
     statsPanel.className = 'stats-panel stats-panel--side';
     this.scoreValue.className = 'stat-chip';
+    this.multiplierValue.className = 'stat-chip stat-chip--reward';
+    this.chainPanel.className = 'chain-panel';
+    this.chainFill.className = 'chain-fill';
+    this.chainLabel.className = 'chain-label';
+    this.chainPanel.append(this.chainFill, this.chainLabel);
     this.distanceValue.className = 'stat-chip';
     this.timerValue.className = 'stat-chip';
-    statsPanel.append(this.scoreValue, this.distanceValue, this.timerValue);
+    statsPanel.append(
+      this.scoreValue,
+      this.multiplierValue,
+      this.chainPanel,
+      this.distanceValue,
+      this.timerValue,
+    );
 
     const leftPanel = document.createElement('div');
     leftPanel.className = 'hud-panel hud-panel--health';
@@ -145,6 +165,7 @@ export class UISystem {
     this.reloadLabel.className = 'reload-label';
     this.reloadLabel.textContent = 'to reload';
     this.reloadHint.append(this.reloadHintTextBefore, this.reloadKey, this.reloadLabel);
+    this.rewardCallout.className = 'reward-callout';
 
     hudTop.append(this.radarPanel);
     hudMiddle.append(statsPanel);
@@ -173,13 +194,28 @@ export class UISystem {
     this.overlay.className = 'overlay';
     this.overlayTitle.className = 'overlay-title';
     this.overlayText.className = 'overlay-text';
+    this.overlayMeta.className = 'overlay-meta';
+    this.overlayBreakdown.className = 'overlay-breakdown';
     this.overlayButton.className = 'overlay-button';
     this.overlayButton.addEventListener('click', () => {
       this.onPrimaryAction?.();
     });
 
-    this.overlay.append(this.overlayTitle, this.overlayText, this.overlayButton);
-    this.root.append(hud, this.reloadHint, this.crosshair, this.vignette, this.overlay);
+    this.overlay.append(
+      this.overlayTitle,
+      this.overlayText,
+      this.overlayMeta,
+      this.overlayBreakdown,
+      this.overlayButton,
+    );
+    this.root.append(
+      hud,
+      this.rewardCallout,
+      this.reloadHint,
+      this.crosshair,
+      this.vignette,
+      this.overlay,
+    );
     host.append(this.root);
   }
 
@@ -259,8 +295,21 @@ export class UISystem {
     this.reloadHint.hidden = !snapshot.weapon.showReloadHint;
 
     this.scoreValue.textContent = `Score ${snapshot.player.score}`;
+    this.multiplierValue.textContent = `Chain x${snapshot.reward.multiplier.toFixed(2)}`;
+    this.multiplierValue.dataset.active = snapshot.reward.chainCount > 1 ? 'true' : 'false';
+    this.chainPanel.dataset.active = snapshot.reward.chainCount > 0 ? 'true' : 'false';
+    this.chainFill.style.transform = `scaleX(${snapshot.reward.chainTimerRatio.toFixed(3)})`;
+    this.chainLabel.textContent =
+      snapshot.reward.chainCount > 0
+        ? `${snapshot.reward.chainCount} HIT CHAIN`
+        : 'Chain Ready';
     this.distanceValue.textContent = `Distance ${formatDistance(snapshot.player.distance)}`;
     this.timerValue.textContent = `Time ${snapshot.elapsedSeconds.toFixed(1)}s`;
+    this.rewardCallout.textContent = snapshot.reward.recentCallout;
+    this.rewardCallout.dataset.visible =
+      snapshot.reward.recentCalloutTimer > 0 && snapshot.reward.recentCallout !== ''
+        ? 'true'
+        : 'false';
 
     for (let index = 0; index < this.radarDots.length; index += 1) {
       const dot = this.radarDots[index];
@@ -308,5 +357,36 @@ export class UISystem {
     ).toFixed(3)})`;
     this.vignette.style.opacity = `${(snapshot.player.hitFlash * 0.55).toFixed(2)}`;
     this.root.dataset.state = snapshot.gameState;
+    this.updateOverlay(snapshot);
+  }
+
+  private updateOverlay(snapshot: HUDSnapshot): void {
+    if (snapshot.gameState === 'dead') {
+      this.overlayMeta.textContent =
+        `Score ${snapshot.player.score}\n` +
+        `Run Best Chain ${snapshot.reward.bestChain}\n` +
+        `Best Score ${snapshot.reward.bestScore}\n` +
+        `Best Chain ${snapshot.reward.bestChainRecord}`;
+      this.overlayBreakdown.textContent =
+        `Combo Bonus +${snapshot.reward.comboBonusTotal}\n` +
+        `Milestone Bonus +${snapshot.reward.milestoneBonusTotal}\n` +
+        `Explosive Bonus +${snapshot.reward.explosiveBonusTotal}`;
+      this.overlayBreakdown.hidden = false;
+      return;
+    }
+
+    if (snapshot.gameState === 'menu') {
+      this.overlayMeta.textContent =
+        `Best Score ${snapshot.reward.bestScore}\n` +
+        `Best Chain ${snapshot.reward.bestChainRecord}\n` +
+        `Last Run ${snapshot.reward.lastRunScore}`;
+      this.overlayBreakdown.hidden = true;
+      this.overlayBreakdown.textContent = '';
+      return;
+    }
+
+    this.overlayMeta.textContent = '';
+    this.overlayBreakdown.hidden = true;
+    this.overlayBreakdown.textContent = '';
   }
 }

@@ -10,6 +10,7 @@ import { EnemySystem } from './systems/EnemySystem';
 import { InputSystem } from './systems/InputSystem';
 import { PlayerSystem } from './systems/PlayerSystem';
 import { PickupSystem } from './systems/PickupSystem';
+import { RewardSystem } from './systems/RewardSystem';
 import { SpawnSystem } from './systems/SpawnSystem';
 import { WeaponSystem } from './systems/WeaponSystem';
 import { WorldSystem } from './systems/WorldSystem';
@@ -24,6 +25,7 @@ export class Game {
   private readonly spawnSystem: SpawnSystem;
   private readonly worldSystem: WorldSystem;
   private readonly pickupSystem: PickupSystem;
+  private readonly rewardSystem: RewardSystem;
   private readonly uiSystem: UISystem;
   private readonly gameLoop: GameLoop;
   private readonly engineLoop: LoopingSound;
@@ -47,6 +49,7 @@ export class Game {
     this.enemySystem = new EnemySystem(this.rendererSystem.scene, GAME_CONFIG);
     this.weaponSystem = new WeaponSystem(this.rendererSystem.camera, GAME_CONFIG);
     this.spawnSystem = new SpawnSystem(GAME_CONFIG);
+    this.rewardSystem = new RewardSystem(GAME_CONFIG);
     this.uiSystem = new UISystem(root);
     this.engineLoop = new LoopingSound(GAME_CONFIG.vehicle.engineAudioPath, {
       volume: GAME_CONFIG.vehicle.engineVolume,
@@ -109,11 +112,16 @@ export class Game {
       this.playerSystem.updateRunning(deltaTime, this.inputSystem);
       this.engineLoop.setTurnAmount(this.playerSystem.getEngineTurnAmount());
       this.spawnSystem.update(deltaTime, this.enemySystem);
+      this.playerSystem.state.score += this.rewardSystem.update(
+        deltaTime,
+        this.spawnSystem.elapsedSeconds,
+      );
       this.enemySystem.update(
         deltaTime,
         this.playerSystem.getPosition(this.playerPosition),
         GAME_CONFIG.player.forwardSpeed,
         (damage, sourceX) => {
+          this.rewardSystem.breakChainFromDamage();
           this.playerSystem.applyDamage(damage, sourceX);
         },
       );
@@ -123,6 +131,7 @@ export class Game {
         this.playerSystem,
         this.enemySystem,
         this.worldSystem,
+        this.rewardSystem,
       );
 
       const obstacleDamage = this.worldSystem.update(
@@ -130,6 +139,7 @@ export class Game {
         this.playerSystem.state.strafeX,
       );
       if (obstacleDamage > 0) {
+        this.rewardSystem.breakChainFromDamage();
         this.playerSystem.applyDamage(obstacleDamage);
       }
 
@@ -156,6 +166,7 @@ export class Game {
       gameState: this.state,
       player: this.playerSystem.state,
       weapon: this.weaponSystem.getStatus(this.playerSystem),
+      reward: this.rewardSystem.getState(),
       elapsedSeconds: this.spawnSystem.elapsedSeconds,
       radarContacts: this.enemySystem.getRadarContacts(
         this.playerSystem.getPosition(this.playerPosition),
@@ -169,6 +180,7 @@ export class Game {
       return;
     }
 
+    this.rewardSystem.finalizeRun(this.playerSystem.state.score);
     this.setState('dead');
     if (this.inputSystem.isPointerLocked()) {
       this.suppressUnlockPause = true;
@@ -178,6 +190,7 @@ export class Game {
 
   private resetGame(): void {
     this.playerSystem.reset();
+    this.rewardSystem.resetRun();
     this.weaponSystem.reset(this.playerSystem);
     this.enemySystem.reset();
     this.spawnSystem.reset();

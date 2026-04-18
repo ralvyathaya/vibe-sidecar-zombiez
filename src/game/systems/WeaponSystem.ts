@@ -6,6 +6,7 @@ import { ShotgunWeapon } from '../weapons/ShotgunWeapon';
 import type { EnemySystem } from './EnemySystem';
 import type { InputSystem } from './InputSystem';
 import type { PlayerSystem } from './PlayerSystem';
+import type { RewardSystem } from './RewardSystem';
 import type { WorldSystem } from './WorldSystem';
 
 export class WeaponSystem {
@@ -51,26 +52,27 @@ export class WeaponSystem {
     player: PlayerSystem,
     enemies: EnemySystem,
     world: WorldSystem,
+    rewards: RewardSystem,
   ): void {
     if (this.activeWeapon === 'bazooka') {
-      this.bazookaWeapon.updateRunning(deltaTime, input, player, enemies, world);
+      this.bazookaWeapon.updateRunning(deltaTime, input, player, enemies, world, rewards);
       if (this.bazookaWeapon.consumePendingAutoReturn()) {
         this.restoreAfterBazooka(player);
       }
       return;
     }
 
-    this.bazookaWeapon.updateBackground(deltaTime, player, enemies, world);
+    this.bazookaWeapon.updateBackground(deltaTime, player, enemies, world, rewards);
 
     if (this.activeWeapon === 'shotgun') {
-      this.shotgunWeapon.updateRunning(deltaTime, input, player, enemies, world);
+      this.shotgunWeapon.updateRunning(deltaTime, input, player, enemies, world, rewards);
       if (this.shotgunWeapon.getAmmo() <= 0 && !this.shotgunWeapon.isCycling()) {
         this.equipPistol(player);
       }
       return;
     }
 
-    this.pistolWeapon.updateRunning(deltaTime, input, player, enemies, world);
+    this.pistolWeapon.updateRunning(deltaTime, input, player, enemies, world, rewards);
   }
 
   updateIdle(deltaTime: number): void {

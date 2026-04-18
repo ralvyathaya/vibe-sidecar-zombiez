@@ -23,6 +23,7 @@ import { SoundEffectPool } from '../audio/SoundEffectPool';
 import type { EnemySystem } from '../systems/EnemySystem';
 import type { InputSystem } from '../systems/InputSystem';
 import type { PlayerSystem } from '../systems/PlayerSystem';
+import type { RewardSystem } from '../systems/RewardSystem';
 import type { WorldSystem } from '../systems/WorldSystem';
 
 const EFFECT_FORWARD_AXIS = new Vector3(1, 0, 0);
@@ -65,6 +66,7 @@ export class BazookaWeapon {
   private readonly crosshair = new Vector2(0, 0);
   private readonly raycaster = new Raycaster();
   private readonly muzzleWorld = new Vector3();
+  private readonly playerPosition = new Vector3();
   private readonly rocketDirection = new Vector3();
   private readonly rocketStart = new Vector3();
   private readonly rocketEnd = new Vector3();
@@ -177,9 +179,10 @@ export class BazookaWeapon {
     player: PlayerSystem,
     enemies: EnemySystem,
     world: WorldSystem,
+    rewards: RewardSystem,
   ): void {
     this.cooldown = Math.max(0, this.cooldown - deltaTime);
-    this.updateSimulation(deltaTime, player, enemies, world);
+    this.updateSimulation(deltaTime, player, enemies, world, rewards);
 
     if (this.ammo <= 0 || this.cooldown > 0 || this.rocket.active) {
       return;
@@ -195,9 +198,10 @@ export class BazookaWeapon {
     player: PlayerSystem,
     enemies: EnemySystem,
     world: WorldSystem,
+    rewards: RewardSystem,
   ): void {
     this.cooldown = Math.max(0, this.cooldown - deltaTime);
-    this.updateSimulation(deltaTime, player, enemies, world);
+    this.updateSimulation(deltaTime, player, enemies, world, rewards);
   }
 
   updateIdle(deltaTime: number): void {
@@ -462,6 +466,7 @@ export class BazookaWeapon {
     player: PlayerSystem,
     enemies: EnemySystem,
     world: WorldSystem,
+    rewards: RewardSystem,
   ): void {
     this.fireKick = approach(
       this.fireKick,
@@ -476,7 +481,7 @@ export class BazookaWeapon {
       }
     }
 
-    this.updateRocket(deltaTime, player, enemies, world);
+    this.updateRocket(deltaTime, player, enemies, world, rewards);
     this.updateSmoke(deltaTime);
     this.updateExplosions(deltaTime);
     this.updateMuzzleFlash(deltaTime);
@@ -488,6 +493,7 @@ export class BazookaWeapon {
     player: PlayerSystem,
     enemies: EnemySystem,
     world: WorldSystem,
+    rewards: RewardSystem,
   ): void {
     if (!this.rocket.active) {
       return;
@@ -548,7 +554,7 @@ export class BazookaWeapon {
       world.applyProjectileImpact(hitObstacleRecord);
     }
 
-    this.spawnExplosion(impactPoint, player, enemies);
+    this.spawnExplosion(impactPoint, player, enemies, rewards);
     this.deactivateRocket();
   }
 
@@ -604,15 +610,26 @@ export class BazookaWeapon {
     position: Vector3,
     player: PlayerSystem,
     enemies: EnemySystem,
+    rewards: RewardSystem,
   ): void {
     this.impactSound.play(this.config.bazooka.audio.impactVolume, randomRange(0.96, 1.04));
-    const scoreGain = enemies.applyExplosionDamage(
+    const kills = enemies.applyExplosionDamage(
       position,
       this.config.bazooka.explosionRadius,
       this.config.bazooka.tankDamage,
     );
-    if (scoreGain > 0) {
-      player.state.score += scoreGain;
+    if (kills.length > 0) {
+      const playerPosition = player.getPosition(this.playerPosition);
+      player.state.score += rewards.registerKills(
+        kills.map((kill) => ({
+          baseScore: kill.baseScore,
+          weaponType: 'bazooka' as const,
+          zombieType: kill.zombieType,
+          killCount: kills.length,
+          wasExplosive: true,
+          distanceToPlayer: playerPosition.distanceTo(kill.position),
+        })),
+      );
     }
 
     const explosion = this.explosions.find((entry) => !entry.active);

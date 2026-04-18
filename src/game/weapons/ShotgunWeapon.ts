@@ -19,12 +19,13 @@ import {
   Vector2,
   Vector3,
 } from 'three';
-import type { GameConfig, WeaponStatus } from '../../core/types';
+import type { GameConfig, RewardEvent, WeaponStatus } from '../../core/types';
 import { approach, clamp, randomRange } from '../../core/utils';
 import { SoundEffectPool } from '../audio/SoundEffectPool';
 import type { EnemySystem } from '../systems/EnemySystem';
 import type { InputSystem } from '../systems/InputSystem';
 import type { PlayerSystem } from '../systems/PlayerSystem';
+import type { RewardSystem } from '../systems/RewardSystem';
 import type { WorldSystem } from '../systems/WorldSystem';
 
 const EFFECT_FORWARD_AXIS = new Vector3(1, 0, 0);
@@ -61,6 +62,7 @@ export class ShotgunWeapon {
   private readonly pelletRaycaster = new Raycaster();
   private readonly pelletDirection = new Vector3();
   private readonly muzzleWorld = new Vector3();
+  private readonly playerPosition = new Vector3();
   private readonly pelletBurstTarget = new Vector3();
   private readonly pelletBurstDirection = new Vector3();
   private readonly muzzleForwardWorld = new Vector3();
@@ -266,6 +268,7 @@ export class ShotgunWeapon {
     player: PlayerSystem,
     enemies: EnemySystem,
     world: WorldSystem,
+    rewards: RewardSystem,
   ): void {
     this.cooldown = Math.max(0, this.cooldown - deltaTime);
     this.hitConfirmTimer = Math.max(0, this.hitConfirmTimer - deltaTime);
@@ -277,7 +280,7 @@ export class ShotgunWeapon {
       this.ammo > 0 &&
       !this.isCycling()
     ) {
-      this.fire(player, enemies, world);
+      this.fire(player, enemies, world, rewards);
     }
 
     this.updatePelletStreaks(deltaTime);
@@ -416,7 +419,12 @@ export class ShotgunWeapon {
     });
   }
 
-  private fire(player: PlayerSystem, enemies: EnemySystem, world: WorldSystem): void {
+  private fire(
+    player: PlayerSystem,
+    enemies: EnemySystem,
+    world: WorldSystem,
+    rewards: RewardSystem,
+  ): void {
     const visualPelletIndices = this.getRepresentativePelletIndices();
 
     this.activeSpinDuration = this.resolvedSpinDuration;
@@ -438,7 +446,7 @@ export class ShotgunWeapon {
     this.randomizeMuzzleFlash();
     this.muzzleAnchor.getWorldPosition(this.muzzleWorld);
 
-    let scoreGain = 0;
+    const rewardEvents: RewardEvent[] = [];
 
     for (let pelletIndex = 0; pelletIndex < this.config.shotgun.pelletsPerShot; pelletIndex += 1) {
       this.samplePelletScreenPoint(pelletIndex, this.config.shotgun.pelletsPerShot);
@@ -464,26 +472,49 @@ export class ShotgunWeapon {
       }
 
       if (hitEnemyFirst && hitZombie) {
-        scoreGain += enemies.damage(
+        const kill = enemies.damage(
           hitZombie.zombie,
           this.config.shotgun.damagePerPellet,
           hitZombie.point,
         );
         this.hitConfirmTimer = 0.12;
         this.spawnImpactBurst(hitZombie.point);
+        if (kill) {
+          rewardEvents.push({
+            baseScore: kill.baseScore,
+            weaponType: 'shotgun' as const,
+            zombieType: kill.zombieType,
+            killCount: 1,
+            wasExplosive: false,
+            distanceToPlayer: player.getPosition(this.playerPosition).distanceTo(kill.position),
+          });
+        }
         continue;
       }
 
       if (hitBarrel) {
-        scoreGain += world.triggerBarrelExplosion(hitBarrel.obstacle, enemies);
+        const kills = world.triggerBarrelExplosion(hitBarrel.obstacle, enemies);
         this.hitConfirmTimer = 0.1;
         this.spawnImpactBurst(hitBarrel.point);
+        if (kills.length > 0) {
+          const playerPosition = player.getPosition(this.playerPosition);
+          for (const kill of kills) {
+            rewardEvents.push({
+              baseScore: kill.baseScore,
+              weaponType: 'shotgun' as const,
+              zombieType: kill.zombieType,
+              killCount: kills.length,
+              wasExplosive: true,
+              distanceToPlayer: playerPosition.distanceTo(kill.position),
+            });
+          }
+        }
         continue;
       }
     }
 
-    if (scoreGain > 0) {
-      player.state.score += scoreGain;
+    if (rewardEvents.length > 0) {
+      player.state.score += rewards.registerKills(rewardEvents);
     }
   }
 

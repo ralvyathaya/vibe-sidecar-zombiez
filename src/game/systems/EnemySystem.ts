@@ -20,6 +20,7 @@ import {
 } from 'three';
 import type {
   ActiveZombie,
+  EnemyKillResult,
   FlashMaterial,
   GameConfig,
   HumanoidEnemyModelConfig,
@@ -336,9 +337,9 @@ export class EnemySystem {
     return null;
   }
 
-  damage(zombie: ActiveZombie, amount: number, impactPoint?: Vector3): number {
+  damage(zombie: ActiveZombie, amount: number, impactPoint?: Vector3): EnemyKillResult | null {
     if (!zombie.active || zombie.state !== 'alive') {
-      return 0;
+      return null;
     }
 
     this.captureImpactPoint(zombie, impactPoint);
@@ -348,7 +349,11 @@ export class EnemySystem {
     this.spawnHitBloodBurst(zombie);
 
     if (zombie.health <= 0) {
-      const scoreValue = zombie.config.scoreValue;
+      const killResult: EnemyKillResult = {
+        baseScore: zombie.config.scoreValue,
+        zombieType: zombie.type,
+        position: zombie.group.position.clone(),
+      };
 
       if (this.isHumanoidType(zombie.type) && this.getActiveModelVariant(zombie)) {
         this.startHumanoidDeath(zombie, zombie.type);
@@ -357,10 +362,10 @@ export class EnemySystem {
         this.deactivate(zombie);
       }
 
-      return scoreValue;
+      return killResult;
     }
 
-    return 0;
+    return null;
   }
 
   findProjectileImpact(
@@ -418,8 +423,8 @@ export class EnemySystem {
     return this.pool.reduce((count, zombie) => count + (zombie.active ? 1 : 0), 0);
   }
 
-  applyExplosionDamage(center: Vector3, radius: number, tankDamage: number): number {
-    let scoreGain = 0;
+  applyExplosionDamage(center: Vector3, radius: number, tankDamage: number): EnemyKillResult[] {
+    const kills: EnemyKillResult[] = [];
     const impactPoint = new Vector3();
 
     for (const zombie of this.pool) {
@@ -439,14 +444,20 @@ export class EnemySystem {
       impactPoint.y += 1.1;
 
       if (zombie.type === 'tank') {
-        scoreGain += this.damage(zombie, tankDamage, impactPoint);
+        const kill = this.damage(zombie, tankDamage, impactPoint);
+        if (kill) {
+          kills.push(kill);
+        }
         continue;
       }
 
-      scoreGain += this.damage(zombie, zombie.health, impactPoint);
+      const kill = this.damage(zombie, zombie.health, impactPoint);
+      if (kill) {
+        kills.push(kill);
+      }
     }
 
-    return scoreGain;
+    return kills;
   }
 
   getRadarContacts(

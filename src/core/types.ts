@@ -370,6 +370,30 @@ export interface GameConfig {
     ammoCrateScale: number;
     bazookaPickupScale: number;
   };
+  rewards: {
+    chainDuration: number;
+    calloutDuration: number;
+    chainLostCalloutDuration: number;
+    doubleKillWindow: number;
+    tripleKillWindow: number;
+    milestoneTimes: number[];
+    milestoneValues: number[];
+    repeatingMilestoneEvery: number;
+    repeatingMilestoneValue: number;
+    explosiveBonusPerExtraKill: number;
+    dangerKillDistance: number;
+    dangerKillBonus: number;
+    tankDangerKillBonus: number;
+    multiplierThresholds: Array<{
+      kills: number;
+      multiplier: number;
+    }>;
+    bonuses: {
+      doubleKill: number;
+      tripleKill: number;
+      multiKill: number;
+    };
+  };
 }
 
 export interface PlayerState {
@@ -401,6 +425,37 @@ export interface WeaponStatus {
   crosshairGap: number;
   crosshairKick: number;
   canReload: boolean;
+}
+
+export interface EnemyKillResult {
+  baseScore: number;
+  zombieType: ZombieType;
+  position: Vector3;
+}
+
+export interface RewardEvent {
+  baseScore: number;
+  weaponType: WeaponKind;
+  zombieType: ZombieType;
+  killCount: number;
+  wasExplosive: boolean;
+  distanceToPlayer: number;
+}
+
+export interface RewardState {
+  chainCount: number;
+  chainTimer: number;
+  chainTimerRatio: number;
+  multiplier: number;
+  bestChain: number;
+  comboBonusTotal: number;
+  milestoneBonusTotal: number;
+  explosiveBonusTotal: number;
+  recentCallout: string;
+  recentCalloutTimer: number;
+  bestScore: number;
+  bestChainRecord: number;
+  lastRunScore: number;
 }
 
 export interface RadarContact {

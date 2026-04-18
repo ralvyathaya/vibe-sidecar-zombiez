@@ -525,6 +525,75 @@ body {
   text-transform: uppercase;
 }
 
+.stat-chip--reward {
+  justify-content: center;
+  background: rgba(128, 255, 182, 0.06);
+  color: #c7f3d2;
+}
+
+.stat-chip--reward[data-active="true"] {
+  background: linear-gradient(180deg, rgba(120, 255, 184, 0.16), rgba(55, 137, 86, 0.18));
+  color: #f4ffef;
+  box-shadow: inset 0 0 0 1px rgba(147, 255, 193, 0.08);
+}
+
+.chain-panel {
+  position: relative;
+  overflow: hidden;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.chain-panel[data-active="false"] {
+  opacity: 0.72;
+}
+
+.chain-fill {
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+  background: linear-gradient(90deg, rgba(98, 255, 150, 0.44), rgba(255, 207, 111, 0.32));
+}
+
+.chain-label {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #eaf4e5;
+}
+
+.reward-callout {
+  position: absolute;
+  left: 50%;
+  top: 64px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(18, 18, 20, 0.72), rgba(11, 12, 14, 0.54));
+  border: 1px solid rgba(255, 236, 200, 0.12);
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #fff0d6;
+  backdrop-filter: blur(8px);
+  transform: translate(-50%, -10px);
+  opacity: 0;
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.reward-callout[data-visible="true"] {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
 .crosshair {
   position: absolute;
   --crosshair-gap: 6px;
@@ -681,6 +750,22 @@ body {
   color: var(--muted);
 }
 
+.overlay-meta,
+.overlay-breakdown {
+  margin-top: 14px;
+  text-align: center;
+  white-space: pre-line;
+  line-height: 1.7;
+  font-size: 0.92rem;
+  letter-spacing: 0.04em;
+  color: rgba(249, 238, 221, 0.9);
+}
+
+.overlay-breakdown {
+  margin-top: 10px;
+  color: rgba(255, 219, 175, 0.92);
+}
+
 .overlay-button {
   margin-top: 26px;
   padding: 14px 26px;
@@ -747,5 +832,11 @@ body {
     min-width: 0;
     flex-direction: row;
     width: 100%;
+  }
+
+  .reward-callout {
+    top: 74px;
+    font-size: 0.68rem;
+    max-width: calc(100vw - 24px);
   }
 }

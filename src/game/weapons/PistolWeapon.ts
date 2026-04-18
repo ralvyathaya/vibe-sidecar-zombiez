@@ -22,6 +22,7 @@ import { SoundEffectPool } from '../audio/SoundEffectPool';
 import type { EnemySystem } from '../systems/EnemySystem';
 import type { InputSystem } from '../systems/InputSystem';
 import type { PlayerSystem } from '../systems/PlayerSystem';
+import type { RewardSystem } from '../systems/RewardSystem';
 import type { WorldSystem } from '../systems/WorldSystem';
 
 const SLIDE_NODE_PATTERN = /(slide|bolt|upper|top)/i;
@@ -88,6 +89,7 @@ export class PistolWeapon {
   private readonly basePosition: Vector3;
   private readonly baseRotation = new Vector3();
   private readonly muzzleWorld = new Vector3();
+  private readonly playerPosition = new Vector3();
   private readonly traceEnd = new Vector3();
   private readonly traceDirection = new Vector3();
 
@@ -189,6 +191,7 @@ export class PistolWeapon {
     player: PlayerSystem,
     enemies: EnemySystem,
     world: WorldSystem,
+    rewards: RewardSystem,
   ): void {
     this.cooldown = Math.max(0, this.cooldown - deltaTime);
     this.hitConfirmTimer = Math.max(0, this.hitConfirmTimer - deltaTime);
@@ -202,7 +205,7 @@ export class PistolWeapon {
 
     if (!player.state.reloading && input.isFireHeld() && this.cooldown <= 0) {
       if (player.state.ammoInMagazine > 0) {
-        this.fire(player, enemies, world);
+        this.fire(player, enemies, world, rewards);
       } else {
         this.dryFireTimer = 0.16;
         this.cooldown = 0.12;
@@ -576,6 +579,7 @@ export class PistolWeapon {
     player: PlayerSystem,
     enemies: EnemySystem,
     world: WorldSystem,
+    rewards: RewardSystem,
   ): void {
     this.cooldown = 1 / this.config.weapon.fireRate;
     this.muzzleFlashTimer = this.config.weapon.viewmodel.muzzleFlashDuration;
@@ -608,14 +612,26 @@ export class PistolWeapon {
     if (hitEnemyFirst && hitZombie) {
       this.traceEnd.copy(hitZombie.point);
       this.spawnTracer(this.muzzleWorld, this.traceEnd);
-      const scoreValue = enemies.damage(
+      const kill = enemies.damage(
         hitZombie.zombie,
         this.config.weapon.damagePerShot,
         hitZombie.point,
       );
       this.hitConfirmTimer = 0.1;
-      if (scoreValue > 0) {
-        player.state.score += scoreValue;
+      if (kill) {
+        const distanceToPlayer = player
+          .getPosition(this.playerPosition)
+          .distanceTo(kill.position);
+        player.state.score += rewards.registerKills([
+          {
+            baseScore: kill.baseScore,
+            weaponType: 'pistol',
+            zombieType: kill.zombieType,
+            killCount: 1,
+            wasExplosive: false,
+            distanceToPlayer,
+          },
+        ]);
       }
       return;
     }
@@ -623,10 +639,20 @@ export class PistolWeapon {
     if (hitBarrel) {
       this.traceEnd.copy(hitBarrel.point);
       this.spawnTracer(this.muzzleWorld, this.traceEnd);
-      const scoreValue = world.triggerBarrelExplosion(hitBarrel.obstacle, enemies);
+      const kills = world.triggerBarrelExplosion(hitBarrel.obstacle, enemies);
       this.hitConfirmTimer = 0.1;
-      if (scoreValue > 0) {
-        player.state.score += scoreValue;
+      if (kills.length > 0) {
+        const playerPosition = player.getPosition(this.playerPosition);
+        player.state.score += rewards.registerKills(
+          kills.map((kill) => ({
+            baseScore: kill.baseScore,
+            weaponType: 'pistol' as const,
+            zombieType: kill.zombieType,
+            killCount: kills.length,
+            wasExplosive: true,
+            distanceToPlayer: playerPosition.distanceTo(kill.position),
+          })),
+        );
       }
       return;
     }

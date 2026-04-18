@@ -14,7 +14,7 @@ import {
   Vector2,
   Vector3,
 } from 'three';
-import type { ActiveObstacle, GameConfig } from '../../core/types';
+import type { ActiveObstacle, EnemyKillResult, GameConfig } from '../../core/types';
 import { randomInt, randomRange } from '../../core/utils';
 import { SoundEffectPool } from '../audio/SoundEffectPool';
 import type { EnemySystem } from './EnemySystem';
@@ -244,9 +244,9 @@ export class WorldSystem {
     return null;
   }
 
-  triggerBarrelExplosion(obstacle: ObstacleRecord, enemies: EnemySystem): number {
+  triggerBarrelExplosion(obstacle: ObstacleRecord, enemies: EnemySystem): EnemyKillResult[] {
     if (!obstacle.active || obstacle.type !== 'barrel') {
-      return 0;
+      return [];
     }
 
     this.explosionCenter.copy(obstacle.mesh.position);
@@ -256,13 +256,13 @@ export class WorldSystem {
       randomRange(0.94, 1.03),
     );
     this.spawnExplosion(this.explosionCenter);
-    const scoreGain = enemies.applyExplosionDamage(
+    const kills = enemies.applyExplosionDamage(
       this.explosionCenter,
       this.config.world.barrel.explosionRadius,
       this.config.world.barrel.tankDamage,
     );
     this.recycleObstacle(obstacle);
-    return scoreGain;
+    return kills;
   }
 
   findProjectileImpact(
