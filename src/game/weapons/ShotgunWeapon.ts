@@ -12,6 +12,7 @@ import {
   Object3D,
   OctahedronGeometry,
   PointLight,
+  Raycaster,
   Sprite,
   SpriteMaterial,
   TextureLoader,
@@ -26,12 +27,39 @@ import type { InputSystem } from '../systems/InputSystem';
 import type { PlayerSystem } from '../systems/PlayerSystem';
 import type { WorldSystem } from '../systems/WorldSystem';
 
+const EFFECT_FORWARD_AXIS = new Vector3(1, 0, 0);
+
+type PelletStreak = {
+  group: Group;
+  beam: Mesh;
+  glow: Mesh;
+  active: boolean;
+  life: number;
+  maxLife: number;
+  direction: Vector3;
+  speed: number;
+};
+
+type ImpactBurst = {
+  group: Group;
+  core: Mesh;
+  streakA: Mesh;
+  streakB: Mesh;
+  active: boolean;
+  life: number;
+  maxLife: number;
+};
+
 export class ShotgunWeapon {
   private readonly viewmodelRoot = new Group();
   private readonly contentRoot = new Group();
   private readonly worldEffectsRoot = new Group();
   private readonly muzzleAnchor = new Group();
+  private readonly pelletStreaks: PelletStreak[] = [];
+  private readonly impactBursts: ImpactBurst[] = [];
   private readonly spreadCrosshair = new Vector2();
+  private readonly pelletRaycaster = new Raycaster();
+  private readonly pelletDirection = new Vector3();
   private readonly muzzleWorld = new Vector3();
   private readonly muzzleFlash = new Group();
   private readonly muzzleFlashCoreMaterial = new MeshBasicMaterial({
@@ -77,8 +105,9 @@ export class ShotgunWeapon {
   private readonly baseRotation = new Vector3();
 
   private loadedScene: Object3D | null = null;
+  private gunshotTimingProbe: HTMLAudioElement | null = null;
   private delayTimingProbe: HTMLAudioElement | null = null;
-  private hasSpriteMuzzleFlash = false;
+  private resolvedGunshotDuration = 0;
   private cooldown = 0;
   private ammo = 0;
   private muzzleFlashTimer = 0;
@@ -124,9 +153,10 @@ export class ShotgunWeapon {
     this.muzzleFlashCore.renderOrder = 14;
     this.muzzleFlashStreak.renderOrder = 14;
     this.muzzleFlashSprite.renderOrder = 15;
-    this.muzzleFlashCore.position.x = -0.08;
-    this.muzzleFlashStreak.position.x = -0.96;
-    this.muzzleFlashSprite.position.x = -0.36;
+    this.muzzleFlashCore.position.x = -0.18;
+    this.muzzleFlashStreak.position.x = -0.82;
+    this.muzzleFlashSprite.position.set(-0.12, 0, 0);
+    this.muzzleFlashSprite.center.set(0.12, 0.5);
     this.muzzleFlash.add(
       this.muzzleFlashSprite,
       this.muzzleFlashCore,
@@ -134,9 +164,14 @@ export class ShotgunWeapon {
       this.muzzleLight,
     );
     this.createMuzzleBlastPetals();
+    this.createPelletStreakPool();
+    this.createImpactBurstPool();
     this.muzzleFlash.visible = false;
     this.viewmodelKeyLight.position.set(0.2, 0.08, 0.28);
     this.viewmodelFillLight.position.set(-0.08, 0.05, 0.18);
+    // Keep the shotgun flash anchored to the real muzzle tip so the sprite,
+    // the blast meshes, and the pellet feedback all originate from one place.
+    this.muzzleAnchor.add(this.muzzleFlash);
     this.contentRoot.add(
       this.viewmodelKeyLight,
       this.viewmodelFillLight,
@@ -145,9 +180,11 @@ export class ShotgunWeapon {
     this.viewmodelRoot.add(this.contentRoot);
     this.camera.add(this.viewmodelRoot);
     this.camera.parent?.add(this.worldEffectsRoot);
+    this.worldEffectsRoot.visible = false;
 
     this.applyViewmodelPose();
     this.setEquipped(false);
+    this.preloadGunshotTiming();
     this.preloadDelayTiming();
     void this.loadMuzzleFlashSprite();
     void this.loadViewmodel();
@@ -170,12 +207,16 @@ export class ShotgunWeapon {
     this.muzzleFlashSpriteMaterial.opacity = 0;
     this.gunshotSound.stopAll();
     this.delaySound.stopAll();
+    this.clearPelletStreaks();
+    this.clearImpactBursts();
+    this.worldEffectsRoot.visible = false;
     this.setMuzzleBlastOpacity(0);
     this.applyViewmodelPose();
   }
 
   setEquipped(equipped: boolean): void {
     this.viewmodelRoot.visible = equipped;
+    this.worldEffectsRoot.visible = equipped;
     if (equipped) {
       return;
     }
@@ -191,6 +232,9 @@ export class ShotgunWeapon {
     this.activeSpinDuration = this.resolvedSpinDuration;
     this.cycleActive = false;
     this.pendingDelaySound = false;
+    this.clearPelletStreaks();
+    this.clearImpactBursts();
+    this.worldEffectsRoot.visible = false;
     this.setMuzzleBlastOpacity(0);
     this.applyViewmodelPose();
   }
@@ -232,11 +276,15 @@ export class ShotgunWeapon {
       this.fire(player, enemies, world);
     }
 
+    this.updatePelletStreaks(deltaTime);
+    this.updateImpactBursts(deltaTime);
     this.updatePresentation(deltaTime);
   }
 
   updateIdle(deltaTime: number): void {
     this.hitConfirmTimer = Math.max(0, this.hitConfirmTimer - deltaTime);
+    this.updatePelletStreaks(deltaTime);
+    this.updateImpactBursts(deltaTime);
     this.updatePresentation(deltaTime);
   }
 
@@ -264,6 +312,8 @@ export class ShotgunWeapon {
     this.camera.remove(this.viewmodelRoot);
     this.worldEffectsRoot.removeFromParent();
     this.disposeObject(this.loadedScene);
+    this.disposePelletStreakPool();
+    this.disposeImpactBurstPool();
     for (const petal of this.muzzleBlastPetals) {
       petal.geometry.dispose();
       (petal.material as MeshBasicMaterial).dispose();
@@ -276,6 +326,7 @@ export class ShotgunWeapon {
     this.muzzleFlashSpriteMaterial.dispose();
     this.gunshotSound.destroy();
     this.delaySound.destroy();
+    this.disposeGunshotTimingProbe();
     this.disposeDelayTimingProbe();
   }
 
@@ -312,8 +363,8 @@ export class ShotgunWeapon {
     this.loadedScene = model;
 
     const muzzlePosition = new Vector3(
-      box.min.x - size.x * 0.025,
-      box.min.y + size.y * 0.58,
+      box.min.x + size.x * 0.01,
+      box.min.y + size.y * 0.595,
       center.z,
     ).sub(gripPivot);
     const [muzzleOffsetX, muzzleOffsetY, muzzleOffsetZ] = this.config.shotgun.viewmodel.muzzleOffset;
@@ -362,7 +413,8 @@ export class ShotgunWeapon {
   }
 
   private fire(player: PlayerSystem, enemies: EnemySystem, world: WorldSystem): void {
-    const shotSpread = this.getCurrentSpread();
+    const visualPelletIndices = this.getRepresentativePelletIndices();
+
     this.activeSpinDuration = this.resolvedSpinDuration;
     this.cooldown = this.getCycleDuration();
     this.ammo = Math.max(0, this.ammo - 1);
@@ -370,9 +422,9 @@ export class ShotgunWeapon {
     this.pendingDelaySound = true;
     this.muzzleFlashTimer = this.config.shotgun.viewmodel.muzzleFlashDuration;
     this.muzzleFlash.visible = true;
-    this.fireKick = 1;
+    this.fireKick = 1.25;
     this.pumpOffset = 1;
-    this.pumpDelayTimer = this.config.shotgun.viewmodel.pumpDelay;
+    this.pumpDelayTimer = this.getPumpDelayAfterShot();
     this.spinTimer = 0;
     player.applyRecoil(this.config.shotgun.cameraKick);
     this.gunshotSound.play(
@@ -385,17 +437,25 @@ export class ShotgunWeapon {
     let scoreGain = 0;
 
     for (let pelletIndex = 0; pelletIndex < this.config.shotgun.pelletsPerShot; pelletIndex += 1) {
-      this.setPelletSpreadOffset(
-        shotSpread,
-        pelletIndex,
-        this.config.shotgun.pelletsPerShot,
-      );
+      this.samplePelletScreenPoint(pelletIndex, this.config.shotgun.pelletsPerShot);
+      this.pelletRaycaster.setFromCamera(this.spreadCrosshair, this.camera);
+      this.pelletDirection.copy(this.pelletRaycaster.ray.direction);
 
       const hitZombie = enemies.raycast(this.camera, this.spreadCrosshair, this.config.shotgun.range);
       const hitBarrel = world.raycast(this.camera, this.spreadCrosshair, this.config.shotgun.range);
       const hitEnemyFirst =
         hitZombie &&
         (!hitBarrel || hitZombie.distance <= hitBarrel.distance);
+
+      if (visualPelletIndices.has(pelletIndex)) {
+        // The burst uses the same sampled pellet direction as the real hit logic,
+        // but keeps the visible streaks short and close to the barrel.
+        const visibleLength = randomRange(
+          this.config.shotgun.pelletTraceMinLength,
+          this.config.shotgun.pelletTraceMaxLength,
+        );
+        this.spawnPelletStreak(this.muzzleWorld, this.pelletDirection, visibleLength);
+      }
 
       if (hitEnemyFirst && hitZombie) {
         scoreGain += enemies.damage(
@@ -404,12 +464,14 @@ export class ShotgunWeapon {
           hitZombie.point,
         );
         this.hitConfirmTimer = 0.12;
+        this.spawnImpactBurst(hitZombie.point);
         continue;
       }
 
       if (hitBarrel) {
         scoreGain += world.triggerBarrelExplosion(hitBarrel.obstacle, enemies);
         this.hitConfirmTimer = 0.1;
+        this.spawnImpactBurst(hitBarrel.point);
         continue;
       }
     }
@@ -417,6 +479,29 @@ export class ShotgunWeapon {
     if (scoreGain > 0) {
       player.state.score += scoreGain;
     }
+  }
+
+  private getRepresentativePelletIndices(): Set<number> {
+    const pelletCount = this.config.shotgun.pelletsPerShot;
+    const visualCount = clamp(this.config.shotgun.pelletVisualCount, 0, pelletCount);
+    const selected = new Set<number>();
+    if (visualCount <= 0) {
+      return selected;
+    }
+
+    if (visualCount === 1) {
+      selected.add(Math.floor((pelletCount - 1) * 0.5));
+      return selected;
+    }
+
+    for (let visualIndex = 0; visualIndex < visualCount; visualIndex += 1) {
+      const pelletIndex = Math.round(
+        (visualIndex / (visualCount - 1)) * (pelletCount - 1),
+      );
+      selected.add(pelletIndex);
+    }
+
+    return selected;
   }
 
   private updatePresentation(deltaTime: number): void {
@@ -457,11 +542,11 @@ export class ShotgunWeapon {
     if (this.muzzleFlashTimer > 0) {
       this.muzzleFlashTimer = Math.max(0, this.muzzleFlashTimer - deltaTime);
       const flashAlpha = this.muzzleFlashTimer / this.config.shotgun.viewmodel.muzzleFlashDuration;
-      this.muzzleFlashSpriteMaterial.opacity = 0.96 * flashAlpha;
-      this.muzzleFlashCoreMaterial.opacity = 0.42 * flashAlpha;
-      this.muzzleFlashStreakMaterial.opacity = 0.5 * flashAlpha;
-      this.setMuzzleBlastOpacity(0.72 * flashAlpha);
-      this.muzzleLight.intensity = 5.2 * flashAlpha;
+      this.muzzleFlashSpriteMaterial.opacity = 1 * flashAlpha;
+      this.muzzleFlashCoreMaterial.opacity = 0.76 * flashAlpha;
+      this.muzzleFlashStreakMaterial.opacity = 0.88 * flashAlpha;
+      this.setMuzzleBlastOpacity(1 * flashAlpha);
+      this.muzzleLight.intensity = 8.4 * flashAlpha;
       this.muzzleFlash.visible = flashAlpha > 0.01;
     } else {
       this.muzzleFlash.visible = false;
@@ -511,6 +596,51 @@ export class ShotgunWeapon {
     probe.load();
   }
 
+  private preloadGunshotTiming(): void {
+    if (this.gunshotTimingProbe) {
+      return;
+    }
+
+    const probe = new Audio();
+    probe.preload = 'metadata';
+    probe.crossOrigin = 'anonymous';
+    this.gunshotTimingProbe = probe;
+
+    const cleanup = () => {
+      probe.removeEventListener('loadedmetadata', handleMetadata);
+      probe.removeEventListener('error', handleError);
+      if (this.gunshotTimingProbe === probe) {
+        this.gunshotTimingProbe = null;
+      }
+    };
+
+    const handleMetadata = () => {
+      if (Number.isFinite(probe.duration) && probe.duration > 0) {
+        this.resolvedGunshotDuration = probe.duration;
+      }
+      cleanup();
+    };
+
+    const handleError = () => {
+      cleanup();
+    };
+
+    probe.addEventListener('loadedmetadata', handleMetadata);
+    probe.addEventListener('error', handleError);
+    probe.src = this.config.shotgun.audio.gunshotPath;
+    probe.load();
+  }
+
+  private disposeGunshotTimingProbe(): void {
+    if (!this.gunshotTimingProbe) {
+      return;
+    }
+
+    this.gunshotTimingProbe.removeAttribute('src');
+    this.gunshotTimingProbe.load();
+    this.gunshotTimingProbe = null;
+  }
+
   private disposeDelayTimingProbe(): void {
     if (!this.delayTimingProbe) {
       return;
@@ -522,7 +652,19 @@ export class ShotgunWeapon {
   }
 
   private getCycleDuration(): number {
-    return this.config.shotgun.viewmodel.pumpDelay + this.activeSpinDuration;
+    return this.getPumpDelayAfterShot() + this.activeSpinDuration;
+  }
+
+  private getPumpDelayAfterShot(): number {
+    const minimumDelay = this.config.shotgun.viewmodel.pumpDelay;
+    if (this.resolvedGunshotDuration <= 0) {
+      return minimumDelay;
+    }
+
+    return Math.max(
+      minimumDelay,
+      Math.min(this.resolvedGunshotDuration + 0.02, 0.26),
+    );
   }
 
   private async loadMuzzleFlashSprite(): Promise<void> {
@@ -533,7 +675,6 @@ export class ShotgunWeapon {
       texture.generateMipmaps = false;
       this.muzzleFlashSpriteMaterial.map = texture;
       this.muzzleFlashSpriteMaterial.needsUpdate = true;
-      this.hasSpriteMuzzleFlash = true;
     } catch (error) {
       console.warn('Failed to load shotgun muzzle flash sprite.', error);
     }
@@ -547,6 +688,14 @@ export class ShotgunWeapon {
 
   private getCrosshairGap(): number {
     return clamp(14 + this.getCurrentSpread() * 980, 30, 52);
+  }
+
+  private getCrosshairBracketWidth(gap: number): number {
+    return 8 + gap * 0.16;
+  }
+
+  private getCrosshairBracketHeight(gap: number): number {
+    return 18 + gap * 0.7;
   }
 
   private createMuzzleBlastPetals(): void {
@@ -574,19 +723,236 @@ export class ShotgunWeapon {
     }
   }
 
-  private setPelletSpreadOffset(
-    spread: number,
+  private createPelletStreakPool(): void {
+    for (let index = 0; index < 12; index += 1) {
+      const beamMaterial = new MeshBasicMaterial({
+        color: 0xfff2cf,
+        transparent: true,
+        opacity: 0,
+        blending: AdditiveBlending,
+        depthWrite: false,
+        depthTest: false,
+      });
+      const glowMaterial = new MeshBasicMaterial({
+        color: 0xffad63,
+        transparent: true,
+        opacity: 0,
+        blending: AdditiveBlending,
+        depthWrite: false,
+        depthTest: false,
+      });
+      const beam = new Mesh(new BoxGeometry(1, 1, 1), beamMaterial);
+      const glow = new Mesh(new BoxGeometry(1, 1, 1), glowMaterial);
+      beam.renderOrder = 13;
+      glow.renderOrder = 12;
+      const group = new Group();
+      group.visible = false;
+      group.add(glow, beam);
+      this.worldEffectsRoot.add(group);
+      this.pelletStreaks.push({
+        group,
+        beam,
+        glow,
+        active: false,
+        life: 0,
+        maxLife: 0,
+        direction: new Vector3(),
+        speed: 0,
+      });
+    }
+  }
+
+  private createImpactBurstPool(): void {
+    for (let index = 0; index < 18; index += 1) {
+      const coreMaterial = new MeshBasicMaterial({
+        color: 0xffd08d,
+        transparent: true,
+        opacity: 0,
+        blending: AdditiveBlending,
+        depthWrite: false,
+      });
+      const streakMaterial = new MeshBasicMaterial({
+        color: 0xff8d54,
+        transparent: true,
+        opacity: 0,
+        blending: AdditiveBlending,
+        depthWrite: false,
+      });
+      const core = new Mesh(new OctahedronGeometry(0.08, 0), coreMaterial);
+      const streakA = new Mesh(new BoxGeometry(0.3, 0.03, 0.03), streakMaterial);
+      const streakB = new Mesh(new BoxGeometry(0.3, 0.03, 0.03), streakMaterial.clone());
+      const group = new Group();
+      group.visible = false;
+      group.add(core, streakA, streakB);
+      this.worldEffectsRoot.add(group);
+      this.impactBursts.push({
+        group,
+        core,
+        streakA,
+        streakB,
+        active: false,
+        life: 0,
+        maxLife: 0,
+      });
+    }
+  }
+
+  private spawnPelletStreak(start: Vector3, direction: Vector3, length: number): void {
+    const streak = this.pelletStreaks.find((entry) => !entry.active);
+    if (!streak || length <= 0.05) {
+      return;
+    }
+
+    streak.active = true;
+    streak.life = this.config.shotgun.pelletTraceDuration;
+    streak.maxLife = this.config.shotgun.pelletTraceDuration;
+    streak.direction.set(0, 0, 0);
+    streak.speed = 0;
+    streak.group.visible = true;
+    // Start slightly forward from the muzzle tip so the burst reads from the
+    // barrel itself and stays out of the player's face.
+    streak.group.position.copy(start).addScaledVector(direction, 0.62);
+    streak.group.quaternion.setFromUnitVectors(EFFECT_FORWARD_AXIS, direction);
+    streak.beam.position.set(length * 0.5, 0, 0);
+    streak.glow.position.set(length * 0.5, 0, 0);
+    streak.beam.scale.set(length, 0.082, 0.082);
+    streak.glow.scale.set(length, 0.22, 0.22);
+    (streak.beam.material as MeshBasicMaterial).opacity = 1;
+    (streak.glow.material as MeshBasicMaterial).opacity = 0.5;
+  }
+
+  private spawnImpactBurst(position: Vector3): void {
+    const burst = this.impactBursts.find((entry) => !entry.active);
+    if (!burst) {
+      return;
+    }
+
+    burst.active = true;
+    burst.life = 0.08;
+    burst.maxLife = 0.08;
+    burst.group.visible = true;
+    burst.group.position.copy(position);
+    burst.group.rotation.set(
+      randomRange(-0.5, 0.5),
+      randomRange(-0.5, 0.5),
+      randomRange(0, Math.PI * 2),
+    );
+    burst.core.scale.setScalar(randomRange(0.85, 1.3));
+    burst.streakA.rotation.z = randomRange(-0.5, 0.5);
+    burst.streakB.rotation.z = burst.streakA.rotation.z + Math.PI * 0.5;
+    (burst.core.material as MeshBasicMaterial).opacity = 0.8;
+    (burst.streakA.material as MeshBasicMaterial).opacity = 0.52;
+    (burst.streakB.material as MeshBasicMaterial).opacity = 0.52;
+  }
+
+  private updatePelletStreaks(deltaTime: number): void {
+    const scrollDistance = this.config.player.forwardSpeed * deltaTime;
+
+    for (const streak of this.pelletStreaks) {
+      if (!streak.active) {
+        continue;
+      }
+
+      streak.life -= deltaTime;
+      streak.group.position.z += scrollDistance;
+      if (streak.life <= 0) {
+        this.deactivatePelletStreak(streak);
+        continue;
+      }
+
+      const alpha = streak.life / streak.maxLife;
+      const beamAlpha = alpha * alpha;
+      (streak.beam.material as MeshBasicMaterial).opacity = 1 * beamAlpha;
+      (streak.glow.material as MeshBasicMaterial).opacity = 0.5 * alpha;
+    }
+  }
+
+  private updateImpactBursts(deltaTime: number): void {
+    for (const burst of this.impactBursts) {
+      if (!burst.active) {
+        continue;
+      }
+
+      burst.life -= deltaTime;
+      if (burst.life <= 0) {
+        burst.active = false;
+        burst.group.visible = false;
+        continue;
+      }
+
+      const alpha = burst.life / burst.maxLife;
+      burst.group.scale.setScalar(1 + (1 - alpha) * 0.7);
+      (burst.core.material as MeshBasicMaterial).opacity = 0.8 * alpha;
+      (burst.streakA.material as MeshBasicMaterial).opacity = 0.52 * alpha;
+      (burst.streakB.material as MeshBasicMaterial).opacity = 0.52 * alpha;
+    }
+  }
+
+  private clearPelletStreaks(): void {
+    for (const streak of this.pelletStreaks) {
+      this.deactivatePelletStreak(streak);
+    }
+  }
+
+  private deactivatePelletStreak(streak: PelletStreak): void {
+    streak.active = false;
+    streak.life = 0;
+    streak.maxLife = 0;
+    streak.speed = 0;
+    streak.direction.set(0, 0, 0);
+    streak.group.visible = false;
+    streak.group.position.set(0, 0, 999);
+    (streak.beam.material as MeshBasicMaterial).opacity = 0;
+    (streak.glow.material as MeshBasicMaterial).opacity = 0;
+  }
+
+  private clearImpactBursts(): void {
+    for (const burst of this.impactBursts) {
+      burst.active = false;
+      burst.life = 0;
+      burst.maxLife = 0;
+      burst.group.visible = false;
+    }
+  }
+
+  private disposePelletStreakPool(): void {
+    for (const streak of this.pelletStreaks) {
+      streak.beam.geometry.dispose();
+      streak.glow.geometry.dispose();
+      (streak.beam.material as MeshBasicMaterial).dispose();
+      (streak.glow.material as MeshBasicMaterial).dispose();
+    }
+  }
+
+  private disposeImpactBurstPool(): void {
+    for (const burst of this.impactBursts) {
+      burst.core.geometry.dispose();
+      burst.streakA.geometry.dispose();
+      burst.streakB.geometry.dispose();
+      (burst.core.material as MeshBasicMaterial).dispose();
+      (burst.streakA.material as MeshBasicMaterial).dispose();
+      (burst.streakB.material as MeshBasicMaterial).dispose();
+    }
+  }
+
+  private samplePelletScreenPoint(
     pelletIndex: number,
     pelletCount: number,
   ): void {
-    // Distribute pellets across the full cone so the shotgun reads wide and unreliable
-    // past short range, instead of behaving like a centered rifle burst.
+    const gap = this.getCrosshairGap();
+    const radiusXPx = gap + this.getCrosshairBracketWidth(gap) * 0.5 + 2;
+    const radiusYPx = this.getCrosshairBracketHeight(gap) * 0.42;
     const angle =
       (pelletIndex / Math.max(pelletCount, 1)) * Math.PI * 2 + randomRange(-0.38, 0.38);
-    const radius = spread * (0.34 + 0.66 * Math.sqrt(Math.random()));
+    const radius = 0.16 + 0.84 * Math.sqrt(Math.random());
+    const offsetXPx = Math.cos(angle) * radius * radiusXPx;
+    const offsetYPx = Math.sin(angle) * radius * radiusYPx;
+    const viewportWidth = Math.max(window.innerWidth, 1);
+    const viewportHeight = Math.max(window.innerHeight, 1);
+
     this.spreadCrosshair.set(
-      Math.cos(angle) * radius,
-      Math.sin(angle) * radius,
+      (offsetXPx / viewportWidth) * 2,
+      (-offsetYPx / viewportHeight) * 2,
     );
   }
 
@@ -623,23 +989,24 @@ export class ShotgunWeapon {
 
   private randomizeMuzzleFlash(): void {
     const flashSize = this.config.shotgun.viewmodel.muzzleFlashSize;
-    const blastWidth = this.getCrosshairGap() * 0.0125;
+    const blastWidth = this.getCrosshairGap() * 0.014;
+    this.muzzleFlash.position.set(0, 0, 0);
     this.muzzleFlash.rotation.x = randomRange(-0.18, 0.18);
     this.muzzleFlash.rotation.y = randomRange(-0.1, 0.1);
     this.muzzleFlash.rotation.z = randomRange(-0.35, 0.35);
     this.muzzleFlashSpriteMaterial.rotation = randomRange(-0.14, 0.14);
     this.muzzleFlashSprite.scale.set(
-      flashSize * randomRange(2.8, 3.4),
-      flashSize * randomRange(1.2, 1.45),
+      flashSize * randomRange(3.6, 4.4),
+      flashSize * randomRange(1.55, 1.95),
       1,
     );
-    this.muzzleFlashCore.visible = !this.hasSpriteMuzzleFlash;
-    this.muzzleFlashStreak.visible = !this.hasSpriteMuzzleFlash;
-    this.muzzleFlashCore.scale.setScalar(flashSize * randomRange(0.86, 1.12));
+    this.muzzleFlashCore.visible = true;
+    this.muzzleFlashStreak.visible = true;
+    this.muzzleFlashCore.scale.setScalar(flashSize * randomRange(0.92, 1.14));
     this.muzzleFlashStreak.scale.set(
-      flashSize * randomRange(2.6, 3.4),
-      flashSize * randomRange(0.2, 0.3),
-      flashSize * randomRange(0.2, 0.3),
+      flashSize * randomRange(2.9, 3.5),
+      flashSize * randomRange(0.22, 0.3),
+      flashSize * randomRange(0.22, 0.3),
     );
 
     for (const petal of this.muzzleBlastPetals) {
@@ -655,9 +1022,9 @@ export class ShotgunWeapon {
         randomRange(-0.6, 0.6),
       );
       petal.scale.set(
-        flashSize * randomRange(0.45, 0.95),
-        flashSize * randomRange(0.07, 0.14),
-        flashSize * randomRange(0.07, 0.14),
+        flashSize * randomRange(0.7, 1.2),
+        flashSize * randomRange(0.1, 0.18),
+        flashSize * randomRange(0.1, 0.18),
       );
     }
   }
