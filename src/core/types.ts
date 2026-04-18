@@ -139,8 +139,10 @@ export interface GameConfig {
     stage1Rig: {
       position: Vec3Tuple;
       scale: number;
+      seatOffset: Vec3Tuple;
       leftBikeOffset: Vec3Tuple;
       rightRailOffset: Vec3Tuple;
+      lookDownReveal: Vec3Tuple;
       swayAmplitude: Vec3Tuple;
       swayFrequency: number;
       vibrationAmplitude: number;
