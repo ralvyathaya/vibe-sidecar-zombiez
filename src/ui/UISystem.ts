@@ -26,6 +26,7 @@ export class UISystem {
   private readonly overlayMeta = document.createElement('div');
   private readonly overlayBreakdown = document.createElement('div');
   private readonly overlayButton = document.createElement('button');
+  private readonly rewardHud = document.createElement('div');
   private readonly healthFill = document.createElement('div');
   private readonly healthValue = document.createElement('span');
   private readonly healthState = document.createElement('span');
@@ -78,6 +79,7 @@ export class UISystem {
     const hudBottom = document.createElement('div');
     hudBottom.className = 'hud-bottom';
 
+    this.rewardHud.className = 'reward-hud';
     this.radarPanel.className = 'radar-panel';
     this.radarTrack.className = 'radar-track';
     this.radarContactLayer.className = 'radar-contacts';
@@ -97,19 +99,18 @@ export class UISystem {
     statsPanel.className = 'stats-panel stats-panel--side';
     this.scoreValue.className = 'stat-chip';
     this.multiplierValue.className = 'stat-chip stat-chip--reward';
-    this.chainPanel.className = 'chain-panel';
-    this.chainFill.className = 'chain-fill';
-    this.chainLabel.className = 'chain-label';
-    this.chainPanel.append(this.chainFill, this.chainLabel);
     this.distanceValue.className = 'stat-chip';
     this.timerValue.className = 'stat-chip';
     statsPanel.append(
       this.scoreValue,
-      this.multiplierValue,
-      this.chainPanel,
       this.distanceValue,
       this.timerValue,
     );
+    this.chainPanel.className = 'chain-panel';
+    this.chainFill.className = 'chain-fill';
+    this.chainLabel.className = 'chain-label';
+    this.chainPanel.append(this.chainFill, this.chainLabel);
+    this.rewardHud.append(this.multiplierValue, this.chainPanel);
 
     const leftPanel = document.createElement('div');
     leftPanel.className = 'hud-panel hud-panel--health';
@@ -167,7 +168,7 @@ export class UISystem {
     this.reloadHint.append(this.reloadHintTextBefore, this.reloadKey, this.reloadLabel);
     this.rewardCallout.className = 'reward-callout';
 
-    hudTop.append(this.radarPanel);
+    hudTop.append(this.rewardHud, this.radarPanel);
     hudMiddle.append(statsPanel);
     hudBottom.append(leftPanel, this.ammoPanel);
     hud.append(hudTop, hudMiddle, hudBottom);

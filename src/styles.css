@@ -58,8 +58,10 @@ body {
 }
 
 .hud-top {
-  display: flex;
-  justify-content: center;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: flex-start;
+  gap: 16px;
 }
 
 .hud-middle {
@@ -420,6 +422,16 @@ body {
 .radar-panel {
   width: min(440px, 54vw);
   pointer-events: none;
+  margin: 0 auto;
+}
+
+.reward-hud {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 148px;
+  justify-self: start;
 }
 
 .radar-track {
@@ -529,6 +541,8 @@ body {
   justify-content: center;
   background: rgba(128, 255, 182, 0.06);
   color: #c7f3d2;
+  min-height: 30px;
+  font-size: 0.72rem;
 }
 
 .stat-chip--reward[data-active="true"] {
@@ -820,6 +834,17 @@ body {
 
   .radar-panel {
     width: min(92vw, 440px);
+  }
+
+  .hud-top {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .reward-hud {
+    order: 2;
+    width: 100%;
   }
 
   .stats-panel {

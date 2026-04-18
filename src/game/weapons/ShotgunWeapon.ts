@@ -258,6 +258,22 @@ export class ShotgunWeapon {
     return this.ammo;
   }
 
+  playEquipIntro(): void {
+    if (!this.viewmodelRoot.visible) {
+      return;
+    }
+
+    this.pendingDelaySound = false;
+    this.cycleActive = true;
+    this.pumpDelayTimer = 0;
+    this.pumpOffset = 0.42;
+    this.spinTimer = this.resolvedSpinDuration;
+    this.activeSpinDuration = this.resolvedSpinDuration;
+    this.cooldown = Math.max(this.cooldown, this.resolvedSpinDuration + 0.08);
+    this.fireKick = Math.max(this.fireKick, 0.28);
+    this.delaySound.play(this.config.shotgun.audio.delayVolume, 1);
+  }
+
   isCycling(): boolean {
     return this.cycleActive || this.pendingDelaySound || this.pumpDelayTimer > 0 || this.spinTimer > 0;
   }

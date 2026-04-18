@@ -143,11 +143,15 @@ export class WeaponSystem {
   }
 
   private equipShotgun(player: PlayerSystem): void {
+    const wasShotgun = this.activeWeapon === 'shotgun';
     this.activeWeapon = 'shotgun';
     this.bazookaWeapon.setEquipped(false);
     this.pistolWeapon.cancelReload(player);
     this.pistolWeapon.setEquipped(false);
     this.shotgunWeapon.setEquipped(true);
+    if (!wasShotgun) {
+      this.shotgunWeapon.playEquipIntro();
+    }
   }
 
   private applyBazookaPickup(player: PlayerSystem): void {
