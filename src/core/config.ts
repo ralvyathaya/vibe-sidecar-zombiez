@@ -145,8 +145,8 @@ export const GAME_CONFIG: GameConfig = {
       firePlaybackRate: 0.84,
     },
     viewmodel: {
-      assetPath: '/models/weapons/bazooka/bazooka-web.glb',
-      fallbackAssetPath: '/models/weapons/bazooka/bazooka-base.glb',
+      assetPath: '/models/weapons/bazooka-web.glb',
+      fallbackAssetPath: '/models/weapons/bazooka.glb',
       position: [0.36, -0.56, -1.08],
       rotationDegrees: [4, -92, -2.2],
       scale: 0.92,
