@@ -61,6 +61,10 @@ export class ShotgunWeapon {
   private readonly pelletRaycaster = new Raycaster();
   private readonly pelletDirection = new Vector3();
   private readonly muzzleWorld = new Vector3();
+  private readonly pelletBurstTarget = new Vector3();
+  private readonly pelletBurstDirection = new Vector3();
+  private readonly muzzleForwardWorld = new Vector3();
+  private readonly muzzleForwardPoint = new Vector3();
   private readonly muzzleFlash = new Group();
   private readonly muzzleFlashCoreMaterial = new MeshBasicMaterial({
     color: 0xffd78f,
@@ -448,13 +452,15 @@ export class ShotgunWeapon {
         (!hitBarrel || hitZombie.distance <= hitBarrel.distance);
 
       if (visualPelletIndices.has(pelletIndex)) {
-        // The burst uses the same sampled pellet direction as the real hit logic,
-        // but keeps the visible streaks short and close to the barrel.
+        // The burst uses the same sampled screen-space spread as the actual pellet
+        // hit logic, but converts it into a muzzle-originating direction so the
+        // visible blast opens outward as a fan from the barrel.
         const visibleLength = randomRange(
           this.config.shotgun.pelletTraceMinLength,
           this.config.shotgun.pelletTraceMaxLength,
         );
-        this.spawnPelletStreak(this.muzzleWorld, this.pelletDirection, visibleLength);
+        this.resolvePelletBurstDirection();
+        this.spawnPelletStreak(this.muzzleWorld, this.pelletBurstDirection, visibleLength);
       }
 
       if (hitEnemyFirst && hitZombie) {
@@ -479,6 +485,40 @@ export class ShotgunWeapon {
     if (scoreGain > 0) {
       player.state.score += scoreGain;
     }
+  }
+
+  private resolvePelletBurstDirection(): void {
+    this.muzzleForwardPoint.set(1, 0, 0);
+    this.muzzleAnchor.localToWorld(this.muzzleForwardPoint);
+    this.muzzleForwardWorld
+      .copy(this.muzzleForwardPoint)
+      .sub(this.muzzleWorld);
+
+    if (this.muzzleForwardWorld.lengthSq() > 0.000001) {
+      this.muzzleForwardWorld.normalize();
+    } else {
+      this.muzzleForwardWorld.copy(this.pelletDirection);
+    }
+
+    const burstAimDistance = clamp(
+      this.config.shotgun.pelletTraceMaxLength * 0.22,
+      4.2,
+      7.2,
+    );
+    this.pelletBurstTarget
+      .copy(this.pelletRaycaster.ray.origin)
+      .addScaledVector(this.pelletDirection, burstAimDistance);
+
+    this.pelletBurstDirection
+      .copy(this.pelletBurstTarget)
+      .sub(this.muzzleWorld);
+
+    if (this.pelletBurstDirection.lengthSq() <= 0.000001) {
+      this.pelletBurstDirection.copy(this.muzzleForwardWorld);
+      return;
+    }
+
+    this.pelletBurstDirection.normalize();
   }
 
   private getRepresentativePelletIndices(): Set<number> {
@@ -811,12 +851,14 @@ export class ShotgunWeapon {
     streak.group.visible = true;
     // Start slightly forward from the muzzle tip so the burst reads from the
     // barrel itself and stays out of the player's face.
-    streak.group.position.copy(start).addScaledVector(direction, 0.62);
+    streak.group.position
+      .copy(start)
+      .addScaledVector(direction, this.config.shotgun.pelletTraceMuzzleForward);
     streak.group.quaternion.setFromUnitVectors(EFFECT_FORWARD_AXIS, direction);
     streak.beam.position.set(length * 0.5, 0, 0);
     streak.glow.position.set(length * 0.5, 0, 0);
-    streak.beam.scale.set(length, 0.082, 0.082);
-    streak.glow.scale.set(length, 0.22, 0.22);
+    streak.beam.scale.set(length, 0.09, 0.09);
+    streak.glow.scale.set(length, 0.24, 0.24);
     (streak.beam.material as MeshBasicMaterial).opacity = 1;
     (streak.glow.material as MeshBasicMaterial).opacity = 0.5;
   }

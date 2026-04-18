@@ -195,6 +195,8 @@ export interface GameConfig {
     pelletTraceMinLength: number;
     pelletTraceMaxLength: number;
     pelletTraceDuration: number;
+    /** World units along trace direction from muzzle; larger pushes streaks away from the camera. */
+    pelletTraceMuzzleForward: number;
     audio: {
       gunshotPath: string;
       delayPath: string;
