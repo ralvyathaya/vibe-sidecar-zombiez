@@ -101,6 +101,9 @@ export interface ZombieModelVariant {
 }
 
 export interface GameConfig {
+  debug: {
+    developmentWeapons: boolean;
+  };
   renderer: {
     clearColor: number;
     fogColor: number;

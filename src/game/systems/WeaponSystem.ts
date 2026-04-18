@@ -35,6 +35,14 @@ export class WeaponSystem {
     this.pistolWeapon.setEquipped(true);
     this.shotgunWeapon.reset();
     this.shotgunWeapon.setEquipped(false);
+
+    if (this.config.debug.developmentWeapons) {
+      this.shotgunUnlocked = true;
+      this.shotgunWeapon.setAmmo(this.config.shotgun.maxAmmo);
+      this.bazookaWeapon.setAmmo(this.config.bazooka.maxAmmo);
+      this.bazookaRestoreWeapon = 'shotgun';
+      this.equipBazooka(player);
+    }
   }
 
   updateRunning(

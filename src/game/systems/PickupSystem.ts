@@ -95,11 +95,13 @@ export class PickupSystem {
       }
     }
 
-    if (elapsedSeconds < this.config.pickups.unlockTimeSeconds) {
+    const devWeapons = this.config.debug.developmentWeapons;
+    if (!devWeapons && elapsedSeconds < this.config.pickups.unlockTimeSeconds) {
       return events;
     }
 
-    const bazookaUnlocked = elapsedSeconds >= this.config.pickups.bazookaUnlockTimeSeconds;
+    const bazookaUnlocked =
+      devWeapons || elapsedSeconds >= this.config.pickups.bazookaUnlockTimeSeconds;
     const desiredActiveCount = bazookaUnlocked ? 3 : shotgunUnlocked ? 2 : 1;
     while (this.getActiveCount() < desiredActiveCount) {
       const slot = this.pickups.find((entry) => !entry.active);
