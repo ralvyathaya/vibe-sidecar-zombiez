@@ -93,6 +93,9 @@ export class EnemySystem {
   private readonly effectTangent = new Vector3();
   private readonly effectBitangent = new Vector3();
   private readonly effectLookTarget = new Vector3();
+  private readonly projectileSegment = new Vector3();
+  private readonly projectileClosestPoint = new Vector3();
+  private readonly projectileTargetPoint = new Vector3();
   private readonly radarDirection = new Vector3();
   private readonly radarRight = new Vector3();
   private readonly normalDeathSound: SoundEffectPool;
@@ -358,6 +361,57 @@ export class EnemySystem {
     }
 
     return 0;
+  }
+
+  findProjectileImpact(
+    start: Vector3,
+    end: Vector3,
+    radius: number,
+  ): { point: Vector3; distance: number } | null {
+    this.projectileSegment.copy(end).sub(start);
+    const segmentLength = this.projectileSegment.length();
+    if (segmentLength <= 0.0001) {
+      return null;
+    }
+
+    this.projectileSegment.multiplyScalar(1 / segmentLength);
+    let closestHit: { point: Vector3; distance: number } | null = null;
+    const hitRadiusSq = radius * radius;
+
+    for (const zombie of this.pool) {
+      if (!zombie.active || zombie.state !== 'alive') {
+        continue;
+      }
+
+      this.projectileTargetPoint.copy(zombie.group.position);
+      this.projectileTargetPoint.y += zombie.type === 'tank' ? 1.45 : 1.1;
+
+      const distanceAlong = MathUtils.clamp(
+        this.projectileTargetPoint
+          .clone()
+          .sub(start)
+          .dot(this.projectileSegment),
+        0,
+        segmentLength,
+      );
+
+      this.projectileClosestPoint
+        .copy(start)
+        .addScaledVector(this.projectileSegment, distanceAlong);
+
+      if (this.projectileClosestPoint.distanceToSquared(this.projectileTargetPoint) > hitRadiusSq) {
+        continue;
+      }
+
+      if (!closestHit || distanceAlong < closestHit.distance) {
+        closestHit = {
+          point: this.projectileTargetPoint.clone(),
+          distance: distanceAlong,
+        };
+      }
+    }
+
+    return closestHit;
   }
 
   getActiveCount(): number {

@@ -158,6 +158,14 @@ body {
     linear-gradient(180deg, #e9cfaa, #7b6144) 10px 5px / 4px 3px no-repeat;
 }
 
+.weapon-icon[data-weapon="bazooka"] {
+  background:
+    linear-gradient(180deg, #f4dbb0, #ad8657) 2px 5px / 22px 3px no-repeat,
+    linear-gradient(180deg, #c8aa80, #71573d) 18px 6px / 8px 4px no-repeat,
+    linear-gradient(180deg, #d8b68d, #7e6042) 13px 8px / 4px 4px no-repeat,
+    linear-gradient(180deg, #7d4432, #452017) 1px 5px / 3px 3px no-repeat;
+}
+
 .weapon-name {
   font-size: 0.56rem;
   font-weight: 800;
@@ -255,7 +263,7 @@ body {
 
 .ammo-rack {
   display: grid;
-  grid-template-columns: repeat(6, max-content);
+  grid-template-columns: repeat(var(--ammo-columns, 6), max-content);
   justify-content: center;
   gap: 1px 2px;
   align-items: end;
@@ -312,6 +320,23 @@ body {
   border-radius: 2px 2px 1px 1px;
   clip-path: none;
   background: linear-gradient(180deg, #fff0c5 0%, #d7a759 100%);
+  box-shadow: none;
+}
+
+.ammo-round[data-shape="rocket"] {
+  width: 7px;
+  height: 12px;
+  border-radius: 2px;
+  background:
+    linear-gradient(180deg, #d3d0cb 0%, #8f8a82 58%, #5b5751 100%);
+}
+
+.ammo-round[data-shape="rocket"]::before {
+  top: -4px;
+  width: 5px;
+  height: 5px;
+  clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+  background: linear-gradient(180deg, #ffb083 0%, #ca5b2d 100%);
   box-shadow: none;
 }
 
@@ -592,6 +617,11 @@ body {
 .crosshair[data-style="shotgun"] {
   color: rgba(255, 239, 213, 0.88);
   filter: drop-shadow(0 0 10px rgba(255, 224, 182, 0.18));
+}
+
+.crosshair[data-style="bazooka"] {
+  color: rgba(255, 220, 150, 0.92);
+  filter: drop-shadow(0 0 10px rgba(255, 195, 108, 0.2));
 }
 
 .crosshair[data-style="shotgun"] .crosshair-line,

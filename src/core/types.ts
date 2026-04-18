@@ -12,10 +12,10 @@ export type GameStateType = 'menu' | 'running' | 'paused' | 'dead';
 export type ZombieType = 'walker' | 'runner' | 'tank';
 export type HumanoidZombieType = 'walker' | 'runner' | 'tank';
 export type ZombieLifecycleState = 'inactive' | 'alive' | 'dying';
-export type WeaponKind = 'pistol' | 'shotgun';
-export type AmmoRoundStyle = 'bullet' | 'shell';
-export type PickupType = 'shotgun' | 'shotgunAmmo';
-export type CrosshairStyle = 'pistol' | 'shotgun';
+export type WeaponKind = 'pistol' | 'shotgun' | 'bazooka';
+export type AmmoRoundStyle = 'bullet' | 'shell' | 'rocket';
+export type PickupType = 'shotgun' | 'shotgunAmmo' | 'bazooka';
+export type CrosshairStyle = 'pistol' | 'shotgun' | 'bazooka';
 
 export type Vec3Tuple = [number, number, number];
 
@@ -224,6 +224,39 @@ export interface GameConfig {
       muzzleFlashDuration: number;
     };
   };
+  bazooka: {
+    maxAmmo: number;
+    rocketSpeed: number;
+    rocketRadius: number;
+    maxDistance: number;
+    explosionRadius: number;
+    tankDamage: number;
+    smokeSpawnInterval: number;
+    smokeLifetime: number;
+    smokeStartSize: number;
+    smokeEndSize: number;
+    smokeDrift: number;
+    cameraKick: number;
+    audio: {
+      firePath: string;
+      fireVolume: number;
+      firePlaybackRate: number;
+    };
+    viewmodel: {
+      assetPath: string;
+      fallbackAssetPath: string;
+      position: Vec3Tuple;
+      rotationDegrees: Vec3Tuple;
+      scale: number;
+      recoilBack: number;
+      recoilLift: number;
+      recoilPitchDegrees: number;
+      recoilRecovery: number;
+      muzzleOffset: Vec3Tuple;
+      muzzleFlashSize: number;
+      muzzleFlashDuration: number;
+    };
+  };
   enemies: {
     poolSize: number;
     spawnMinZ: number;
@@ -309,6 +342,7 @@ export interface GameConfig {
   };
   pickups: {
     unlockTimeSeconds: number;
+    bazookaUnlockTimeSeconds: number;
     poolSize: number;
     spawnMinZ: number;
     spawnMaxZ: number;
@@ -322,8 +356,12 @@ export interface GameConfig {
     ammoCrateChance: number;
     ammoCrateMin: number;
     ammoCrateMax: number;
+    bazookaSpawnChance: number;
+    bazookaPickupSpacingMin: number;
+    bazookaPickupSpacingMax: number;
     shotgunPickupScale: number;
     ammoCrateScale: number;
+    bazookaPickupScale: number;
   };
 }
 

@@ -85,6 +85,9 @@ export class WorldSystem {
   private readonly breakEffects: BreakEffect[] = [];
   private readonly raycaster = new Raycaster();
   private readonly explosionCenter = new Vector3();
+  private readonly projectileSegment = new Vector3();
+  private readonly projectileClosestPoint = new Vector3();
+  private readonly projectileHitPoint = new Vector3();
   private readonly obstacleImpactSound: SoundEffectPool;
 
   private nextObstacleZ = -34;
@@ -249,6 +252,81 @@ export class WorldSystem {
     );
     this.recycleObstacle(obstacle);
     return scoreGain;
+  }
+
+  findProjectileImpact(
+    start: Vector3,
+    end: Vector3,
+    radius: number,
+  ): { obstacle: ActiveObstacle; point: Vector3; distance: number } | null {
+    this.projectileSegment.copy(end).sub(start);
+    const segmentLength = this.projectileSegment.length();
+    if (segmentLength <= 0.0001) {
+      return null;
+    }
+
+    this.projectileSegment.multiplyScalar(1 / segmentLength);
+    let closestHit: { obstacle: ActiveObstacle; point: Vector3; distance: number } | null = null;
+
+    for (const obstacle of this.obstacles) {
+      if (!obstacle.active) {
+        continue;
+      }
+
+      const distanceAlong = Math.max(
+        0,
+        Math.min(
+          segmentLength,
+          obstacle.mesh.position
+            .clone()
+            .sub(start)
+            .dot(this.projectileSegment),
+        ),
+      );
+
+      this.projectileClosestPoint
+        .copy(start)
+        .addScaledVector(this.projectileSegment, distanceAlong);
+
+      const xReach = obstacle.width * 0.5 + radius;
+      const zReach = obstacle.depth * 0.5 + radius;
+      const withinX = Math.abs(this.projectileClosestPoint.x - obstacle.mesh.position.x) <= xReach;
+      const withinZ = Math.abs(this.projectileClosestPoint.z - obstacle.mesh.position.z) <= zReach;
+      if (!withinX || !withinZ) {
+        continue;
+      }
+
+      if (!closestHit || distanceAlong < closestHit.distance) {
+        this.projectileHitPoint.copy(this.projectileClosestPoint);
+        this.projectileHitPoint.y = this.config.world.roadSurfaceY + 0.72;
+        closestHit = {
+          obstacle,
+          point: this.projectileHitPoint.clone(),
+          distance: distanceAlong,
+        };
+      }
+    }
+
+    return closestHit;
+  }
+
+  applyProjectileImpact(obstacle: ActiveObstacle): void {
+    const record = obstacle as ObstacleRecord;
+    if (!record.active) {
+      return;
+    }
+
+    if (record.type === 'car') {
+      return;
+    }
+
+    if (record.type === 'barrel') {
+      this.recycleObstacle(record);
+      return;
+    }
+
+    this.spawnBreakEffect(record);
+    this.recycleObstacle(record);
   }
 
   private createChunks(): void {

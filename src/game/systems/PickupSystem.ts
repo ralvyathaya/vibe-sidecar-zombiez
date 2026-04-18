@@ -15,6 +15,7 @@ import { randomInt, randomRange } from '../../core/utils';
 
 type PickupRecord = ActivePickup & {
   shotgunVariant: Group;
+  bazookaVariant: Group;
   ammoCrateVariant: Group;
   glow: Mesh;
 };
@@ -25,7 +26,9 @@ export class PickupSystem {
   private readonly bobVector = new Vector3();
 
   private shotgunTemplate: Group | null = null;
+  private bazookaTemplate: Group | null = null;
   private shotgunLoadPromise: Promise<void> | null = null;
+  private bazookaLoadPromise: Promise<void> | null = null;
   private nextSpawnZ = -110;
 
   constructor(
@@ -37,6 +40,7 @@ export class PickupSystem {
     this.createPool();
     this.reset();
     void this.loadShotgunTemplate();
+    void this.loadBazookaTemplate();
   }
 
   reset(): void {
@@ -95,14 +99,15 @@ export class PickupSystem {
       return events;
     }
 
-    const desiredActiveCount = shotgunUnlocked ? 2 : 1;
+    const bazookaUnlocked = elapsedSeconds >= this.config.pickups.bazookaUnlockTimeSeconds;
+    const desiredActiveCount = bazookaUnlocked ? 3 : shotgunUnlocked ? 2 : 1;
     while (this.getActiveCount() < desiredActiveCount) {
       const slot = this.pickups.find((entry) => !entry.active);
       if (!slot) {
         break;
       }
 
-      this.spawn(slot, shotgunUnlocked);
+      this.spawn(slot, shotgunUnlocked, bazookaUnlocked);
     }
 
     return events;
@@ -112,6 +117,7 @@ export class PickupSystem {
     this.reset();
     this.root.removeFromParent();
     this.disposeObject(this.shotgunTemplate);
+    this.disposeObject(this.bazookaTemplate);
   }
 
   private createPool(): void {
@@ -120,6 +126,7 @@ export class PickupSystem {
       mesh.visible = false;
 
       const shotgunVariant = new Group();
+      const bazookaVariant = new Group();
       const ammoCrateVariant = this.createAmmoCrateVariant();
       const glow = new Mesh(
         new SphereGeometry(0.55, 10, 10),
@@ -131,7 +138,7 @@ export class PickupSystem {
         }),
       );
       glow.position.y = 0.18;
-      mesh.add(glow, shotgunVariant, ammoCrateVariant);
+      mesh.add(glow, shotgunVariant, bazookaVariant, ammoCrateVariant);
       this.root.add(mesh);
 
       this.pickups.push({
@@ -146,21 +153,29 @@ export class PickupSystem {
         spinSpeed: randomRange(0.7, 1.2),
         mesh,
         shotgunVariant,
+        bazookaVariant,
         ammoCrateVariant,
         glow,
       });
 
       this.applyShotgunVisual(this.pickups[index]);
+      this.applyBazookaVisual(this.pickups[index]);
     }
   }
 
-  private spawn(pickup: PickupRecord, shotgunUnlocked: boolean): void {
+  private spawn(
+    pickup: PickupRecord,
+    shotgunUnlocked: boolean,
+    bazookaUnlocked: boolean,
+  ): void {
     const laneIndex = randomInt(0, this.config.world.laneCenters.length - 1);
     const laneCenter = this.config.world.laneCenters[laneIndex] ?? 0;
-    const kind: PickupType =
-      shotgunUnlocked && Math.random() < this.config.pickups.ammoCrateChance
-        ? 'shotgunAmmo'
-        : 'shotgun';
+    let kind: PickupType = 'shotgun';
+    if (bazookaUnlocked && Math.random() < this.config.pickups.bazookaSpawnChance) {
+      kind = 'bazooka';
+    } else if (shotgunUnlocked && Math.random() < this.config.pickups.ammoCrateChance) {
+      kind = 'shotgunAmmo';
+    }
 
     pickup.active = true;
     pickup.kind = kind;
@@ -179,11 +194,27 @@ export class PickupSystem {
       pickup.width = 1.9;
       pickup.depth = 1.2;
       pickup.shotgunVariant.visible = true;
+      pickup.bazookaVariant.visible = false;
       pickup.ammoCrateVariant.visible = false;
       (pickup.glow.material as MeshBasicMaterial).color.setHex(0xffca6e);
       this.nextSpawnZ -= randomRange(
         this.config.pickups.shotgunPickupSpacingMin,
         this.config.pickups.shotgunPickupSpacingMax,
+      );
+      return;
+    }
+
+    if (kind === 'bazooka') {
+      pickup.ammo = this.config.bazooka.maxAmmo;
+      pickup.width = 2.2;
+      pickup.depth = 1.45;
+      pickup.shotgunVariant.visible = false;
+      pickup.bazookaVariant.visible = true;
+      pickup.ammoCrateVariant.visible = false;
+      (pickup.glow.material as MeshBasicMaterial).color.setHex(0xff8d5b);
+      this.nextSpawnZ -= randomRange(
+        this.config.pickups.bazookaPickupSpacingMin,
+        this.config.pickups.bazookaPickupSpacingMax,
       );
       return;
     }
@@ -195,6 +226,7 @@ export class PickupSystem {
     pickup.width = 1.55;
     pickup.depth = 1.55;
     pickup.shotgunVariant.visible = false;
+    pickup.bazookaVariant.visible = false;
     pickup.ammoCrateVariant.visible = true;
     (pickup.glow.material as MeshBasicMaterial).color.setHex(0x9cff8d);
     this.nextSpawnZ -= randomRange(
@@ -208,6 +240,7 @@ export class PickupSystem {
     pickup.mesh.visible = false;
     pickup.mesh.position.set(0, 0, 999);
     pickup.shotgunVariant.visible = pickup.kind === 'shotgun';
+    pickup.bazookaVariant.visible = pickup.kind === 'bazooka';
     pickup.ammoCrateVariant.visible = pickup.kind === 'shotgunAmmo';
   }
 
@@ -284,6 +317,38 @@ export class PickupSystem {
     return this.shotgunLoadPromise;
   }
 
+  private async loadBazookaTemplate(): Promise<void> {
+    if (this.bazookaLoadPromise) {
+      return this.bazookaLoadPromise;
+    }
+
+    this.bazookaLoadPromise = (async () => {
+      try {
+        const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
+        const loader = new GLTFLoader();
+        let scene: Group;
+
+        try {
+          const gltf = await loader.loadAsync(this.config.bazooka.viewmodel.assetPath);
+          scene = gltf.scene;
+        } catch {
+          const gltf = await loader.loadAsync(this.config.bazooka.viewmodel.fallbackAssetPath);
+          scene = gltf.scene;
+        }
+
+        this.prepareTemplate(scene);
+        this.bazookaTemplate = scene;
+        for (const pickup of this.pickups) {
+          this.applyBazookaVisual(pickup);
+        }
+      } catch (error) {
+        console.warn('Failed to load bazooka pickup model, using fallback.', error);
+      }
+    })();
+
+    return this.bazookaLoadPromise;
+  }
+
   private prepareTemplate(root: Group): void {
     root.traverse((object) => {
       object.frustumCulled = false;
@@ -318,6 +383,19 @@ export class PickupSystem {
     pickup.shotgunVariant.add(visual);
   }
 
+  private applyBazookaVisual(pickup: PickupRecord): void {
+    pickup.bazookaVariant.clear();
+    pickup.bazookaVariant.visible = pickup.kind === 'bazooka';
+
+    const visual = this.bazookaTemplate
+      ? this.bazookaTemplate.clone(true)
+      : this.createFallbackBazookaPickup();
+    visual.scale.setScalar(this.config.pickups.bazookaPickupScale);
+    visual.rotation.set(-0.14, -Math.PI * 0.5, -0.2);
+    visual.position.set(0, 0.2, 0);
+    pickup.bazookaVariant.add(visual);
+  }
+
   private createFallbackShotgunPickup(): Group {
     const group = new Group();
 
@@ -342,6 +420,29 @@ export class PickupSystem {
     );
     receiver.position.set(0.12, 0.15, 0);
     group.add(receiver);
+
+    return group;
+  }
+
+  private createFallbackBazookaPickup(): Group {
+    const group = new Group();
+
+    const tube = new Mesh(
+      new BoxGeometry(1.7, 0.16, 0.16),
+      new MeshStandardMaterial({ color: 0x69645a, roughness: 0.94, metalness: 0.06 }),
+    );
+    const grip = new Mesh(
+      new BoxGeometry(0.18, 0.36, 0.12),
+      new MeshStandardMaterial({ color: 0x4b392d, roughness: 0.98, metalness: 0.02 }),
+    );
+    const rear = new Mesh(
+      new BoxGeometry(0.16, 0.24, 0.14),
+      new MeshStandardMaterial({ color: 0x302a27, roughness: 0.95, metalness: 0.04 }),
+    );
+    tube.position.set(-0.05, 0.18, 0);
+    grip.position.set(0.18, -0.03, 0);
+    rear.position.set(0.72, 0.04, 0);
+    group.add(tube, grip, rear);
 
     return group;
   }

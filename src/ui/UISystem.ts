@@ -243,6 +243,10 @@ export class UISystem {
     this.ammoValue.textContent = `${snapshot.weapon.ammoInMagazine}`;
     this.ammoReserve.textContent = snapshot.weapon.reserveAmmoText;
     this.ammoReserve.hidden = !snapshot.weapon.showReserve;
+    this.ammoPanel.style.setProperty(
+      '--ammo-columns',
+      `${Math.min(6, Math.max(1, snapshot.weapon.magazineSize))}`,
+    );
 
     for (let index = 0; index < this.ammoRounds.length; index += 1) {
       const round = this.ammoRounds[index];
@@ -283,7 +287,13 @@ export class UISystem {
     );
     this.crosshair.style.setProperty(
       '--crosshair-arm-length',
-      `${(snapshot.weapon.crosshairStyle === 'pistol' ? 7.5 + snapshot.weapon.crosshairKick * 1.3 : 0).toFixed(2)}px`,
+      `${(
+        snapshot.weapon.crosshairStyle === 'shotgun'
+          ? 0
+          : snapshot.weapon.crosshairStyle === 'bazooka'
+            ? 11 + snapshot.weapon.crosshairKick * 1.8
+            : 7.5 + snapshot.weapon.crosshairKick * 1.3
+      ).toFixed(2)}px`,
     );
     this.crosshair.style.setProperty(
       '--crosshair-bracket-width',
