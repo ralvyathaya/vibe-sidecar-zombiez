@@ -126,17 +126,21 @@ export class PlayerSystem {
     const bob = Math.sin(this.state.distance * this.config.player.bobFrequency) *
       this.config.player.bobAmplitude;
     const sway = moveAxis * 0.01;
+    const desiredWorldY = this.config.player.eyeHeight + bob - this.state.hitFlash * 0.05;
 
-    this.camera.position.set(
+    this.worldPosition.set(
       this.state.strafeX,
-      this.config.player.eyeHeight + bob - this.state.hitFlash * 0.05,
+      desiredWorldY,
       0,
     );
+
+    // The camera now sits inside the sidecar rig; gameplay position remains a
+    // separate world-space value while the camera itself stays local to the seat.
+    this.camera.position.set(0, 0, 0);
     this.camera.rotation.order = 'YXZ';
     this.camera.rotation.y = this.yaw;
     this.camera.rotation.x = this.pitch + this.recoilPitch;
     this.camera.rotation.z = this.hurtRoll * 0.18 + sway;
-    this.worldPosition.copy(this.camera.position);
   }
 
   private createInitialState(): PlayerState {

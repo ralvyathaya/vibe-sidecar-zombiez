@@ -12,6 +12,7 @@ import { PlayerSystem } from './systems/PlayerSystem';
 import { PickupSystem } from './systems/PickupSystem';
 import { RewardSystem } from './systems/RewardSystem';
 import { SpawnSystem } from './systems/SpawnSystem';
+import { VehicleRigSystem } from './systems/VehicleRigSystem';
 import { WeaponSystem } from './systems/WeaponSystem';
 import { WorldSystem } from './systems/WorldSystem';
 
@@ -26,6 +27,7 @@ export class Game {
   private readonly worldSystem: WorldSystem;
   private readonly pickupSystem: PickupSystem;
   private readonly rewardSystem: RewardSystem;
+  private readonly vehicleRigSystem: VehicleRigSystem;
   private readonly uiSystem: UISystem;
   private readonly gameLoop: GameLoop;
   private readonly engineLoop: LoopingSound;
@@ -48,6 +50,7 @@ export class Game {
     this.pickupSystem = new PickupSystem(this.rendererSystem.scene, GAME_CONFIG);
     this.enemySystem = new EnemySystem(this.rendererSystem.scene, GAME_CONFIG);
     this.weaponSystem = new WeaponSystem(this.rendererSystem.camera, GAME_CONFIG);
+    this.vehicleRigSystem = new VehicleRigSystem(this.rendererSystem.camera, GAME_CONFIG);
     this.spawnSystem = new SpawnSystem(GAME_CONFIG);
     this.rewardSystem = new RewardSystem(GAME_CONFIG);
     this.uiSystem = new UISystem(root);
@@ -100,6 +103,7 @@ export class Game {
     this.gameLoop.stop();
     this.inputSystem.destroy();
     this.weaponSystem.destroy();
+    this.vehicleRigSystem.destroy();
     this.enemySystem.destroy();
     this.worldSystem.destroy();
     this.pickupSystem.destroy();
@@ -110,6 +114,13 @@ export class Game {
   private update(deltaTime: number): void {
     if (this.state === 'running') {
       this.playerSystem.updateRunning(deltaTime, this.inputSystem);
+      this.vehicleRigSystem.update(
+        deltaTime,
+        this.playerSystem.getPosition(this.playerPosition),
+        this.playerSystem.getEngineTurnAmount(),
+        this.playerSystem.state.hitFlash,
+        this.state,
+      );
       this.engineLoop.setTurnAmount(this.playerSystem.getEngineTurnAmount());
       this.spawnSystem.update(deltaTime, this.enemySystem);
       this.playerSystem.state.score += this.rewardSystem.update(
@@ -158,6 +169,13 @@ export class Game {
       }
     } else {
       this.playerSystem.updateIdle(deltaTime);
+      this.vehicleRigSystem.update(
+        deltaTime,
+        this.playerSystem.getPosition(this.playerPosition),
+        0,
+        this.playerSystem.state.hitFlash,
+        this.state,
+      );
       this.engineLoop.setTurnAmount(0);
       this.weaponSystem.updateIdle(deltaTime);
     }
@@ -190,6 +208,7 @@ export class Game {
 
   private resetGame(): void {
     this.playerSystem.reset();
+    this.vehicleRigSystem.reset();
     this.rewardSystem.resetRun();
     this.weaponSystem.reset(this.playerSystem);
     this.enemySystem.reset();

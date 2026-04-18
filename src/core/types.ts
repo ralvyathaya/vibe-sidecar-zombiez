@@ -136,6 +136,26 @@ export interface GameConfig {
     turnLowpassHz: number;
     turnEnterSmoothing: number;
     turnReleaseSmoothing: number;
+    stage1Rig: {
+      position: Vec3Tuple;
+      scale: number;
+      leftBikeOffset: Vec3Tuple;
+      rightRailOffset: Vec3Tuple;
+      swayAmplitude: Vec3Tuple;
+      swayFrequency: number;
+      vibrationAmplitude: number;
+      vibrationFrequency: number;
+      turnShift: number;
+      turnRollDegrees: number;
+      damageShakeAmplitude: number;
+      damageShakeDecay: number;
+      bikeColor: number;
+      bikeAccentColor: number;
+      buddyColor: number;
+      railColor: number;
+      railAccentColor: number;
+      windshieldColor: number;
+    };
   };
   weapon: {
     fireRate: number;
