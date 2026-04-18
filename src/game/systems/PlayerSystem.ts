@@ -1,4 +1,4 @@
-import { PerspectiveCamera, Vector2, Vector3 } from 'three';
+import { Object3D, PerspectiveCamera, Vector2, Vector3 } from 'three';
 import type { GameConfig, PlayerState } from '../../core/types';
 import { approach, clamp } from '../../core/utils';
 import type { InputSystem } from './InputSystem';
@@ -8,6 +8,8 @@ export class PlayerSystem {
 
   private readonly lookDelta = new Vector2();
   private readonly worldPosition = new Vector3();
+  private cameraYawPivot: Object3D | null = null;
+  private cameraPitchPivot: Object3D | null = null;
   private yaw = 0;
   private pitch = 0;
   private recoilPitch = 0;
@@ -29,6 +31,12 @@ export class PlayerSystem {
     this.recoilPitch = 0;
     this.hurtRoll = 0;
     this.engineTurnAmount = 0;
+    this.applyCameraTransform(0);
+  }
+
+  setLookRig(cameraYawPivot: Object3D | null, cameraPitchPivot: Object3D | null): void {
+    this.cameraYawPivot = cameraYawPivot;
+    this.cameraPitchPivot = cameraPitchPivot;
     this.applyCameraTransform(0);
   }
 
@@ -134,10 +142,20 @@ export class PlayerSystem {
       0,
     );
 
-    // The camera now sits inside the sidecar rig; gameplay position remains a
-    // separate world-space value while the camera itself stays local to the seat.
     this.camera.position.set(0, 0, 0);
     this.camera.rotation.order = 'YXZ';
+
+    if (this.cameraYawPivot && this.cameraPitchPivot) {
+      // Yaw/pitch live on the seat rig pivots so looking around reveals more of
+      // the sidecar naturally, while the FPS weapon stays attached to the camera.
+      this.cameraYawPivot.rotation.set(0, this.yaw, 0);
+      this.cameraPitchPivot.rotation.set(this.pitch + this.recoilPitch, 0, 0);
+      this.camera.rotation.x = 0;
+      this.camera.rotation.y = 0;
+      this.camera.rotation.z = this.hurtRoll * 0.18 + sway;
+      return;
+    }
+
     this.camera.rotation.y = this.yaw;
     this.camera.rotation.x = this.pitch + this.recoilPitch;
     this.camera.rotation.z = this.hurtRoll * 0.18 + sway;

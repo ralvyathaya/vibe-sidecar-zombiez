@@ -138,10 +138,13 @@ export interface GameConfig {
     turnReleaseSmoothing: number;
     stage1Rig: {
       position: Vec3Tuple;
-      scale: number;
-      seatOffset: Vec3Tuple;
-      leftBikeOffset: Vec3Tuple;
-      rightRailOffset: Vec3Tuple;
+      assetPath: string;
+      fallbackAssetPath: string;
+      modelPosition: Vec3Tuple;
+      modelRotationDegrees: Vec3Tuple;
+      modelScale: number;
+      seatPivotPosition: Vec3Tuple;
+      cameraOffset: Vec3Tuple;
       lookDownReveal: Vec3Tuple;
       swayAmplitude: Vec3Tuple;
       swayFrequency: number;
@@ -151,12 +154,6 @@ export interface GameConfig {
       turnRollDegrees: number;
       damageShakeAmplitude: number;
       damageShakeDecay: number;
-      bikeColor: number;
-      bikeAccentColor: number;
-      buddyColor: number;
-      railColor: number;
-      railAccentColor: number;
-      windshieldColor: number;
     };
   };
   weapon: {

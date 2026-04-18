@@ -51,6 +51,10 @@ export class Game {
     this.enemySystem = new EnemySystem(this.rendererSystem.scene, GAME_CONFIG);
     this.weaponSystem = new WeaponSystem(this.rendererSystem.camera, GAME_CONFIG);
     this.vehicleRigSystem = new VehicleRigSystem(this.rendererSystem.camera, GAME_CONFIG);
+    this.playerSystem.setLookRig(
+      this.vehicleRigSystem.getCameraYawPivot(),
+      this.vehicleRigSystem.getCameraPitchPivot(),
+    );
     this.spawnSystem = new SpawnSystem(GAME_CONFIG);
     this.rewardSystem = new RewardSystem(GAME_CONFIG);
     this.uiSystem = new UISystem(root);
