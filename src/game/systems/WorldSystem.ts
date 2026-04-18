@@ -89,6 +89,7 @@ export class WorldSystem {
   private readonly projectileClosestPoint = new Vector3();
   private readonly projectileHitPoint = new Vector3();
   private readonly obstacleImpactSound: SoundEffectPool;
+  private readonly barrelExplosionSound: SoundEffectPool;
 
   private nextObstacleZ = -34;
   private nextBarrelEligibleZ = -72;
@@ -110,6 +111,10 @@ export class WorldSystem {
       poolSize: 4,
       volume: this.config.world.audio.obstacleImpactVolume,
     });
+    this.barrelExplosionSound = new SoundEffectPool(this.config.world.audio.barrelExplosionPath, {
+      poolSize: 3,
+      volume: this.config.world.audio.barrelExplosionVolume,
+    });
     this.scene.add(this.worldRoot);
     this.createChunks();
     this.createObstacles();
@@ -128,6 +133,7 @@ export class WorldSystem {
     this.nextBarrelEligibleZ = -72;
     this.nextCarEligibleZ = -124;
     this.obstacleImpactSound.stopAll();
+    this.barrelExplosionSound.stopAll();
 
     for (const explosion of this.explosions) {
       this.deactivateExplosion(explosion);
@@ -145,6 +151,7 @@ export class WorldSystem {
   destroy(): void {
     this.reset();
     this.obstacleImpactSound.destroy();
+    this.barrelExplosionSound.destroy();
   }
 
   update(deltaTime: number, playerX: number): number {
@@ -244,6 +251,10 @@ export class WorldSystem {
 
     this.explosionCenter.copy(obstacle.mesh.position);
     this.explosionCenter.y = 0.72;
+    this.barrelExplosionSound.play(
+      this.config.world.audio.barrelExplosionVolume,
+      randomRange(0.94, 1.03),
+    );
     this.spawnExplosion(this.explosionCenter);
     const scoreGain = enemies.applyExplosionDamage(
       this.explosionCenter,

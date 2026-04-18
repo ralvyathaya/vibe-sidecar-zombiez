@@ -140,9 +140,11 @@ export const GAME_CONFIG: GameConfig = {
     smokeDrift: 0.4,
     cameraKick: 0.3,
     audio: {
-      firePath: '/audio/weapons/shotgun-shot.ogg',
-      fireVolume: 0.12,
-      firePlaybackRate: 0.84,
+      launchPath: '/audio/weapons/bazooka-launch.ogg',
+      impactPath: '/audio/weapons/bazooka-impact.ogg',
+      launchVolume: 0.16,
+      impactVolume: 0.22,
+      launchPlaybackRate: 1,
     },
     viewmodel: {
       assetPath: '/models/weapons/bazooka-web.glb',
@@ -377,6 +379,8 @@ export const GAME_CONFIG: GameConfig = {
     audio: {
       obstacleImpactPath: '/audio/world/concrete-barrier-crack.ogg',
       obstacleImpactVolume: 0.72,
+      barrelExplosionPath: '/audio/world/barrel-exploding.ogg',
+      barrelExplosionVolume: 0.24,
     },
     breakEffect: {
       pieceCount: 8,

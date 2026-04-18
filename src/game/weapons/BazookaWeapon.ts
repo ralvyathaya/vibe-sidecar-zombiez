@@ -68,6 +68,7 @@ export class BazookaWeapon {
   private readonly rocketDirection = new Vector3();
   private readonly rocketStart = new Vector3();
   private readonly rocketEnd = new Vector3();
+  private readonly roadImpactPoint = new Vector3();
   private readonly basePosition: Vector3;
   private readonly baseRotation = new Vector3();
   private readonly muzzleFlash = new Group();
@@ -96,7 +97,8 @@ export class BazookaWeapon {
     this.muzzleFlashStreakMaterial,
   );
   private readonly muzzleLight = new PointLight(0xffab58, 0, 8, 2);
-  private readonly fireSound: SoundEffectPool;
+  private readonly launchSound: SoundEffectPool;
+  private readonly impactSound: SoundEffectPool;
 
   private loadedScene: Object3D | null = null;
   private ammo = 0;
@@ -117,9 +119,13 @@ export class BazookaWeapon {
       MathUtils.degToRad(rotY),
       MathUtils.degToRad(rotZ),
     );
-    this.fireSound = new SoundEffectPool(this.config.bazooka.audio.firePath, {
+    this.launchSound = new SoundEffectPool(this.config.bazooka.audio.launchPath, {
       poolSize: 2,
-      volume: this.config.bazooka.audio.fireVolume,
+      volume: this.config.bazooka.audio.launchVolume,
+    });
+    this.impactSound = new SoundEffectPool(this.config.bazooka.audio.impactPath, {
+      poolSize: 3,
+      volume: this.config.bazooka.audio.impactVolume,
     });
 
     this.viewmodelRoot.name = 'BazookaViewmodel';
@@ -155,7 +161,8 @@ export class BazookaWeapon {
     this.fireKick = 0;
     this.autoReturnTimer = 0;
     this.pendingAutoReturn = false;
-    this.fireSound.stopAll();
+    this.launchSound.stopAll();
+    this.impactSound.stopAll();
     this.muzzleFlash.visible = false;
     this.muzzleLight.intensity = 0;
     this.deactivateRocket();
@@ -263,7 +270,8 @@ export class BazookaWeapon {
     this.muzzleFlashStreak.geometry.dispose();
     this.muzzleFlashCoreMaterial.dispose();
     this.muzzleFlashStreakMaterial.dispose();
-    this.fireSound.destroy();
+    this.launchSound.destroy();
+    this.impactSound.destroy();
   }
 
   private async loadViewmodel(): Promise<void> {
@@ -442,9 +450,9 @@ export class BazookaWeapon {
     );
 
     player.applyRecoil(this.config.bazooka.cameraKick);
-    this.fireSound.play(
-      this.config.bazooka.audio.fireVolume,
-      this.config.bazooka.audio.firePlaybackRate,
+    this.launchSound.play(
+      this.config.bazooka.audio.launchVolume,
+      this.config.bazooka.audio.launchPlaybackRate,
     );
     this.randomizeMuzzleFlash();
   }
@@ -500,10 +508,19 @@ export class BazookaWeapon {
       this.rocketEnd,
       this.config.bazooka.rocketRadius,
     );
+    const hitRoad = this.findRoadImpact(this.rocketStart, this.rocketEnd);
 
     let impactPoint: Vector3 | null = null;
     let hitObstacleRecord = hitObstacle?.obstacle ?? null;
-    if (hitEnemy && (!hitObstacle || hitEnemy.distance <= hitObstacle.distance)) {
+    const hitRoadFirst =
+      hitRoad &&
+      (!hitEnemy || hitRoad.distance <= hitEnemy.distance) &&
+      (!hitObstacle || hitRoad.distance <= hitObstacle.distance);
+
+    if (hitRoadFirst && hitRoad) {
+      impactPoint = hitRoad.point;
+      hitObstacleRecord = null;
+    } else if (hitEnemy && (!hitObstacle || hitEnemy.distance <= hitObstacle.distance)) {
       impactPoint = hitEnemy.point;
       hitObstacleRecord = null;
     } else if (hitObstacle) {
@@ -588,6 +605,7 @@ export class BazookaWeapon {
     player: PlayerSystem,
     enemies: EnemySystem,
   ): void {
+    this.impactSound.play(this.config.bazooka.audio.impactVolume, randomRange(0.96, 1.04));
     const scoreGain = enemies.applyExplosionDamage(
       position,
       this.config.bazooka.explosionRadius,
@@ -683,6 +701,28 @@ export class BazookaWeapon {
       flashSize * randomRange(0.24, 0.3),
       flashSize * randomRange(0.24, 0.3),
     );
+  }
+
+  private findRoadImpact(
+    start: Vector3,
+    end: Vector3,
+  ): { point: Vector3; distance: number } | null {
+    const roadY = this.config.world.roadSurfaceY + 0.12;
+    const deltaY = end.y - start.y;
+    if (Math.abs(deltaY) <= 0.0001) {
+      return null;
+    }
+
+    const intersectionT = (roadY - start.y) / deltaY;
+    if (intersectionT < 0 || intersectionT > 1) {
+      return null;
+    }
+
+    this.roadImpactPoint.lerpVectors(start, end, intersectionT);
+    return {
+      point: this.roadImpactPoint.clone(),
+      distance: start.distanceTo(this.roadImpactPoint),
+    };
   }
 
   private deactivateRocket(): void {

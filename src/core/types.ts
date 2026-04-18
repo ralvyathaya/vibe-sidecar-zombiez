@@ -241,9 +241,11 @@ export interface GameConfig {
     smokeDrift: number;
     cameraKick: number;
     audio: {
-      firePath: string;
-      fireVolume: number;
-      firePlaybackRate: number;
+      launchPath: string;
+      impactPath: string;
+      launchVolume: number;
+      impactVolume: number;
+      launchPlaybackRate: number;
     };
     viewmodel: {
       assetPath: string;
@@ -331,6 +333,8 @@ export interface GameConfig {
     audio: {
       obstacleImpactPath: string;
       obstacleImpactVolume: number;
+      barrelExplosionPath: string;
+      barrelExplosionVolume: number;
     };
     breakEffect: {
       pieceCount: number;
