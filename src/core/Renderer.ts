@@ -14,7 +14,8 @@ import {
   SphereGeometry,
   WebGLRenderer,
 } from 'three';
-import type { GameConfig } from './types';
+import type { GameConfig, RunSegment } from './types';
+import { lerp } from './utils';
 
 export class RendererSystem {
   readonly scene = new Scene();
@@ -23,6 +24,11 @@ export class RendererSystem {
     antialias: true,
     powerPreference: 'high-performance',
   });
+  private currentClearColor = 0;
+  private currentFogColor = 0;
+  private currentFogNear = 0;
+  private currentFogFar = 0;
+  private currentExposure = 0;
 
   constructor(
     private readonly mount: HTMLElement,
@@ -43,6 +49,11 @@ export class RendererSystem {
     this.renderer.toneMappingExposure = this.config.renderer.exposure;
     this.renderer.shadowMap.enabled = false;
     this.renderer.domElement.className = 'game-canvas';
+    this.currentClearColor = this.config.renderer.clearColor;
+    this.currentFogColor = this.config.renderer.fogColor;
+    this.currentFogNear = this.config.renderer.fogNear;
+    this.currentFogFar = this.config.renderer.fogFar;
+    this.currentExposure = this.config.renderer.exposure;
 
     this.mount.appendChild(this.renderer.domElement);
     this.addLighting();
@@ -60,6 +71,23 @@ export class RendererSystem {
   destroy(): void {
     window.removeEventListener('resize', this.resize);
     this.renderer.dispose();
+  }
+
+  updateAtmosphere(deltaTime: number, segment: RunSegment): void {
+    const target = this.config.renderer.atmosphere[segment];
+    const smoothing = Math.min(1, deltaTime * 2.4);
+    this.currentClearColor = this.lerpColor(this.currentClearColor, target.clearColor, smoothing);
+    this.currentFogColor = this.lerpColor(this.currentFogColor, target.fogColor, smoothing);
+    this.currentFogNear = lerp(this.currentFogNear, target.fogNear, smoothing);
+    this.currentFogFar = lerp(this.currentFogFar, target.fogFar, smoothing);
+    this.currentExposure = lerp(this.currentExposure, target.exposure, smoothing);
+
+    this.scene.background = new Color(this.currentClearColor);
+    const fog = this.scene.fog as Fog;
+    fog.color = new Color(this.currentFogColor);
+    fog.near = this.currentFogNear;
+    fog.far = this.currentFogFar;
+    this.renderer.toneMappingExposure = this.currentExposure;
   }
 
   private addLighting(): void {
@@ -146,5 +174,12 @@ export class RendererSystem {
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height, false);
+  }
+
+  private lerpColor(startHex: number, endHex: number, t: number): number {
+    const start = new Color(startHex);
+    const end = new Color(endHex);
+    start.lerp(end, t);
+    return start.getHex();
   }
 }

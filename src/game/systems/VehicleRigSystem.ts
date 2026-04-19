@@ -7,7 +7,7 @@ import {
   Object3D,
   Vector3,
 } from 'three';
-import type { GameConfig, GameStateType } from '../../core/types';
+import type { GameConfig, GameStateType, RideState } from '../../core/types';
 import { approach } from '../../core/utils';
 
 export class VehicleRigSystem {
@@ -18,12 +18,14 @@ export class VehicleRigSystem {
   private readonly seatPivot = new Group();
   private readonly cameraYaw = new Group();
   private readonly cameraPitch = new Group();
+  private readonly sidecarLatchAnchor = new Group();
   private readonly baseRigOffset = new Vector3();
   private readonly baseModelPosition = new Vector3();
   private readonly baseModelRotation = new Vector3();
   private readonly baseSeatPivotPosition = new Vector3();
   private readonly baseCameraOffset = new Vector3();
   private readonly lookDownReveal = new Vector3();
+  private readonly baseLatchPosition = new Vector3();
   private loadedScene: Object3D | null = null;
   private time = 0;
   private hitShake = 0;
@@ -53,11 +55,13 @@ export class VehicleRigSystem {
     this.baseSeatPivotPosition.set(...rig.seatPivotPosition);
     this.baseCameraOffset.set(...rig.cameraOffset);
     this.lookDownReveal.set(...rig.lookDownReveal);
+    this.baseLatchPosition.set(...rig.sidecarLatchPosition);
 
     this.seatPivot.position.copy(this.baseSeatPivotPosition);
     this.cameraYaw.position.copy(this.baseCameraOffset);
+    this.sidecarLatchAnchor.position.copy(this.baseLatchPosition);
 
-    this.vehicleSpace.add(this.modelRoot, this.seatPivot);
+    this.vehicleSpace.add(this.modelRoot, this.seatPivot, this.sidecarLatchAnchor);
     this.seatPivot.add(this.cameraYaw);
     this.cameraYaw.add(this.cameraPitch);
     this.obstructionShakeGroup.add(this.vehicleSpace);
@@ -75,6 +79,10 @@ export class VehicleRigSystem {
 
   getCameraPitchPivot(): Object3D {
     return this.cameraPitch;
+  }
+
+  getSidecarLatchAnchor(): Object3D {
+    return this.sidecarLatchAnchor;
   }
 
   reset(): void {
@@ -98,6 +106,8 @@ export class VehicleRigSystem {
       this.baseModelRotation.y,
       this.baseModelRotation.z,
     );
+    this.sidecarLatchAnchor.position.copy(this.baseLatchPosition);
+    this.sidecarLatchAnchor.rotation.set(0, 0, 0);
     this.vehicleRig.visible = true;
   }
 
@@ -107,6 +117,7 @@ export class VehicleRigSystem {
     turnAmount: number,
     hitFlash: number,
     gameState: GameStateType,
+    ride: RideState | null = null,
   ): void {
     const rig = this.config.vehicle.stage1Rig;
     this.time += deltaTime;
@@ -114,6 +125,11 @@ export class VehicleRigSystem {
     const lookDown = MathUtils.clamp(this.cameraPitch.rotation.x, 0, MathUtils.degToRad(40));
     const lookDownAlpha = lookDown / MathUtils.degToRad(40);
     const turnSign = Math.abs(this.camera.rotation.z) > 0.001 ? -Math.sign(this.camera.rotation.z) : 0;
+    const laneDirection = ride ? Math.sign(ride.targetLaneIndex - ride.laneIndex) : 0;
+    const laneTravel = ride ? Math.sin(ride.laneChangeAlpha * Math.PI) : 0;
+    const rideShake = ride?.cameraShake ?? 0;
+    const latchShake = ride?.latchActive ? rig.latchShakeAmplitude : 0;
+    const failureShake = (ride?.failureSeverity ?? 0) * rig.failureShakeAmplitude;
 
     this.vehicleRig.position.copy(playerPosition).add(this.baseRigOffset);
 
@@ -136,19 +152,21 @@ export class VehicleRigSystem {
       Math.sin(this.time * rig.vibrationFrequency) * rig.vibrationAmplitude * swayAlpha;
     const turnShift = turnSign * turnAmount * rig.turnShift;
     const turnRoll = MathUtils.degToRad(rig.turnRollDegrees) * turnSign * turnAmount;
+    const laneShift = laneDirection * laneTravel * rig.laneShift;
+    const laneRoll = MathUtils.degToRad(rig.laneRollDegrees) * laneDirection * laneTravel;
 
     // The whole vehicle and seat move together as one ride space, so the model
     // feels seated/world-attached while the FPS weapon remains a separate child
     // of the camera itself.
     this.vehicleSpace.position.set(
-      swayX + turnShift + vibration * 0.65,
-      swayY + vibration * 0.45,
+      swayX + turnShift + vibration * 0.65 + laneShift,
+      swayY + vibration * 0.45 + rideShake * 0.3,
       swayZ,
     );
     this.vehicleSpace.rotation.set(
-      vibration * 0.06,
-      -turnShift * 0.08,
-      turnRoll + vibration * 0.12,
+      vibration * 0.06 + rideShake * 0.18,
+      -turnShift * 0.08 + laneShift * 0.18,
+      turnRoll + laneRoll + vibration * 0.12,
     );
 
     this.cameraYaw.position.set(
@@ -156,19 +174,25 @@ export class VehicleRigSystem {
       this.baseCameraOffset.y + this.lookDownReveal.y * lookDownAlpha,
       this.baseCameraOffset.z + this.lookDownReveal.z * lookDownAlpha,
     );
+    this.sidecarLatchAnchor.position.set(
+      this.baseLatchPosition.x + laneShift * 0.6,
+      this.baseLatchPosition.y + rideShake * 0.12,
+      this.baseLatchPosition.z,
+    );
 
     const shakeNoiseA = Math.sin(this.time * 42.0);
     const shakeNoiseB = Math.cos(this.time * 37.0);
     const shakeNoiseC = Math.sin(this.time * 29.0);
+    const totalShake = this.hitShake + latchShake + failureShake + rideShake;
     this.obstructionShakeGroup.position.set(
-      shakeNoiseA * this.hitShake,
-      shakeNoiseB * this.hitShake * 0.65,
+      shakeNoiseA * totalShake,
+      shakeNoiseB * totalShake * 0.65,
       0,
     );
     this.obstructionShakeGroup.rotation.set(
-      shakeNoiseB * this.hitShake * 0.18,
-      shakeNoiseC * this.hitShake * 0.1,
-      shakeNoiseA * this.hitShake * 0.2,
+      shakeNoiseB * totalShake * 0.18,
+      shakeNoiseC * totalShake * 0.1,
+      shakeNoiseA * totalShake * 0.2,
     );
   }
 

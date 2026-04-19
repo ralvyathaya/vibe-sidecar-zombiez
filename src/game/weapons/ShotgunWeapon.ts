@@ -463,6 +463,23 @@ export class ShotgunWeapon {
     this.muzzleAnchor.getWorldPosition(this.muzzleWorld);
 
     const rewardEvents: RewardEvent[] = [];
+    const latchedKill = enemies.hasLatchedRunner()
+      ? enemies.damageLatchedRunner(
+          this.config.shotgun.damagePerPellet + this.config.ride.latchShotgunBonusDamage,
+        )
+      : null;
+    if (latchedKill) {
+      this.hitConfirmTimer = 0.14;
+      this.spawnImpactBurst(this.muzzleWorld);
+      rewardEvents.push({
+        baseScore: latchedKill.baseScore,
+        weaponType: 'shotgun',
+        zombieType: latchedKill.zombieType,
+        killCount: 1,
+        wasExplosive: false,
+        distanceToPlayer: player.getPosition(this.playerPosition).distanceTo(latchedKill.position),
+      });
+    }
 
     for (let pelletIndex = 0; pelletIndex < this.config.shotgun.pelletsPerShot; pelletIndex += 1) {
       this.samplePelletScreenPoint(pelletIndex, this.config.shotgun.pelletsPerShot);

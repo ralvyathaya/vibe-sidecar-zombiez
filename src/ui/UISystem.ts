@@ -3,15 +3,31 @@ import type {
   PlayerState,
   RadarContact,
   RewardState,
+  RideState,
   WeaponStatus,
 } from '../core/types';
 import { formatDistance } from '../core/utils';
+
+type DriverPortraitMood = 'calm' | 'observing' | 'panic';
+
+const DRIVER_PORTRAITS: Record<DriverPortraitMood, string> = {
+  calm: '/ui/driver/calm.png',
+  observing: '/ui/driver/observing.png',
+  panic: '/ui/driver/panic.png',
+};
+
+const WEAPON_ART: Record<WeaponStatus['weaponType'], string> = {
+  pistol: '/ui/weapons/pistol.png',
+  shotgun: '/ui/weapons/shotgun.png',
+  bazooka: '/ui/weapons/bazooka.png',
+};
 
 type HUDSnapshot = {
   gameState: GameStateType;
   player: PlayerState;
   weapon: WeaponStatus;
   reward: RewardState;
+  ride: RideState | null;
   elapsedSeconds: number;
   radarContacts: RadarContact[];
 };
@@ -32,7 +48,7 @@ export class UISystem {
   private readonly healthState = document.createElement('span');
   private readonly ammoPanel = document.createElement('div');
   private readonly weaponHeader = document.createElement('div');
-  private readonly weaponIcon = document.createElement('div');
+  private readonly weaponIcon = document.createElement('img');
   private readonly weaponName = document.createElement('span');
   private readonly ammoValue = document.createElement('span');
   private readonly ammoReserve = document.createElement('span');
@@ -52,6 +68,20 @@ export class UISystem {
   private readonly radarTrack = document.createElement('div');
   private readonly radarContactLayer = document.createElement('div');
   private readonly radarCaret = document.createElement('div');
+  private readonly segmentChip = document.createElement('div');
+  private readonly controlHint = document.createElement('div');
+  private readonly driverPanel = document.createElement('div');
+  private readonly driverPortraitFrame = document.createElement('div');
+  private readonly driverPortrait = document.createElement('img');
+  private readonly driverPrompt = document.createElement('div');
+  private readonly driverPromptSpeaker = document.createElement('div');
+  private readonly driverPromptLabel = document.createElement('div');
+  private readonly driverPromptTimer = document.createElement('div');
+  private readonly driverPromptTimerFill = document.createElement('div');
+  private readonly driverPromptControls = document.createElement('div');
+  private readonly latchWarning = document.createElement('div');
+  private readonly latchLabel = document.createElement('div');
+  private readonly latchFill = document.createElement('div');
   private readonly crosshair = document.createElement('div');
   private readonly crosshairLeft = document.createElement('span');
   private readonly crosshairRight = document.createElement('span');
@@ -101,11 +131,7 @@ export class UISystem {
     this.multiplierValue.className = 'stat-chip stat-chip--reward';
     this.distanceValue.className = 'stat-chip';
     this.timerValue.className = 'stat-chip';
-    statsPanel.append(
-      this.scoreValue,
-      this.distanceValue,
-      this.timerValue,
-    );
+    statsPanel.append(this.scoreValue, this.distanceValue, this.timerValue);
     this.chainPanel.className = 'chain-panel';
     this.chainFill.className = 'chain-fill';
     this.chainLabel.className = 'chain-label';
@@ -138,6 +164,8 @@ export class UISystem {
 
     this.weaponHeader.className = 'weapon-header';
     this.weaponIcon.className = 'weapon-icon';
+    this.weaponIcon.alt = 'Current weapon';
+    this.weaponIcon.decoding = 'async';
     this.weaponName.className = 'weapon-name';
     this.weaponHeader.append(this.weaponIcon, this.weaponName);
 
@@ -158,6 +186,38 @@ export class UISystem {
 
     this.ammoPanel.append(ammoLabel, this.weaponHeader, ammoRack, ammoHeader);
 
+    this.segmentChip.className = 'segment-chip';
+    this.controlHint.className = 'control-hint';
+    this.driverPanel.className = 'driver-panel';
+    this.driverPortraitFrame.className = 'driver-portrait-frame';
+    this.driverPortrait.className = 'driver-portrait';
+    this.driverPortrait.alt = 'Driver portrait';
+    this.driverPortrait.decoding = 'async';
+    this.driverPrompt.className = 'driver-prompt';
+    this.driverPromptSpeaker.className = 'driver-prompt-speaker';
+    this.driverPromptSpeaker.textContent = 'Driver  Left Seat';
+    this.driverPromptLabel.className = 'driver-prompt-label';
+    this.driverPromptTimer.className = 'driver-prompt-timer';
+    this.driverPromptTimerFill.className = 'driver-prompt-timer-fill';
+    this.driverPromptControls.className = 'driver-prompt-controls';
+    this.driverPromptTimer.append(this.driverPromptTimerFill);
+    this.driverPrompt.append(
+      this.driverPromptSpeaker,
+      this.driverPromptLabel,
+      this.driverPromptTimer,
+      this.driverPromptControls,
+    );
+    this.driverPortraitFrame.append(this.driverPortrait);
+    this.driverPanel.append(this.driverPortraitFrame, this.driverPrompt);
+
+    this.latchWarning.className = 'latch-warning';
+    this.latchLabel.className = 'latch-label';
+    const latchBar = document.createElement('div');
+    latchBar.className = 'latch-bar';
+    this.latchFill.className = 'latch-fill';
+    latchBar.append(this.latchFill);
+    this.latchWarning.append(this.latchLabel, latchBar);
+
     this.reloadHint.className = 'reload-hint';
     this.reloadHintTextBefore.className = 'reload-hint-text';
     this.reloadHintTextBefore.textContent = 'Press';
@@ -169,7 +229,7 @@ export class UISystem {
     this.rewardCallout.className = 'reward-callout';
 
     hudTop.append(this.rewardHud, this.radarPanel);
-    hudMiddle.append(statsPanel);
+    hudMiddle.append(this.segmentChip, statsPanel);
     hudBottom.append(leftPanel, this.ammoPanel);
     hud.append(hudTop, hudMiddle, hudBottom);
 
@@ -211,6 +271,9 @@ export class UISystem {
     );
     this.root.append(
       hud,
+      this.controlHint,
+      this.driverPanel,
+      this.latchWarning,
       this.rewardCallout,
       this.reloadHint,
       this.crosshair,
@@ -226,23 +289,23 @@ export class UISystem {
     switch (gameState) {
       case 'menu':
         this.overlay.hidden = false;
-        this.overlayTitle.textContent = 'Dead Rush Highway';
+        this.overlayTitle.textContent = 'Dead Rush Sidecar';
         this.overlayText.textContent =
-          'Survive the collapsing highway. Mouse aim, click to fire, A/D to dodge, R to reload.';
+          'Ride shotgun in the apocalypse. Mouse aim, click to fire, A/D to lean or wiggle free, Q/E to work with your reckless driver.';
         this.overlayButton.textContent = 'Click To Start';
         break;
       case 'paused':
         this.overlay.hidden = false;
         this.overlayTitle.textContent = 'Paused';
         this.overlayText.textContent =
-          'Pointer lock was released. Click back in to resume the run.';
+          'Pointer lock was released. Click back in to get behind the gun again.';
         this.overlayButton.textContent = 'Resume';
         break;
       case 'dead':
         this.overlay.hidden = false;
-        this.overlayTitle.textContent = 'Run Over';
+        this.overlayTitle.textContent = 'Wrecked';
         this.overlayText.textContent =
-          'You got dragged down on the highway. Restart immediately and push farther.';
+          'The sidecar came apart before you did. Restart and survive the driver longer.';
         this.overlayButton.textContent = 'Restart';
         break;
       case 'running':
@@ -262,7 +325,15 @@ export class UISystem {
     this.healthFill.style.background = `linear-gradient(90deg, ${healthColor} 0%, ${healthAccent} 100%)`;
     this.healthFill.style.boxShadow = `0 0 22px hsla(${healthHue} 90% 56% / 0.42)`;
     this.healthState.textContent =
-      healthRatio > 0.65 ? 'Stable' : healthRatio > 0.3 ? 'Critical' : 'Near Death';
+      snapshot.ride?.failureSeverity && snapshot.ride.failureSeverity >= 0.9
+        ? 'Driver Panicking'
+        : snapshot.ride?.failureSeverity && snapshot.ride.failureSeverity >= 0.45
+          ? 'Driver Rattled'
+          : healthRatio > 0.65
+            ? 'Stable'
+            : healthRatio > 0.3
+              ? 'Shaken'
+              : 'Near Death';
     this.healthState.style.color =
       healthRatio > 0.65 ? '#8fe08d' : healthRatio > 0.3 ? '#ffb15f' : '#ff6652';
 
@@ -276,6 +347,7 @@ export class UISystem {
     this.ammoValue.dataset.state = ammoState;
     this.ammoReserve.dataset.state = ammoState;
     this.weaponIcon.dataset.weapon = snapshot.weapon.weaponType;
+    this.weaponIcon.src = WEAPON_ART[snapshot.weapon.weaponType];
     this.weaponName.textContent = snapshot.weapon.weaponLabel;
     this.ammoValue.textContent = `${snapshot.weapon.ammoInMagazine}`;
     this.ammoReserve.textContent = snapshot.weapon.reserveAmmoText;
@@ -312,6 +384,50 @@ export class UISystem {
         ? 'true'
         : 'false';
 
+    this.segmentChip.textContent = snapshot.ride ? snapshot.ride.segment.toUpperCase() : 'REST';
+    this.segmentChip.dataset.segment = snapshot.ride?.segment ?? 'rest';
+    this.controlHint.textContent =
+      snapshot.ride?.prompt
+        ? 'Q Cancel  |  E Approve'
+        : 'Q Brake  |  E Boost';
+    this.controlHint.dataset.alert = snapshot.ride?.prompt ? 'true' : 'false';
+
+    const driverMood = this.resolveDriverMood(snapshot);
+    this.driverPanel.hidden = snapshot.gameState !== 'running';
+    this.driverPanel.dataset.mood = driverMood;
+    const prompt = snapshot.ride?.prompt;
+    this.driverPanel.dataset.prompt = prompt ? 'true' : 'false';
+    this.driverPortrait.src = DRIVER_PORTRAITS[driverMood];
+    this.driverPortrait.alt = `Driver ${driverMood}`;
+    this.driverPrompt.hidden = false;
+    this.driverPrompt.dataset.intent = prompt?.intent ?? 'idle';
+    if (prompt) {
+      this.driverPromptLabel.textContent = prompt.label;
+      this.driverPromptTimerFill.style.transform = `scaleX(${(prompt.timer / prompt.duration).toFixed(3)})`;
+      this.driverPromptControls.textContent = 'Q cancel   E approve';
+      this.driverPromptSpeaker.textContent =
+        driverMood === 'panic' ? 'Driver  Losing It' : 'Driver  Calling It';
+      this.driverPromptTimer.hidden = false;
+      this.driverPromptControls.hidden = false;
+    } else {
+      this.driverPromptLabel.textContent = this.getIdleDriverLine(snapshot, driverMood);
+      this.driverPromptSpeaker.textContent =
+        driverMood === 'panic'
+          ? 'Driver  Rattled'
+          : driverMood === 'observing'
+            ? 'Driver  Watching'
+            : 'Driver  Cruising';
+      this.driverPromptTimer.hidden = true;
+      this.driverPromptControls.hidden = true;
+    }
+
+    this.latchWarning.hidden = !snapshot.ride?.latchActive;
+    if (snapshot.ride?.latchActive) {
+      this.latchLabel.textContent = 'Runner latched - shoot or wiggle A/D';
+      this.latchFill.style.transform = `scaleX(${snapshot.ride.latchWiggleRatio.toFixed(3)})`;
+    }
+
+    this.radarPanel.style.opacity = `${snapshot.ride?.radarStrength ?? 1}`;
     for (let index = 0; index < this.radarDots.length; index += 1) {
       const dot = this.radarDots[index];
       const contact = snapshot.radarContacts[index];
@@ -322,7 +438,7 @@ export class UISystem {
 
       dot.hidden = false;
       dot.style.left = `${50 + contact.offset * 46}%`;
-      dot.style.opacity = `${(0.38 + contact.proximity * 0.62).toFixed(2)}`;
+      dot.style.opacity = `${(0.3 + contact.proximity * 0.7).toFixed(2)}`;
       dot.style.transform = `translate(-50%, -50%) scale(${(
         0.82 + contact.proximity * 0.55
       ).toFixed(3)})`;
@@ -331,6 +447,7 @@ export class UISystem {
 
     this.crosshair.dataset.hit = snapshot.weapon.hitConfirm > 0 ? 'true' : 'false';
     this.crosshair.dataset.style = snapshot.weapon.crosshairStyle;
+    this.crosshair.dataset.latched = snapshot.ride?.latchActive ? 'true' : 'false';
     this.crosshair.style.setProperty(
       '--crosshair-gap',
       `${snapshot.weapon.crosshairGap.toFixed(2)}px`,
@@ -353,11 +470,26 @@ export class UISystem {
       '--crosshair-bracket-height',
       `${(18 + snapshot.weapon.crosshairGap * 0.7).toFixed(2)}px`,
     );
+    const shakeScale = snapshot.ride
+      ? 1 + snapshot.ride.aimShake * 0.45 + snapshot.ride.failureSeverity * 0.08
+      : 1;
     this.crosshair.style.transform = `translate(-50%, -50%) scale(${(
-      1 + snapshot.weapon.crosshairKick * (snapshot.weapon.crosshairStyle === 'shotgun' ? 0.04 : 0.022)
+      (1 + snapshot.weapon.crosshairKick * (snapshot.weapon.crosshairStyle === 'shotgun' ? 0.04 : 0.022)) *
+      shakeScale
     ).toFixed(3)})`;
-    this.vignette.style.opacity = `${(snapshot.player.hitFlash * 0.55).toFixed(2)}`;
+    const vignetteStrength =
+      snapshot.player.hitFlash * 0.55 +
+      (snapshot.ride?.failureSeverity ?? 0) * 0.28 +
+      (snapshot.ride?.latchActive ? 0.12 : 0);
+    this.vignette.style.opacity = `${Math.min(1, vignetteStrength).toFixed(2)}`;
     this.root.dataset.state = snapshot.gameState;
+    this.root.dataset.segment = snapshot.ride?.segment ?? 'rest';
+    this.root.dataset.failure =
+      snapshot.ride && snapshot.ride.failureSeverity >= 0.9
+        ? 'critical'
+        : snapshot.ride && snapshot.ride.failureSeverity >= 0.45
+          ? 'warning'
+          : 'stable';
     this.updateOverlay(snapshot);
   }
 
@@ -389,5 +521,46 @@ export class UISystem {
     this.overlayMeta.textContent = '';
     this.overlayBreakdown.hidden = true;
     this.overlayBreakdown.textContent = '';
+  }
+
+  private resolveDriverMood(snapshot: HUDSnapshot): DriverPortraitMood {
+    if (
+      snapshot.ride?.latchActive ||
+      (snapshot.ride?.failureSeverity ?? 0) >= 0.45 ||
+      snapshot.ride?.prompt?.intent === 'scrapeWreck' ||
+      snapshot.ride?.prompt?.intent === 'shakeItOff' ||
+      snapshot.ride?.prompt?.intent === 'forceGap'
+    ) {
+      return 'panic';
+    }
+
+    if (
+      snapshot.ride?.segment === 'dark' ||
+      snapshot.ride?.prompt?.intent === 'cutLeft' ||
+      snapshot.radarContacts.length >= 4
+    ) {
+      return 'observing';
+    }
+
+    return 'calm';
+  }
+
+  private getIdleDriverLine(
+    snapshot: HUDSnapshot,
+    mood: DriverPortraitMood,
+  ): string {
+    if (snapshot.ride?.latchActive) {
+      return 'Shoot low. It is hanging off the sidecar.';
+    }
+
+    if (mood === 'panic') {
+      return 'Keep it together. I still have the road.';
+    }
+
+    if (mood === 'observing') {
+      return 'Watching the lanes. Pick the fast targets first.';
+    }
+
+    return 'Steady gunner. Easy road for a second.';
   }
 }

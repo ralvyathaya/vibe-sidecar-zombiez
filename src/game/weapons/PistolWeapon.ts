@@ -242,7 +242,7 @@ export class PistolWeapon {
   getStatus(player: PlayerSystem): WeaponStatus {
     return {
       weaponType: 'pistol',
-      weaponLabel: 'Pistol',
+      weaponLabel: 'Handgun',
       ammoInMagazine: player.state.ammoInMagazine,
       magazineSize: this.config.weapon.magazineSize,
       reloading: player.state.reloading,

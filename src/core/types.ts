@@ -16,6 +16,17 @@ export type WeaponKind = 'pistol' | 'shotgun' | 'bazooka';
 export type AmmoRoundStyle = 'bullet' | 'shell' | 'rocket';
 export type PickupType = 'shotgun' | 'shotgunAmmo' | 'bazooka';
 export type CrosshairStyle = 'pistol' | 'shotgun' | 'bazooka';
+export type RunSegment = 'rest' | 'chaos' | 'dark';
+export type DriverIntentType = 'cutLeft' | 'scrapeWreck' | 'shakeItOff' | 'forceGap';
+export type DriverPromptDecision = 'approve' | 'cancel' | 'timeout';
+export type ObstacleType =
+  | 'barricade'
+  | 'concreteBlock'
+  | 'wreck'
+  | 'barrel'
+  | 'car'
+  | 'brokenLane'
+  | 'pothole';
 
 export type Vec3Tuple = [number, number, number];
 
@@ -31,6 +42,7 @@ export interface FlashMaterial {
 
 export interface ZombieConfig {
   type: ZombieType;
+  label: string;
   speed: number;
   maxHealth: number;
   contactDamage: number;
@@ -39,6 +51,8 @@ export interface ZombieConfig {
   bodyColor: number;
   accentColor: number;
   spawnWeight: number;
+  laneThreat: number;
+  canBeRammed: boolean;
 }
 
 export interface HumanoidEnemyModelConfig {
@@ -76,6 +90,10 @@ export interface HumanoidEnemyModelConfig {
   roadSplatSize: number;
   roadSplatLifetime: number;
   roadSplatOpacity: number;
+  latchPresentationPath?: string;
+  latchPresentationPosition?: Vec3Tuple;
+  latchPresentationRotationDegrees?: Vec3Tuple;
+  latchPresentationScale?: number;
 }
 
 export interface StaticObstacleModelConfig {
@@ -110,6 +128,14 @@ export interface GameConfig {
     fogNear: number;
     fogFar: number;
     exposure: number;
+    atmosphere: Record<RunSegment, {
+      clearColor: number;
+      fogColor: number;
+      fogNear: number;
+      fogFar: number;
+      exposure: number;
+      radarStrength: number;
+    }>;
   };
   player: {
     maxHealth: number;
@@ -124,6 +150,13 @@ export interface GameConfig {
     maxPitch: number;
     bobAmplitude: number;
     bobFrequency: number;
+    leanRange: number;
+    leanResponsiveness: number;
+    wigglePulse: number;
+    wiggleDecay: number;
+    wiggleMaxInterval: number;
+    latchAimShake: number;
+    failureAimShake: number;
   };
   vehicle: {
     engineAudioPath: string;
@@ -154,7 +187,71 @@ export interface GameConfig {
       turnRollDegrees: number;
       damageShakeAmplitude: number;
       damageShakeDecay: number;
+      laneShift: number;
+      laneRollDegrees: number;
+      failureShakeAmplitude: number;
+      latchShakeAmplitude: number;
+      sidecarLatchPosition: Vec3Tuple;
     };
+  };
+  ride: {
+    lowHealthThreshold: number;
+    criticalHealthThreshold: number;
+    failureHandlingPenalty: number;
+    failureSpeedPenalty: number;
+    potholeShakeDuration: number;
+    potholeAimShake: number;
+    brokenLaneHandlingPenalty: number;
+    brokenLaneDamage: number;
+    brokenLaneShake: number;
+    latchSpeedMultiplier: number;
+    latchCameraShake: number;
+    latchAimShake: number;
+    latchWiggleRequired: number;
+    latchShotgunBonusDamage: number;
+    brakeDuration: number;
+    brakeSpeedMultiplier: number;
+    boostDuration: number;
+    boostSpeedMultiplier: number;
+    inputCooldown: number;
+  };
+  driver: {
+    promptIntervalMin: number;
+    promptIntervalMax: number;
+    promptDuration: number;
+    laneRescanInterval: number;
+    laneChangeDuration: number;
+    laneChangeCommitDuration: number;
+    promptEffectLockout: number;
+    scoreMarginToChange: number;
+    cutLeftBiasDuration: number;
+    cutLeftLaneBonus: number;
+    scrapeDuration: number;
+    scrapeSpeedMultiplier: number;
+    scrapeHandlingPenalty: number;
+    scrapeAimShake: number;
+    scrapeCameraShake: number;
+    shakeOffDuration: number;
+    shakeOffSpeedMultiplier: number;
+    shakeOffHandlingPenalty: number;
+    shakeOffAimShake: number;
+    shakeOffCameraShake: number;
+    shakeOffAssistRate: number;
+    forceGapDuration: number;
+    forceGapSpeedMultiplier: number;
+    forceGapHandlingPenalty: number;
+    forceGapAimShake: number;
+    forceGapCameraShake: number;
+    cautiousHoldDuration: number;
+  };
+  pacing: {
+    sequence: RunSegment[];
+    durations: Record<RunSegment, number>;
+    spawnIntervalMultiplier: Record<RunSegment, number>;
+    batchChanceBonus: Record<RunSegment, number>;
+    enemyLaneThreatBonus: Record<RunSegment, number>;
+    hazardDensity: Record<RunSegment, number>;
+    visibility: Record<RunSegment, number>;
   };
   weapon: {
     fireRate: number;
@@ -307,6 +404,7 @@ export interface GameConfig {
     intervalStart: number;
     intervalEnd: number;
     batchChance: number;
+    laneGroupChance: number;
   };
   world: {
     roadWidth: number;
@@ -322,6 +420,25 @@ export interface GameConfig {
     wreckSpawnWeight: number;
     obstacleHitboxDepth: number;
     roadSurfaceY: number;
+    roadCurveAmplitude: number;
+    roadCurveFrequency: number;
+    roadsidePropDensity: number;
+    brokenLane: {
+      width: number;
+      depth: number;
+      damage: number;
+      handlingPenalty: number;
+      aimShake: number;
+      spawnWeight: number;
+    };
+    pothole: {
+      width: number;
+      depth: number;
+      damage: number;
+      handlingPenalty: number;
+      aimShake: number;
+      spawnWeight: number;
+    };
     barricade: StaticObstacleModelConfig;
     concreteBlock: StaticObstacleModelConfig;
     car: {
@@ -419,6 +536,8 @@ export interface PlayerState {
   health: number;
   maxHealth: number;
   strafeX: number;
+  laneIndex: number;
+  leanOffset: number;
   distance: number;
   score: number;
   ammoInMagazine: number;
@@ -426,6 +545,7 @@ export interface PlayerState {
   reloading: boolean;
   alive: boolean;
   hitFlash: number;
+  failureSeverity: number;
 }
 
 export interface WeaponStatus {
@@ -484,6 +604,68 @@ export interface RadarContact {
   type: ZombieType;
 }
 
+export interface DriverPromptState {
+  intent: DriverIntentType;
+  label: string;
+  timer: number;
+  duration: number;
+  targetLaneIndex: number | null;
+}
+
+export interface DriverPromptResolution {
+  intent: DriverIntentType;
+  decision: DriverPromptDecision;
+  targetLaneIndex: number | null;
+}
+
+export interface LaneThreatState {
+  laneIndex: number;
+  score: number;
+  blocker: boolean;
+  blockerType: ObstacleType | null;
+  blockerDistance: number | null;
+  brokenLane: boolean;
+  pothole: boolean;
+  smallCount: number;
+  bruteCount: number;
+}
+
+export interface RideState {
+  laneIndex: number;
+  targetLaneIndex: number;
+  laneChangeAlpha: number;
+  laneCenterX: number;
+  worldX: number;
+  forwardSpeed: number;
+  speedMultiplier: number;
+  handlingPenalty: number;
+  aimShake: number;
+  cameraShake: number;
+  latchActive: boolean;
+  latchWiggle: number;
+  latchWiggleRatio: number;
+  manualBrakeCooldown: number;
+  manualBoostCooldown: number;
+  prompt: DriverPromptState | null;
+  segment: RunSegment;
+  segmentElapsed: number;
+  segmentDuration: number;
+  scrapeMode: boolean;
+  shakeOffMode: boolean;
+  forceGapMode: boolean;
+  failureSeverity: number;
+  radarStrength: number;
+  laneThreats: LaneThreatState[];
+}
+
+export interface WorldImpactResult {
+  damage: number;
+  handlingPenalty: number;
+  aimShake: number;
+  cameraShake: number;
+  laneThreats: LaneThreatState[];
+}
+
 export interface ActiveZombie {
   id: number;
   group: Group;
@@ -526,9 +708,13 @@ export interface ActiveObstacle {
   width: number;
   depth: number;
   damage: number;
+  handlingPenalty: number;
+  aimShake: number;
+  threatScore: number;
+  blocksLane: boolean;
   hasHitPlayer: boolean;
   poolId: number;
-  type: 'barricade' | 'concreteBlock' | 'wreck' | 'barrel' | 'car';
+  type: ObstacleType;
 }
 
 export interface ActivePickup {

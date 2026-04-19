@@ -1,5 +1,5 @@
 import { Object3D, PerspectiveCamera, Vector2, Vector3 } from 'three';
-import type { GameConfig, PlayerState } from '../../core/types';
+import type { GameConfig, PlayerState, RideState } from '../../core/types';
 import { approach, clamp } from '../../core/utils';
 import type { InputSystem } from './InputSystem';
 
@@ -15,13 +15,15 @@ export class PlayerSystem {
   private recoilPitch = 0;
   private hurtRoll = 0;
   private engineTurnAmount = 0;
+  private time = 0;
+  private lastWorldX = 0;
 
   constructor(
     private readonly camera: PerspectiveCamera,
     private readonly config: GameConfig,
   ) {
     this.state = this.createInitialState();
-    this.applyCameraTransform(0);
+    this.applyCameraTransform(0, null);
   }
 
   reset(): void {
@@ -31,19 +33,32 @@ export class PlayerSystem {
     this.recoilPitch = 0;
     this.hurtRoll = 0;
     this.engineTurnAmount = 0;
-    this.applyCameraTransform(0);
+    this.time = 0;
+    this.lastWorldX = 0;
+    this.applyCameraTransform(0, null);
   }
 
   setLookRig(cameraYawPivot: Object3D | null, cameraPitchPivot: Object3D | null): void {
     this.cameraYawPivot = cameraYawPivot;
     this.cameraPitchPivot = cameraPitchPivot;
-    this.applyCameraTransform(0);
+    this.applyCameraTransform(0, null);
   }
 
-  updateRunning(deltaTime: number, input: InputSystem): void {
-    const moveAxis = input.getStrafeAxis();
+  updateRunning(deltaTime: number, input: InputSystem, ride: RideState): void {
+    this.time += deltaTime;
+    const leanAxis = input.getLeanAxis();
+    const handlingScale = Math.max(0.45, 1 - ride.handlingPenalty);
+    const leanTarget = leanAxis * this.config.player.leanRange * handlingScale;
     this.lookDelta.copy(input.consumeLookDelta(this.lookDelta));
-    const yawStep = this.lookDelta.x * this.config.player.mouseSensitivity;
+
+    const instabilityX =
+      Math.sin(this.time * 37) * ride.aimShake +
+      Math.cos(this.time * 18) * ride.cameraShake * 0.5;
+    const instabilityY =
+      Math.cos(this.time * 31) * ride.aimShake * 0.82 +
+      Math.sin(this.time * 15) * ride.cameraShake * 0.3;
+    const yawStep = (this.lookDelta.x + instabilityX * 420) * this.config.player.mouseSensitivity;
+    const pitchStep = (this.lookDelta.y + instabilityY * 420) * this.config.player.mouseSensitivity;
 
     this.yaw = clamp(
       this.yaw - yawStep,
@@ -51,17 +66,19 @@ export class PlayerSystem {
       this.config.player.maxYaw,
     );
     this.pitch = clamp(
-      this.pitch - this.lookDelta.y * this.config.player.mouseSensitivity,
+      this.pitch - pitchStep,
       this.config.player.minPitch,
       this.config.player.maxPitch,
     );
 
-    this.state.strafeX = clamp(
-      this.state.strafeX + moveAxis * this.config.player.strafeSpeed * deltaTime,
-      -this.config.player.roadHalfWidth,
-      this.config.player.roadHalfWidth,
+    this.state.leanOffset = approach(
+      this.state.leanOffset,
+      leanTarget,
+      deltaTime * this.config.player.leanResponsiveness,
     );
-    this.state.distance += this.config.player.forwardSpeed * deltaTime;
+    this.state.laneIndex = ride.laneIndex;
+    this.state.strafeX = ride.laneCenterX + this.state.leanOffset;
+    this.state.distance += ride.forwardSpeed * deltaTime;
     this.state.hitFlash = approach(this.state.hitFlash, 0, deltaTime * 2.8);
     this.recoilPitch = approach(
       this.recoilPitch,
@@ -69,17 +86,20 @@ export class PlayerSystem {
       this.config.weapon.recoilRecovery * deltaTime,
     );
     this.hurtRoll = approach(this.hurtRoll, 0, deltaTime * 4.2);
-    const yawVelocity = Math.abs(yawStep) / Math.max(deltaTime, 1 / 120);
-    const normalizedYaw = clamp(yawVelocity / 1.4, 0, 1);
+    this.state.failureSeverity = this.computeFailureSeverity();
+
+    const laneVelocity = Math.abs(this.state.strafeX - this.lastWorldX) / Math.max(deltaTime, 1 / 120);
+    this.lastWorldX = this.state.strafeX;
     this.engineTurnAmount = clamp(
-      Math.max(Math.abs(moveAxis), normalizedYaw * 0.65),
+      Math.max(Math.abs(leanAxis) * 0.35, laneVelocity / 18),
       0,
       1,
     );
-    this.applyCameraTransform(moveAxis);
+    this.applyCameraTransform(leanAxis, ride);
   }
 
   updateIdle(deltaTime: number): void {
+    this.time += deltaTime;
     this.state.hitFlash = approach(this.state.hitFlash, 0, deltaTime * 2.8);
     this.recoilPitch = approach(
       this.recoilPitch,
@@ -88,11 +108,11 @@ export class PlayerSystem {
     );
     this.hurtRoll = approach(this.hurtRoll, 0, deltaTime * 3.5);
     this.engineTurnAmount = approach(this.engineTurnAmount, 0, deltaTime * 8);
-    this.applyCameraTransform(0);
+    this.applyCameraTransform(0, null);
   }
 
   applyRecoil(amount: number): void {
-    this.recoilPitch = clamp(this.recoilPitch - amount, -0.32, 0);
+    this.recoilPitch = clamp(this.recoilPitch - amount, -0.42, 0);
   }
 
   applyDamage(amount: number, sourceX = this.state.strafeX): void {
@@ -103,10 +123,11 @@ export class PlayerSystem {
     this.state.health = Math.max(0, this.state.health - amount);
     this.state.hitFlash = 1;
     this.hurtRoll = clamp(
-      (sourceX - this.state.strafeX) / (this.config.player.roadHalfWidth * 0.6),
+      (sourceX - this.state.strafeX) / Math.max(this.config.player.roadHalfWidth * 0.6, 0.0001),
       -0.5,
       0.5,
     );
+    this.state.failureSeverity = this.computeFailureSeverity();
 
     if (this.state.health <= 0) {
       this.state.alive = false;
@@ -130,24 +151,23 @@ export class PlayerSystem {
     return this.engineTurnAmount;
   }
 
-  private applyCameraTransform(moveAxis: number): void {
+  private applyCameraTransform(leanAxis: number, ride: RideState | null): void {
     const bob = Math.sin(this.state.distance * this.config.player.bobFrequency) *
       this.config.player.bobAmplitude;
-    const sway = moveAxis * 0.01;
-    const desiredWorldY = this.config.player.eyeHeight + bob - this.state.hitFlash * 0.05;
+    const rideRoll = ride ? ride.handlingPenalty * 0.012 + ride.cameraShake * 0.55 : 0;
+    const sway = leanAxis * 0.014 + rideRoll;
+    const desiredWorldY =
+      this.config.player.eyeHeight +
+      bob -
+      this.state.hitFlash * 0.05 +
+      (ride?.cameraShake ?? 0) * Math.sin(this.time * 28);
 
-    this.worldPosition.set(
-      this.state.strafeX,
-      desiredWorldY,
-      0,
-    );
+    this.worldPosition.set(this.state.strafeX, desiredWorldY, 0);
 
     this.camera.position.set(0, 0, 0);
     this.camera.rotation.order = 'YXZ';
 
     if (this.cameraYawPivot && this.cameraPitchPivot) {
-      // Yaw/pitch live on the seat rig pivots so looking around reveals more of
-      // the sidecar naturally, while the FPS weapon stays attached to the camera.
       this.cameraYawPivot.rotation.set(0, this.yaw, 0);
       this.cameraPitchPivot.rotation.set(this.pitch + this.recoilPitch, 0, 0);
       this.camera.rotation.x = 0;
@@ -161,11 +181,34 @@ export class PlayerSystem {
     this.camera.rotation.z = this.hurtRoll * 0.18 + sway;
   }
 
+  private computeFailureSeverity(): number {
+    const healthRatio = this.state.health / this.state.maxHealth;
+    if (healthRatio <= this.config.ride.criticalHealthThreshold) {
+      return 1;
+    }
+
+    if (healthRatio <= this.config.ride.lowHealthThreshold) {
+      return clamp(
+        (this.config.ride.lowHealthThreshold - healthRatio) /
+          Math.max(
+            this.config.ride.lowHealthThreshold - this.config.ride.criticalHealthThreshold,
+            0.0001,
+          ),
+        0.45,
+        0.85,
+      );
+    }
+
+    return 0;
+  }
+
   private createInitialState(): PlayerState {
     return {
       health: this.config.player.maxHealth,
       maxHealth: this.config.player.maxHealth,
       strafeX: 0,
+      laneIndex: 1,
+      leanOffset: 0,
       distance: 0,
       score: 0,
       ammoInMagazine: this.config.weapon.magazineSize,
@@ -173,6 +216,7 @@ export class PlayerSystem {
       reloading: false,
       alive: true,
       hitFlash: 0,
+      failureSeverity: 0,
     };
   }
 }

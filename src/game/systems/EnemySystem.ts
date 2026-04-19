@@ -1,4 +1,5 @@
 import {
+  AnimationAction,
   AnimationClip,
   AnimationMixer,
   BoxGeometry,
@@ -25,6 +26,7 @@ import type {
   GameConfig,
   HumanoidEnemyModelConfig,
   HumanoidZombieType,
+  LaneThreatState,
   RadarContact,
   ZombieModelVariant,
   ZombieType,
@@ -99,15 +101,32 @@ export class EnemySystem {
   private readonly projectileTargetPoint = new Vector3();
   private readonly radarDirection = new Vector3();
   private readonly radarRight = new Vector3();
+  private readonly latchWorldPosition = new Vector3();
   private readonly normalDeathSound: SoundEffectPool;
   private readonly tankDeathSound: SoundEffectPool;
   private readonly approachSound: SoundEffectPool;
+  private readonly latchPresentationRoot = new Group();
+  private readonly latchPresentationOffset = new Vector3();
+  private readonly latchPresentationRotation = new Vector3();
+  private readonly latchOccluder = new Mesh(
+    new BoxGeometry(0.84, 0.92, 0.68),
+    new MeshStandardMaterial({
+      color: 0x32353b,
+      roughness: 0.98,
+      metalness: 0.02,
+    }),
+  );
 
   private readonly humanoidAssets: Partial<Record<HumanoidZombieType, HumanoidAssets>> = {};
   private readonly humanoidAssetPromises: Partial<
     Record<HumanoidZombieType, Promise<void>>
   > = {};
   private approachCueCooldown = 0;
+  private latchAnchor: Object3D | null = null;
+  private latchedRunner: ActiveZombie | null = null;
+  private latchPresentationMixer: AnimationMixer | null = null;
+  private latchPresentationAction: AnimationAction | null = null;
+  private latchPresentationLoaded = false;
 
   constructor(
     private readonly scene: Scene,
@@ -128,6 +147,27 @@ export class EnemySystem {
     this.normalDeathSound.prime();
     this.tankDeathSound.prime();
     this.approachSound.prime();
+    const latchModel = this.config.enemies.runnerModel;
+    this.latchPresentationRoot.name = 'RunnerLatchPresentation';
+    this.latchPresentationRoot.visible = false;
+    this.latchPresentationOffset.set(...(latchModel.latchPresentationPosition ?? [0, 0, 0]));
+    this.latchPresentationRotation.set(
+      MathUtils.degToRad(latchModel.latchPresentationRotationDegrees?.[0] ?? 0),
+      MathUtils.degToRad(latchModel.latchPresentationRotationDegrees?.[1] ?? 0),
+      MathUtils.degToRad(latchModel.latchPresentationRotationDegrees?.[2] ?? 0),
+    );
+    this.latchPresentationRoot.position.copy(this.latchPresentationOffset);
+    this.latchPresentationRoot.rotation.set(
+      this.latchPresentationRotation.x,
+      this.latchPresentationRotation.y,
+      this.latchPresentationRotation.z,
+    );
+    this.latchPresentationRoot.scale.setScalar(latchModel.latchPresentationScale ?? 1);
+    this.latchOccluder.position.set(0.06, 0.08, -0.06);
+    this.latchOccluder.rotation.set(0.12, 0.16, -0.08);
+    this.latchOccluder.renderOrder = 7;
+    this.latchPresentationRoot.add(this.latchOccluder);
+    void this.loadLatchPresentation();
 
     for (let index = 0; index < this.config.enemies.poolSize; index += 1) {
       const zombie = this.createZombie(index);
@@ -166,6 +206,8 @@ export class EnemySystem {
 
   reset(): void {
     this.approachCueCooldown = 0;
+    this.detachLatchPresentation(this.latchedRunner);
+    this.latchedRunner = null;
     this.normalDeathSound.stopAll();
     this.tankDeathSound.stopAll();
     this.approachSound.stopAll();
@@ -196,12 +238,17 @@ export class EnemySystem {
     this.normalDeathSound.destroy();
     this.tankDeathSound.destroy();
     this.approachSound.destroy();
+    this.latchPresentationRoot.removeFromParent();
   }
 
   spawn(type: ZombieType, laneX: number, zPosition: number): boolean {
     const zombie = this.pool.find((entry) => !entry.active);
     if (!zombie) {
       return false;
+    }
+
+    if (this.latchedRunner?.id === zombie.id) {
+      this.latchedRunner = null;
     }
 
     const zombieConfig = this.config.enemies.types[type];
@@ -245,7 +292,7 @@ export class EnemySystem {
     deltaTime: number,
     playerPosition: Vector3,
     worldScrollSpeed: number,
-    onPlayerHit: (damage: number, sourceX: number) => void,
+    onPlayerContact: (zombie: ActiveZombie) => void,
   ): void {
     this.approachCueCooldown = Math.max(0, this.approachCueCooldown - deltaTime);
     this.updateParticleBursts(this.hitBloodBursts, deltaTime, worldScrollSpeed);
@@ -258,6 +305,27 @@ export class EnemySystem {
         continue;
       }
 
+      if (this.latchedRunner?.id === zombie.id) {
+        this.updateLatchedRunner(zombie);
+        if (
+          this.latchPresentationLoaded &&
+          this.latchPresentationRoot.parent === zombie.group &&
+          this.latchPresentationRoot.visible
+        ) {
+          this.latchPresentationMixer?.update(deltaTime);
+        } else {
+          const activeVariant = this.getActiveModelVariant(zombie);
+          if (activeVariant) {
+            activeVariant.mixer.update(deltaTime);
+          } else if (zombie.primitiveRoot.visible) {
+            zombie.animationClock += deltaTime * (4 + zombie.config.speed);
+            this.animatePrimitiveZombie(zombie);
+          }
+        }
+        this.updateHitFlash(zombie, deltaTime);
+        continue;
+      }
+
       zombie.group.position.z += worldScrollSpeed * deltaTime;
 
       if (zombie.state === 'alive') {
@@ -265,7 +333,7 @@ export class EnemySystem {
           zombie,
           deltaTime,
           playerPosition,
-          onPlayerHit,
+          onPlayerContact,
         );
         if (!zombie.active) {
           continue;
@@ -342,6 +410,10 @@ export class EnemySystem {
       return null;
     }
 
+    if (this.latchedRunner?.id === zombie.id) {
+      this.detachLatchPresentation(zombie);
+    }
+
     this.captureImpactPoint(zombie, impactPoint);
     zombie.health -= amount;
     zombie.hitFlash = 1;
@@ -360,6 +432,10 @@ export class EnemySystem {
       } else {
         this.playDeathSound(zombie);
         this.deactivate(zombie);
+      }
+
+      if (this.latchedRunner?.id === zombie.id) {
+        this.latchedRunner = null;
       }
 
       return killResult;
@@ -423,6 +499,59 @@ export class EnemySystem {
     return this.pool.reduce((count, zombie) => count + (zombie.active ? 1 : 0), 0);
   }
 
+  setLatchAnchor(anchor: Object3D | null): void {
+    this.latchAnchor = anchor;
+  }
+
+  hasLatchedRunner(): boolean {
+    return Boolean(this.latchedRunner?.active && this.latchedRunner.state === 'alive');
+  }
+
+  getLatchedRunner(): ActiveZombie | null {
+    return this.hasLatchedRunner() ? this.latchedRunner : null;
+  }
+
+  tryLatchRunner(zombie: ActiveZombie): boolean {
+    if (
+      this.latchedRunner ||
+      zombie.type !== 'runner' ||
+      !zombie.active ||
+      zombie.state !== 'alive'
+    ) {
+      return false;
+    }
+
+    this.latchedRunner = zombie;
+    zombie.velocity.set(0, 0, 0);
+    this.attachLatchPresentation(zombie);
+    this.updateLatchedRunner(zombie);
+    return true;
+  }
+
+  damageLatchedRunner(amount: number): EnemyKillResult | null {
+    if (!this.latchedRunner) {
+      return null;
+    }
+
+    const target = this.latchedRunner;
+    this.detachLatchPresentation(target);
+    const impactPoint = target.group.position.clone();
+    impactPoint.y += 1.05;
+    const kill = this.damage(target, amount, impactPoint);
+    if (!target.active || target.state !== 'alive') {
+      this.latchedRunner = null;
+    }
+    return kill;
+  }
+
+  clearLatchedRunnerByWiggle(): EnemyKillResult | null {
+    return this.damageLatchedRunner(Number.POSITIVE_INFINITY);
+  }
+
+  despawn(zombie: ActiveZombie): void {
+    this.deactivate(zombie);
+  }
+
   applyExplosionDamage(center: Vector3, radius: number, tankDamage: number): EnemyKillResult[] {
     const kills: EnemyKillResult[] = [];
     const impactPoint = new Vector3();
@@ -460,6 +589,52 @@ export class EnemySystem {
     return kills;
   }
 
+  getLaneThreats(): LaneThreatState[] {
+    const laneThreats: LaneThreatState[] = this.config.world.laneCenters.map((_, laneIndex) => ({
+      laneIndex,
+      score: 0,
+      blocker: false,
+      blockerType: null,
+      blockerDistance: null,
+      brokenLane: false,
+      pothole: false,
+      smallCount: 0,
+      bruteCount: 0,
+    }));
+
+    for (const zombie of this.pool) {
+      if (
+        !zombie.active ||
+        zombie.state !== 'alive' ||
+        (this.latchedRunner?.id === zombie.id)
+      ) {
+        continue;
+      }
+
+      const distanceAhead = -zombie.group.position.z;
+      if (distanceAhead < 0 || distanceAhead > 84) {
+        continue;
+      }
+
+      const laneIndex = this.resolveLaneIndex(zombie.group.position.x);
+      const lane = laneThreats[laneIndex];
+      if (!lane) {
+        continue;
+      }
+
+      const proximity = 1 - Math.min(distanceAhead / 84, 1);
+      lane.score += zombie.config.laneThreat * (0.45 + proximity * 1.18);
+      if (zombie.type === 'tank') {
+        lane.bruteCount += 1;
+        lane.score += 0.9;
+      } else {
+        lane.smallCount += 1;
+      }
+    }
+
+    return laneThreats;
+  }
+
   getRadarContacts(
     playerPosition: Vector3,
     playerForward: Vector3,
@@ -474,7 +649,11 @@ export class EnemySystem {
     const halfSpan = Math.PI * 0.72;
 
     for (const zombie of this.pool) {
-      if (!zombie.active || zombie.state !== 'alive') {
+      if (
+        !zombie.active ||
+        zombie.state !== 'alive' ||
+        (this.latchedRunner?.id === zombie.id)
+      ) {
         continue;
       }
 
@@ -627,7 +806,7 @@ export class EnemySystem {
     zombie: ActiveZombie,
     deltaTime: number,
     playerPosition: Vector3,
-    onPlayerHit: (damage: number, sourceX: number) => void,
+    onPlayerContact: (zombie: ActiveZombie) => void,
   ): void {
     const startX = zombie.group.position.x;
     const startZ = zombie.group.position.z;
@@ -691,9 +870,91 @@ export class EnemySystem {
         collisionRadius,
       )
     ) {
-      onPlayerHit(zombie.config.contactDamage, zombie.group.position.x);
-      this.deactivate(zombie);
+      onPlayerContact(zombie);
     }
+  }
+
+  private updateLatchedRunner(zombie: ActiveZombie): void {
+    if (!this.latchAnchor) {
+      return;
+    }
+
+    this.latchAnchor.getWorldPosition(this.latchWorldPosition);
+    zombie.group.position.copy(this.latchWorldPosition);
+    zombie.group.rotation.set(0.12, Math.PI * 0.56, -0.14);
+    if (this.latchPresentationLoaded) {
+      this.attachLatchPresentation(zombie);
+    }
+  }
+
+  private attachLatchPresentation(zombie: ActiveZombie): void {
+    if (!this.latchPresentationLoaded) {
+      return;
+    }
+
+    if (this.latchPresentationRoot.parent !== zombie.group) {
+      this.latchPresentationRoot.removeFromParent();
+      zombie.group.add(this.latchPresentationRoot);
+    }
+
+    this.latchPresentationRoot.visible = true;
+    this.latchPresentationRoot.position.copy(this.latchPresentationOffset);
+    this.latchPresentationRoot.rotation.set(
+      this.latchPresentationRotation.x,
+      this.latchPresentationRotation.y,
+      this.latchPresentationRotation.z,
+    );
+    this.latchPresentationRoot.scale.setScalar(
+      this.config.enemies.runnerModel.latchPresentationScale ?? 1,
+    );
+    this.setLatchPresentationPoolId(zombie.poolId);
+    this.setZombieLatchedVisualState(zombie, true);
+    if (this.latchPresentationAction) {
+      this.latchPresentationAction.enabled = true;
+      this.latchPresentationAction.paused = false;
+      this.latchPresentationAction.play();
+    }
+  }
+
+  private detachLatchPresentation(zombie: ActiveZombie | null): void {
+    if (!zombie) {
+      this.latchPresentationRoot.visible = false;
+      this.latchPresentationRoot.removeFromParent();
+      if (this.latchPresentationAction) {
+        this.latchPresentationAction.stop();
+      }
+      return;
+    }
+
+    if (zombie.active && zombie.state === 'alive') {
+      this.setZombieLatchedVisualState(zombie, false);
+    }
+
+    this.latchPresentationRoot.visible = false;
+    this.latchPresentationRoot.removeFromParent();
+    if (this.latchPresentationAction) {
+      this.latchPresentationAction.stop();
+    }
+  }
+
+  private setZombieLatchedVisualState(zombie: ActiveZombie, latched: boolean): void {
+    const activeVariant = this.getActiveModelVariant(zombie);
+    if (activeVariant) {
+      activeVariant.root.visible = !latched;
+      return;
+    }
+
+    zombie.primitiveRoot.visible = !latched;
+  }
+
+  private setLatchPresentationPoolId(poolId: number): void {
+    this.latchPresentationRoot.traverse((object) => {
+      if (object === this.latchOccluder) {
+        return;
+      }
+
+      object.userData.poolId = poolId;
+    });
   }
 
   private didSweepIntoPlayer(
@@ -730,7 +991,7 @@ export class EnemySystem {
 
   private enablePrimitiveVisual(zombie: ActiveZombie): void {
     zombie.activeModelType = null;
-    zombie.primitiveRoot.visible = true;
+    zombie.primitiveRoot.visible = !(this.latchedRunner?.id === zombie.id && this.latchPresentationLoaded);
     zombie.bodyMaterial.color.setHex(zombie.config.bodyColor);
     zombie.accentMaterial.color.setHex(zombie.config.accentColor);
     zombie.flashMaterials = zombie.primitiveFlashMaterials;
@@ -797,6 +1058,10 @@ export class EnemySystem {
       return;
     }
 
+    if (this.latchedRunner?.id === zombie.id && this.latchPresentationLoaded) {
+      variant.root.visible = false;
+    }
+
     this.playHumanoidMoveAction(zombie, variant, modelConfig);
   }
 
@@ -818,6 +1083,10 @@ export class EnemySystem {
     zombie.spawnPoseActive = false;
     zombie.spawnPoseTimer = 0;
     zombie.deathTimer = modelConfig.fadeDelay + modelConfig.fadeDuration;
+    if (this.latchedRunner?.id === zombie.id) {
+      this.detachLatchPresentation(zombie);
+      this.latchedRunner = null;
+    }
     this.playDeathSound(zombie);
     this.spawnBodySplatter(zombie);
 
@@ -928,6 +1197,22 @@ export class EnemySystem {
     return this.getHumanoidConfig(zombie.activeModelType).spawnPoseMoveSpeedMultiplier ?? 1;
   }
 
+  private resolveLaneIndex(worldX: number): number {
+    let bestIndex = 0;
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    for (let index = 0; index < this.config.world.laneCenters.length; index += 1) {
+      const laneCenter = this.config.world.laneCenters[index] ?? 0;
+      const distance = Math.abs(worldX - laneCenter);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = index;
+      }
+    }
+
+    return bestIndex;
+  }
+
   private playHumanoidMoveAction(
     zombie: ActiveZombie,
     variant: ZombieModelVariant,
@@ -1015,6 +1300,10 @@ export class EnemySystem {
   }
 
   private deactivate(zombie: ActiveZombie): void {
+    if (this.latchedRunner?.id === zombie.id) {
+      this.detachLatchPresentation(zombie);
+      this.latchedRunner = null;
+    }
     zombie.active = false;
     zombie.state = 'inactive';
     zombie.group.visible = false;
@@ -1563,6 +1852,59 @@ export class EnemySystem {
       .addScaledVector(this.effectBitangent, randomRange(-spread, spread) * speed);
     target.y += randomRange(verticalMin, verticalMax) * speed;
     target.addScaledVector(direction, forwardJitter * speed * randomRange(-0.2, 1));
+  }
+
+  private async loadLatchPresentation(): Promise<void> {
+    const path = this.config.enemies.runnerModel.latchPresentationPath;
+    if (!path) {
+      return;
+    }
+
+    try {
+      const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
+      const loader = new GLTFLoader();
+      const gltf = await loader.loadAsync(path);
+      this.prepareLatchPresentationScene(gltf.scene);
+      this.latchPresentationRoot.add(gltf.scene);
+      this.latchPresentationMixer = new AnimationMixer(gltf.scene);
+      const clip = gltf.animations[0] ?? null;
+      if (clip) {
+        this.latchPresentationAction = this.latchPresentationMixer.clipAction(clip);
+        this.latchPresentationAction
+          .setLoop(LoopRepeat, Infinity)
+          .setEffectiveTimeScale(1)
+          .setEffectiveWeight(1)
+          .play();
+        this.latchPresentationAction.paused = true;
+      }
+      this.latchPresentationLoaded = true;
+      if (this.latchedRunner) {
+        this.attachLatchPresentation(this.latchedRunner);
+      }
+    } catch (error) {
+      console.warn('Failed to load latched runner presentation GLB.', error);
+    }
+  }
+
+  private prepareLatchPresentationScene(root: Object3D): void {
+    root.traverse((object) => {
+      object.frustumCulled = false;
+
+      if (!(object instanceof Mesh)) {
+        return;
+      }
+
+      object.renderOrder = 6;
+      const materials = Array.isArray(object.material)
+        ? object.material
+        : [object.material];
+      for (const material of materials) {
+        const litMaterial = material as Partial<MeshStandardMaterial>;
+        if (typeof litMaterial.roughness === 'number') {
+          litMaterial.roughness = Math.max(litMaterial.roughness, 0.9);
+        }
+      }
+    });
   }
 
   // Humanoid assets are loaded once, then cloned into pooled slots so startup stays light.

@@ -8,6 +8,11 @@ export class InputSystem {
   private pointerLocked = false;
   private fireHeld = false;
   private reloadQueued = false;
+  private actionQQueued = false;
+  private actionEQueued = false;
+  private wigglePulse = 0;
+  private lastLeanTapCode = '';
+  private lastLeanTapTime = 0;
 
   constructor(private readonly domElement: HTMLElement) {
     this.handleKeyDown = this.handleKeyDown.bind(this);
@@ -54,6 +59,10 @@ export class InputSystem {
     return left + right;
   }
 
+  getLeanAxis(): number {
+    return this.getStrafeAxis();
+  }
+
   isFireHeld(): boolean {
     return this.fireHeld;
   }
@@ -70,9 +79,30 @@ export class InputSystem {
     return wasQueued;
   }
 
+  consumeActionQ(): boolean {
+    const wasQueued = this.actionQQueued;
+    this.actionQQueued = false;
+    return wasQueued;
+  }
+
+  consumeActionE(): boolean {
+    const wasQueued = this.actionEQueued;
+    this.actionEQueued = false;
+    return wasQueued;
+  }
+
+  consumeWigglePulse(): number {
+    const pulse = this.wigglePulse;
+    this.wigglePulse = 0;
+    return pulse;
+  }
+
   clearTransientInput(): void {
     this.fireHeld = false;
     this.reloadQueued = false;
+    this.actionQQueued = false;
+    this.actionEQueued = false;
+    this.wigglePulse = 0;
     this.lookDelta.set(0, 0);
   }
 
@@ -81,6 +111,33 @@ export class InputSystem {
 
     if (event.code === 'KeyR') {
       this.reloadQueued = true;
+      return;
+    }
+
+    if (event.code === 'KeyQ') {
+      this.actionQQueued = true;
+      return;
+    }
+
+    if (event.code === 'KeyE') {
+      this.actionEQueued = true;
+      return;
+    }
+
+    if (event.code === 'KeyA' || event.code === 'KeyD') {
+      const now = performance.now();
+      const oppositeKey =
+        event.code === 'KeyA'
+          ? 'KeyD'
+          : 'KeyA';
+      if (
+        this.lastLeanTapCode === oppositeKey &&
+        now - this.lastLeanTapTime <= 280
+      ) {
+        this.wigglePulse += 0.42;
+      }
+      this.lastLeanTapCode = event.code;
+      this.lastLeanTapTime = now;
     }
   }
 
@@ -117,6 +174,9 @@ export class InputSystem {
   private handleWindowBlur(): void {
     this.pressedKeys.clear();
     this.fireHeld = false;
+    this.actionQQueued = false;
+    this.actionEQueued = false;
+    this.wigglePulse = 0;
   }
 
   private handleContextMenu(event: MouseEvent): void {

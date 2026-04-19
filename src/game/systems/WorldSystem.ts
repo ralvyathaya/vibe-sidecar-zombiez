@@ -1,4 +1,6 @@
 import {
+  AdditiveBlending,
+  Box3,
   BoxGeometry,
   Camera,
   CylinderGeometry,
@@ -7,24 +9,40 @@ import {
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
+  Object3D,
   PointLight,
   Raycaster,
   Scene,
+  Sprite,
+  SpriteMaterial,
   SphereGeometry,
+  TextureLoader,
   Vector2,
   Vector3,
 } from 'three';
-import type { ActiveObstacle, EnemyKillResult, GameConfig } from '../../core/types';
+import type {
+  ActiveObstacle,
+  EnemyKillResult,
+  GameConfig,
+  LaneThreatState,
+  ObstacleType,
+  RunSegment,
+  WorldImpactResult,
+} from '../../core/types';
 import { randomInt, randomRange } from '../../core/utils';
 import { SoundEffectPool } from '../audio/SoundEffectPool';
 import type { EnemySystem } from './EnemySystem';
 
 type ObstacleRecord = ActiveObstacle & {
-  barricadeVariant: Group;
-  concreteBlockVariant: Group;
-  wreckVariant: Group;
   carVariant: Group;
+  carVisualRoot: Group;
+  wreckVariant: Group;
+  wreckVisualRoot: Group;
+  brokenLaneVariant: Group;
+  potholeVariant: Group;
   barrelVariant: Group;
+  barrelVisualRoot: Group;
+  barrelMarker: Sprite;
 };
 
 type HighwayChunk = {
@@ -61,17 +79,15 @@ const ROAD_GEOMETRY = new BoxGeometry(22, 0.4, 40);
 const SHOULDER_GEOMETRY = new BoxGeometry(3.2, 0.25, 40);
 const TERRAIN_GEOMETRY = new BoxGeometry(12.5, 0.18, 40);
 const DASH_GEOMETRY = new BoxGeometry(0.24, 0.03, 2.4);
-const GUARD_GEOMETRY = new BoxGeometry(0.18, 0.4, 6.2);
 const DEBRIS_GEOMETRY = new BoxGeometry(0.6, 0.35, 0.8);
-const BARRICADE_FALLBACK_BASE = new BoxGeometry(2.2, 1.05, 0.82);
-const CONCRETE_FALLBACK_BASE = new BoxGeometry(2.08, 1.1, 1.16);
-const CONCRETE_FALLBACK_CAP = new BoxGeometry(1.96, 0.14, 1.02);
-const CAR_FALLBACK_BODY = new BoxGeometry(1.78, 0.42, 3.3);
-const CAR_FALLBACK_CABIN = new BoxGeometry(1.34, 0.46, 1.68);
-const CAR_FALLBACK_HOOD = new BoxGeometry(1.46, 0.18, 1.08);
-const CAR_FALLBACK_WHEEL = new CylinderGeometry(0.32, 0.32, 0.26, 10, 1);
+const BUILDING_GEOMETRY = new BoxGeometry(1, 1, 1);
+const WINDOW_STRIP_GEOMETRY = new BoxGeometry(1, 1, 0.1);
+const POLE_GEOMETRY = new BoxGeometry(0.16, 3.4, 0.16);
+const SIGN_GEOMETRY = new BoxGeometry(1.3, 0.68, 0.14);
+const ROAD_BLOCK_GEOMETRY = new BoxGeometry(1, 1, 1);
+const BROKEN_PATCH_GEOMETRY = new BoxGeometry(1, 0.06, 1);
+const POTHOLE_RING_GEOMETRY = new CylinderGeometry(1, 1.24, 0.08, 10);
 const BARREL_BODY_GEOMETRY = new CylinderGeometry(0.58, 0.62, 1.55, 10, 3);
-const BARREL_BAND_GEOMETRY = new CylinderGeometry(0.66, 0.66, 0.08, 10, 1, true);
 const BREAK_PIECE_GEOMETRY = new BoxGeometry(1, 1, 1);
 const BREAK_DUST_GEOMETRY = new IcosahedronGeometry(1, 0);
 const EXPLOSION_CORE_GEOMETRY = new IcosahedronGeometry(1, 0);
@@ -90,18 +106,16 @@ export class WorldSystem {
   private readonly projectileHitPoint = new Vector3();
   private readonly obstacleImpactSound: SoundEffectPool;
   private readonly barrelExplosionSound: SoundEffectPool;
-
-  private nextObstacleZ = -34;
-  private nextBarrelEligibleZ = -72;
-  private nextCarEligibleZ = -124;
-  private barrelTemplate: Group | null = null;
-  private barricadeTemplate: Group | null = null;
-  private concreteBlockTemplate: Group | null = null;
+  private readonly barrelMarkerMaterials: SpriteMaterial[] = [];
   private carTemplate: Group | null = null;
-  private barrelLoadPromise: Promise<void> | null = null;
-  private barricadeLoadPromise: Promise<void> | null = null;
-  private concreteBlockLoadPromise: Promise<void> | null = null;
+  private barrelTemplate: Group | null = null;
   private carLoadPromise: Promise<void> | null = null;
+  private barrelLoadPromise: Promise<void> | null = null;
+
+  private time = 0;
+  private currentSegment: RunSegment = 'rest';
+  private nextObstacleZ = -34;
+  private nextBarrelEligibleZ = -86;
 
   constructor(
     private readonly scene: Scene,
@@ -112,28 +126,28 @@ export class WorldSystem {
       volume: this.config.world.audio.obstacleImpactVolume,
     });
     this.barrelExplosionSound = new SoundEffectPool(this.config.world.audio.barrelExplosionPath, {
-      poolSize: 3,
+      poolSize: 2,
       volume: this.config.world.audio.barrelExplosionVolume,
     });
     this.scene.add(this.worldRoot);
     this.createChunks();
-    this.createObstacles();
+    this.createObstaclePool();
     this.createExplosionPool();
     this.createBreakEffectPool();
+    void this.loadBarrelMarkerTexture();
+    void this.loadCarTemplate();
+    void this.loadBarrelTemplate();
     this.reset();
-    void this.loadBarrelAssets();
-    void this.loadBarricadeAssets();
-    void this.loadConcreteBlockAssets();
-    void this.loadCarAssets();
   }
 
   reset(): void {
-    this.positionChunks();
+    this.time = 0;
+    this.currentSegment = 'rest';
     this.nextObstacleZ = -34;
-    this.nextBarrelEligibleZ = -72;
-    this.nextCarEligibleZ = -124;
+    this.nextBarrelEligibleZ = -86;
     this.obstacleImpactSound.stopAll();
     this.barrelExplosionSound.stopAll();
+    this.positionChunks();
 
     for (const explosion of this.explosions) {
       this.deactivateExplosion(explosion);
@@ -152,24 +166,48 @@ export class WorldSystem {
     this.reset();
     this.obstacleImpactSound.destroy();
     this.barrelExplosionSound.destroy();
+    this.disposeObject(this.carTemplate);
+    this.disposeObject(this.barrelTemplate);
+    this.worldRoot.removeFromParent();
   }
 
-  update(deltaTime: number, playerX: number): number {
-    const scrollDistance = this.config.player.forwardSpeed * deltaTime;
+  update(
+    deltaTime: number,
+    playerX: number,
+    forwardSpeed: number,
+    segment: RunSegment,
+  ): WorldImpactResult {
+    this.time += deltaTime;
+    this.currentSegment = segment;
+    const scrollDistance = forwardSpeed * deltaTime;
 
     for (const chunk of this.chunks) {
       chunk.group.position.z += scrollDistance;
       if (chunk.group.position.z > this.config.world.chunkLength * 0.5) {
         chunk.group.position.z -= this.config.world.chunkLength * this.config.world.chunkCount;
       }
+      chunk.group.position.x = this.getCurveOffset(chunk.group.position.z);
     }
 
     this.updateExplosions(deltaTime, scrollDistance);
     this.updateBreakEffects(deltaTime, scrollDistance);
 
-    let collisionDamage = 0;
+    const impact: WorldImpactResult = {
+      damage: 0,
+      handlingPenalty: 0,
+      aimShake: 0,
+      cameraShake: 0,
+      laneThreats: [],
+    };
+
     for (const obstacle of this.obstacles) {
       obstacle.mesh.position.z += scrollDistance;
+      if (obstacle.type === 'barrel') {
+        const pulse = 0.9 + Math.sin(this.time * 7.5 + obstacle.id * 0.7) * 0.16;
+        obstacle.barrelMarker.scale.set(1.2 * pulse, 0.85 * pulse, 1);
+        (obstacle.barrelMarker.material as SpriteMaterial).opacity =
+          0.62 + Math.max(0, pulse - 0.88) * 0.48;
+      }
 
       if (obstacle.mesh.position.z > this.config.world.obstacleCleanupZ) {
         this.recycleObstacle(obstacle);
@@ -185,24 +223,20 @@ export class WorldSystem {
 
       if (!obstacle.hasHitPlayer && closeEnoughInZ && closeEnoughInX) {
         obstacle.hasHitPlayer = true;
-        collisionDamage += obstacle.damage;
+        impact.damage += obstacle.damage;
+        impact.handlingPenalty = Math.max(impact.handlingPenalty, obstacle.handlingPenalty);
+        impact.aimShake = Math.max(impact.aimShake, obstacle.aimShake);
+        impact.cameraShake = Math.max(impact.cameraShake, obstacle.aimShake * 0.9);
         this.playObstacleImpactSound(obstacle);
 
         if (obstacle.type === 'barrel') {
           this.recycleObstacle(obstacle);
-          continue;
         }
-
-        if (obstacle.type === 'car') {
-          continue;
-        }
-
-        this.spawnBreakEffect(obstacle);
-        this.recycleObstacle(obstacle);
       }
     }
 
-    return collisionDamage;
+    impact.laneThreats = this.getLaneThreats();
+    return impact;
   }
 
   raycast(
@@ -280,7 +314,7 @@ export class WorldSystem {
     let closestHit: { obstacle: ActiveObstacle; point: Vector3; distance: number } | null = null;
 
     for (const obstacle of this.obstacles) {
-      if (!obstacle.active) {
+      if (!obstacle.active || (!obstacle.blocksLane && obstacle.type !== 'barrel')) {
         continue;
       }
 
@@ -327,17 +361,105 @@ export class WorldSystem {
       return;
     }
 
-    if (record.type === 'car') {
-      return;
-    }
-
     if (record.type === 'barrel') {
       this.recycleObstacle(record);
       return;
     }
 
+    if (!record.blocksLane) {
+      return;
+    }
+
     this.spawnBreakEffect(record);
     this.recycleObstacle(record);
+  }
+
+  getLaneThreats(): LaneThreatState[] {
+    const laneThreats: LaneThreatState[] = this.config.world.laneCenters.map((_, laneIndex) => ({
+      laneIndex,
+      score: 0,
+      blocker: false,
+      blockerType: null,
+      blockerDistance: null,
+      brokenLane: false,
+      pothole: false,
+      smallCount: 0,
+      bruteCount: 0,
+    }));
+
+    for (const obstacle of this.obstacles) {
+      if (!obstacle.active || obstacle.mesh.position.z > 6) {
+        continue;
+      }
+
+      const distanceAhead = -obstacle.mesh.position.z;
+      if (distanceAhead < 0 || distanceAhead > 80) {
+        continue;
+      }
+
+      const lane = laneThreats[obstacle.lane];
+      if (!lane) {
+        continue;
+      }
+
+      const proximity = 1 - Math.min(distanceAhead / 80, 1);
+      lane.score += obstacle.threatScore * (0.4 + proximity * 1.2);
+      if (obstacle.blocksLane && distanceAhead < 30) {
+        lane.blocker = true;
+        if (
+          lane.blockerDistance === null ||
+          distanceAhead < lane.blockerDistance
+        ) {
+          lane.blockerDistance = distanceAhead;
+          lane.blockerType = obstacle.type;
+        }
+      }
+      lane.brokenLane = lane.brokenLane || obstacle.type === 'brokenLane';
+      lane.pothole = lane.pothole || obstacle.type === 'pothole';
+    }
+
+    return laneThreats;
+  }
+
+  scrapeNearestObstacle(laneIndex: number, maxDistance = 18): WorldImpactResult | null {
+    let target: ObstacleRecord | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    for (const obstacle of this.obstacles) {
+      if (!obstacle.active || !obstacle.blocksLane || obstacle.lane !== laneIndex) {
+        continue;
+      }
+
+      if (obstacle.type !== 'car' && obstacle.type !== 'wreck') {
+        continue;
+      }
+
+      const distanceAhead = -obstacle.mesh.position.z;
+      if (distanceAhead < 0 || distanceAhead > maxDistance) {
+        continue;
+      }
+
+      if (distanceAhead < bestDistance) {
+        bestDistance = distanceAhead;
+        target = obstacle;
+      }
+    }
+
+    if (!target) {
+      return null;
+    }
+
+    this.playObstacleImpactSound(target);
+    this.spawnBreakEffect(target);
+    this.recycleObstacle(target);
+
+    return {
+      damage: 0,
+      handlingPenalty: this.config.driver.scrapeHandlingPenalty * 0.6,
+      aimShake: this.config.driver.scrapeAimShake,
+      cameraShake: this.config.driver.scrapeCameraShake,
+      laneThreats: this.getLaneThreats(),
+    };
   }
 
   private createChunks(): void {
@@ -373,7 +495,7 @@ export class WorldSystem {
       const leftTerrain = new Mesh(
         TERRAIN_GEOMETRY,
         new MeshStandardMaterial({
-          color: 0x8b907c,
+          color: 0x7d8172,
           flatShading: true,
           roughness: 1,
         }),
@@ -400,36 +522,20 @@ export class WorldSystem {
         }
       }
 
-      for (const side of [-1, 1]) {
-        for (let railIndex = 0; railIndex < 5; railIndex += 1) {
-          if ((index + railIndex) % 4 === 0) {
-            continue;
-          }
+      this.addRoadsideSet(chunkGroup, -1);
+      this.addRoadsideSet(chunkGroup, 1);
 
-          const rail = new Mesh(
-            GUARD_GEOMETRY,
-            new MeshStandardMaterial({
-              color: 0x9da4aa,
-              flatShading: true,
-              roughness: 0.86,
-            }),
-          );
-          rail.position.set(side * 10.9, -0.02, -15 + railIndex * 8);
-          chunkGroup.add(rail);
-        }
-      }
-
-      for (let debrisIndex = 0; debrisIndex < 10; debrisIndex += 1) {
+      for (let debrisIndex = 0; debrisIndex < 12; debrisIndex += 1) {
         const debris = new Mesh(
           DEBRIS_GEOMETRY,
           new MeshStandardMaterial({
-            color: debrisIndex % 2 === 0 ? 0x6f655e : 0x8a8078,
+            color: debrisIndex % 2 === 0 ? 0x5d5750 : 0x80756c,
             flatShading: true,
             roughness: 1,
           }),
         );
         debris.position.set(
-          randomRange(-13.6, 13.6),
+          randomRange(-14.8, 14.8),
           -0.16,
           randomRange(-18, 18),
         );
@@ -447,17 +553,154 @@ export class WorldSystem {
     }
   }
 
-  private createObstacles(): void {
+  private addRoadsideSet(parent: Group, side: -1 | 1): void {
+    const sideOffset = side * randomRange(17.5, 19.6);
+    const propCount = Math.round(7 * this.config.world.roadsidePropDensity);
+
+    for (let index = 0; index < propCount; index += 1) {
+      const z = -18 + index * 6 + randomRange(-2, 2);
+      if (index % 3 === 0) {
+        parent.add(this.createRuinedBuilding(sideOffset + side * randomRange(3.2, 6.4), z));
+        continue;
+      }
+
+      if (index % 3 === 1) {
+        parent.add(this.createPoleAndSign(sideOffset + side * randomRange(0.5, 2.4), z));
+        continue;
+      }
+
+      parent.add(this.createRoadsideWreck(sideOffset + side * randomRange(1.2, 3.8), z));
+    }
+  }
+
+  private createRuinedBuilding(x: number, z: number): Group {
+    const group = new Group();
+    const width = randomRange(2.8, 5.8);
+    const height = randomRange(3.8, 8.2);
+    const depth = randomRange(2.4, 4.8);
+    const shell = new Mesh(
+      BUILDING_GEOMETRY,
+      new MeshStandardMaterial({
+        color: randomRange(0, 1) > 0.5 ? 0x57514b : 0x615a53,
+        flatShading: true,
+        roughness: 0.98,
+      }),
+    );
+    shell.position.y = height * 0.5 - 0.1;
+    shell.scale.set(width, height, depth);
+    group.add(shell);
+
+    const brokenTop = new Mesh(
+      BUILDING_GEOMETRY,
+      new MeshStandardMaterial({
+        color: 0x2d2a29,
+        flatShading: true,
+        roughness: 1,
+      }),
+    );
+    brokenTop.position.set(randomRange(-0.4, 0.4), height - 0.3, randomRange(-0.2, 0.2));
+    brokenTop.scale.set(width * randomRange(0.55, 0.82), randomRange(0.18, 0.36), depth * 0.94);
+    group.add(brokenTop);
+
+    for (let index = 0; index < 2; index += 1) {
+      const windowStrip = new Mesh(
+        WINDOW_STRIP_GEOMETRY,
+        new MeshStandardMaterial({
+          color: 0x1f2328,
+          flatShading: true,
+          roughness: 0.9,
+          metalness: 0.02,
+        }),
+      );
+      windowStrip.position.set(
+        0,
+        height * (0.28 + index * 0.24),
+        depth * 0.51,
+      );
+      windowStrip.scale.set(width * 0.72, 0.22, 1);
+      group.add(windowStrip);
+    }
+
+    group.position.set(x, 0, z);
+    return group;
+  }
+
+  private createPoleAndSign(x: number, z: number): Group {
+    const group = new Group();
+    const pole = new Mesh(
+      POLE_GEOMETRY,
+      new MeshStandardMaterial({
+        color: 0x666b70,
+        flatShading: true,
+        roughness: 0.9,
+        metalness: 0.08,
+      }),
+    );
+    pole.position.y = 1.5;
+    group.add(pole);
+
+    const sign = new Mesh(
+      SIGN_GEOMETRY,
+      new MeshStandardMaterial({
+        color: randomRange(0, 1) > 0.5 ? 0x8a3a26 : 0x5a6b79,
+        flatShading: true,
+        roughness: 0.92,
+      }),
+    );
+    sign.position.set(0, 2.8, 0);
+    sign.rotation.z = randomRange(-0.18, 0.18);
+    group.add(sign);
+
+    group.position.set(x, 0, z);
+    return group;
+  }
+
+  private createRoadsideWreck(x: number, z: number): Group {
+    const group = new Group();
+    const body = new Mesh(
+      ROAD_BLOCK_GEOMETRY,
+      new MeshStandardMaterial({
+        color: 0x4b4642,
+        flatShading: true,
+        roughness: 0.98,
+      }),
+    );
+    body.position.y = 0.42;
+    body.scale.set(1.9, 0.6, 3.2);
+    group.add(body);
+
+    const roof = new Mesh(
+      ROAD_BLOCK_GEOMETRY,
+      new MeshStandardMaterial({
+        color: 0x68443a,
+        flatShading: true,
+        roughness: 0.94,
+      }),
+    );
+    roof.position.set(0.12, 0.98, 0.1);
+    roof.rotation.z = 0.1;
+    roof.scale.set(1.1, 0.4, 1.5);
+    group.add(roof);
+
+    group.position.set(x, 0, z);
+    group.rotation.y = randomRange(-0.2, 0.2);
+    return group;
+  }
+
+  private createObstaclePool(): void {
     for (let index = 0; index < this.config.world.obstaclePoolSize; index += 1) {
       const mesh = new Group();
-      const barricadeVariant = this.createBarricadeVariant();
-      const concreteBlockVariant = this.createConcreteBlockVariant();
-      const wreckVariant = this.createWreckVariant();
-      const carVariant = this.createCarVariant();
-      const barrelVariant = this.createBarrelVariant();
+      const { group: carVariant, visualRoot: carVisualRoot } = this.createCarVariant();
+      const { group: wreckVariant, visualRoot: wreckVisualRoot } = this.createWreckVariant();
+      const brokenLaneVariant = this.createBrokenLaneVariant();
+      const potholeVariant = this.createPotholeVariant();
+      const {
+        group: barrelVariant,
+        visualRoot: barrelVisualRoot,
+        marker: barrelMarker,
+      } = this.createBarrelVariant();
       this.assignObstacleId(barrelVariant, index);
-
-      mesh.add(barricadeVariant, concreteBlockVariant, wreckVariant, carVariant, barrelVariant);
+      mesh.add(carVariant, wreckVariant, brokenLaneVariant, potholeVariant, barrelVariant);
       this.worldRoot.add(mesh);
 
       this.obstacles.push({
@@ -466,22 +709,135 @@ export class WorldSystem {
         mesh,
         active: true,
         lane: 0,
-        width: this.config.world.barricade.width,
-        depth: this.config.world.barricade.depth,
-        damage: this.config.world.barricade.collisionDamage,
+        width: 2,
+        depth: 2,
+        damage: 0,
+        handlingPenalty: 0,
+        aimShake: 0,
+        threatScore: 0,
+        blocksLane: false,
         hasHitPlayer: false,
-        type: 'barricade',
-        barricadeVariant,
-        concreteBlockVariant,
-        wreckVariant,
+        type: 'pothole',
         carVariant,
+        carVisualRoot,
+        wreckVariant,
+        wreckVisualRoot,
+        brokenLaneVariant,
+        potholeVariant,
         barrelVariant,
+        barrelVisualRoot,
+        barrelMarker,
       });
     }
   }
 
+  private createCarVariant(): { group: Group; visualRoot: Group } {
+    const group = new Group();
+    group.visible = false;
+    const visualRoot = new Group();
+    group.add(visualRoot);
+    this.applyCarVisual(visualRoot);
+    return { group, visualRoot };
+  }
+
+  private createWreckVariant(): { group: Group; visualRoot: Group } {
+    const group = new Group();
+    group.visible = false;
+    const visualRoot = new Group();
+    group.add(visualRoot);
+    this.applyWreckVisual(visualRoot);
+    return { group, visualRoot };
+  }
+
+  private createBrokenLaneVariant(): Group {
+    const group = new Group();
+    group.visible = false;
+
+    const patch = new Mesh(
+      BROKEN_PATCH_GEOMETRY,
+      new MeshStandardMaterial({
+        color: 0x1a1c20,
+        flatShading: true,
+        roughness: 1,
+      }),
+    );
+    patch.position.y = this.config.world.roadSurfaceY + 0.03;
+    patch.scale.set(4.8, 1, 4.8);
+    group.add(patch);
+
+    for (let index = 0; index < 4; index += 1) {
+      const board = new Mesh(
+        ROAD_BLOCK_GEOMETRY,
+        new MeshStandardMaterial({
+          color: index % 2 === 0 ? 0xca7a38 : 0xe7d9c6,
+          flatShading: true,
+          roughness: 0.95,
+        }),
+      );
+      board.position.set(randomRange(-1.4, 1.4), 0.26, -1.5 + index);
+      board.scale.set(0.4, 0.12, 0.3);
+      group.add(board);
+    }
+
+    return group;
+  }
+
+  private createPotholeVariant(): Group {
+    const group = new Group();
+    group.visible = false;
+
+    const ring = new Mesh(
+      POTHOLE_RING_GEOMETRY,
+      new MeshStandardMaterial({
+        color: 0x352b25,
+        flatShading: true,
+        roughness: 1,
+      }),
+    );
+    ring.rotation.x = Math.PI * 0.5;
+    ring.position.y = this.config.world.roadSurfaceY + 0.02;
+    ring.scale.set(1.1, 1, 1.5);
+    group.add(ring);
+
+    const inner = new Mesh(
+      ROAD_BLOCK_GEOMETRY,
+      new MeshStandardMaterial({
+        color: 0x14171a,
+        flatShading: true,
+        roughness: 1,
+      }),
+    );
+    inner.position.y = this.config.world.roadSurfaceY - 0.02;
+    inner.scale.set(1.2, 0.01, 1.7);
+    group.add(inner);
+
+    return group;
+  }
+
+  private createBarrelVariant(): { group: Group; visualRoot: Group; marker: Sprite } {
+    const group = new Group();
+    group.visible = false;
+    const visualRoot = new Group();
+    group.add(visualRoot);
+    this.applyBarrelVisual(visualRoot);
+    const markerMaterial = new SpriteMaterial({
+      color: 0xffc66b,
+      transparent: true,
+      opacity: 0.72,
+      depthWrite: false,
+      depthTest: false,
+      blending: AdditiveBlending,
+    });
+    this.barrelMarkerMaterials.push(markerMaterial);
+    const marker = new Sprite(markerMaterial);
+    marker.position.set(0, 2.45, 0);
+    marker.scale.set(1.24, 0.88, 1);
+    group.add(marker);
+    return { group, visualRoot, marker };
+  }
+
   private createExplosionPool(): void {
-    for (let index = 0; index < 6; index += 1) {
+    for (let index = 0; index < 5; index += 1) {
       const coreMaterial = new MeshBasicMaterial({
         color: 0xffb04a,
         transparent: true,
@@ -513,15 +869,18 @@ export class WorldSystem {
     }
   }
 
-  // Break bursts are pooled so obstacle collisions stay cheap even during long endless runs.
   private createBreakEffectPool(): void {
-    for (let index = 0; index < 7; index += 1) {
+    for (let index = 0; index < 6; index += 1) {
       const group = new Group();
       const pieces: BreakEffectPiece[] = [];
       const dust: Mesh[] = [];
       group.visible = false;
 
-      for (let pieceIndex = 0; pieceIndex < this.config.world.breakEffect.pieceCount; pieceIndex += 1) {
+      for (
+        let pieceIndex = 0;
+        pieceIndex < this.config.world.breakEffect.pieceCount;
+        pieceIndex += 1
+      ) {
         const piece = new Mesh(
           BREAK_PIECE_GEOMETRY,
           new MeshStandardMaterial({
@@ -572,315 +931,317 @@ export class WorldSystem {
 
   private positionChunks(): void {
     for (let index = 0; index < this.chunks.length; index += 1) {
-      this.chunks[index].group.position.set(0, 0, -this.config.world.chunkLength * index);
+      this.chunks[index].group.position.set(
+        0,
+        0,
+        -this.config.world.chunkLength * index,
+      );
     }
   }
 
-  // Obstacles recycle from a pool so the endless road never needs dynamic allocation mid-run.
   private recycleObstacle(obstacle: ObstacleRecord): void {
     const laneIndex = randomInt(0, this.config.world.laneCenters.length - 1);
     const laneCenter = this.config.world.laneCenters[laneIndex] ?? 0;
     const spawnZ = this.nextObstacleZ;
-    const canSpawnCar = spawnZ <= this.nextCarEligibleZ;
-    const spawnCar =
-      canSpawnCar && Math.random() < this.config.world.car.spawnChance;
-    const canSpawnBarrel = spawnZ <= this.nextBarrelEligibleZ;
-    const spawnBarrel =
-      !spawnCar && canSpawnBarrel && Math.random() < this.config.world.barrel.spawnChance;
-
     obstacle.active = true;
     obstacle.hasHitPlayer = false;
     obstacle.lane = laneIndex;
+    obstacle.mesh.rotation.set(0, randomRange(-0.06, 0.06), 0);
 
-    if (spawnCar) {
-      obstacle.type = 'car';
-      obstacle.damage = this.config.world.car.collisionDamage;
-      obstacle.width = this.config.world.car.width;
-      obstacle.depth = this.config.world.car.depth;
-      obstacle.barricadeVariant.visible = false;
-      obstacle.concreteBlockVariant.visible = false;
-      obstacle.wreckVariant.visible = false;
-      obstacle.carVariant.visible = true;
-      obstacle.barrelVariant.visible = false;
-      this.nextCarEligibleZ =
-        spawnZ - randomRange(
-          this.config.world.car.spawnSpacingMin,
-          this.config.world.car.spawnSpacingMax,
-        );
-    } else if (spawnBarrel) {
-      obstacle.type = 'barrel';
-      obstacle.damage = this.config.world.barrel.collisionDamage;
-      obstacle.width = 1.45;
-      obstacle.depth = 1.45;
-      obstacle.barricadeVariant.visible = false;
-      obstacle.concreteBlockVariant.visible = false;
-      obstacle.wreckVariant.visible = false;
-      obstacle.carVariant.visible = false;
-      obstacle.barrelVariant.visible = true;
+    const barrelChance =
+      this.currentSegment === 'chaos'
+        ? this.config.world.barrel.spawnChance * 1.2
+        : this.config.world.barrel.spawnChance;
+    const canSpawnBarrel = spawnZ <= this.nextBarrelEligibleZ && Math.random() < barrelChance;
+
+    const type = canSpawnBarrel ? 'barrel' : this.chooseHazardType();
+    this.applyObstacleType(obstacle, type);
+    obstacle.mesh.position.set(
+      laneCenter + randomRange(-0.28, 0.28),
+      0,
+      spawnZ,
+    );
+
+    const density = this.config.pacing.hazardDensity[this.currentSegment];
+    const spacing = randomRange(
+      this.config.world.obstacleSpacingMin,
+      this.config.world.obstacleSpacingMax,
+    ) / density;
+    this.nextObstacleZ -= spacing;
+
+    if (type === 'barrel') {
       this.nextBarrelEligibleZ =
         spawnZ - randomRange(
           this.config.world.barrel.spawnSpacingMin,
           this.config.world.barrel.spawnSpacingMax,
         );
-    } else {
-      this.applyRoadObstacleType(obstacle, this.chooseRoadObstacleType());
     }
-
-    const laneOffset = obstacle.type === 'car'
-      ? randomRange(-0.08, 0.08)
-      : randomRange(-0.45, 0.45);
-    obstacle.mesh.position.set(laneCenter + laneOffset, 0, spawnZ);
-    obstacle.mesh.rotation.y = obstacle.type === 'car'
-      ? randomRange(-0.06, 0.06)
-      : randomRange(-0.28, 0.28);
-
-    this.nextObstacleZ -= randomRange(
-      this.config.world.obstacleSpacingMin,
-      this.config.world.obstacleSpacingMax,
-    );
   }
 
-  private applyRoadObstacleType(
-    obstacle: ObstacleRecord,
-    type: 'barricade' | 'concreteBlock' | 'wreck',
-  ): void {
+  private chooseHazardType(): ObstacleType {
+    const chaosBonus = this.currentSegment === 'chaos' ? 0.32 : 0;
+    const darkBonus = this.currentSegment === 'dark' ? 0.16 : 0;
+    const weights: Array<{ type: ObstacleType; weight: number }> = [
+      { type: 'car', weight: 1.08 + chaosBonus * 0.9 },
+      { type: 'wreck', weight: 0.82 + chaosBonus * 0.55 },
+      { type: 'brokenLane', weight: this.config.world.brokenLane.spawnWeight + chaosBonus * 0.24 },
+      { type: 'pothole', weight: this.config.world.pothole.spawnWeight + darkBonus * 0.7 },
+    ];
+    const totalWeight = weights.reduce((sum, entry) => sum + entry.weight, 0);
+    let roll = Math.random() * totalWeight;
+
+    for (const entry of weights) {
+      roll -= entry.weight;
+      if (roll <= 0) {
+        return entry.type;
+      }
+    }
+
+    return 'pothole';
+  }
+
+  private applyObstacleType(obstacle: ObstacleRecord, type: ObstacleType): void {
     obstacle.type = type;
-    obstacle.barricadeVariant.visible = type === 'barricade';
-    obstacle.concreteBlockVariant.visible = type === 'concreteBlock';
+    obstacle.carVariant.visible = type === 'car';
     obstacle.wreckVariant.visible = type === 'wreck';
-    obstacle.carVariant.visible = false;
-    obstacle.barrelVariant.visible = false;
+    obstacle.brokenLaneVariant.visible = type === 'brokenLane';
+    obstacle.potholeVariant.visible = type === 'pothole';
+    obstacle.barrelVariant.visible = type === 'barrel';
+    obstacle.barrelMarker.visible = type === 'barrel';
 
-    if (type === 'barricade') {
-      obstacle.damage = this.config.world.barricade.collisionDamage;
-      obstacle.width = this.config.world.barricade.width;
-      obstacle.depth = this.config.world.barricade.depth;
+    if (type === 'car') {
+      obstacle.width = this.config.world.car.width;
+      obstacle.depth = this.config.world.car.depth;
+      obstacle.damage = 18;
+      obstacle.handlingPenalty = 0.22;
+      obstacle.aimShake = 0.03;
+      obstacle.threatScore = 3.8;
+      obstacle.blocksLane = true;
       return;
     }
 
-    if (type === 'concreteBlock') {
-      obstacle.damage = this.config.world.concreteBlock.collisionDamage;
-      obstacle.width = this.config.world.concreteBlock.width;
-      obstacle.depth = this.config.world.concreteBlock.depth;
+    if (type === 'wreck') {
+      obstacle.width = 3.8;
+      obstacle.depth = 2.9;
+      obstacle.damage = 15;
+      obstacle.handlingPenalty = 0.18;
+      obstacle.aimShake = 0.025;
+      obstacle.threatScore = 3.3;
+      obstacle.blocksLane = true;
       return;
     }
 
-    obstacle.damage = this.config.world.obstacleDamage + randomInt(0, 3);
-    obstacle.width = 2.9;
-    obstacle.depth = 3.2;
-  }
-
-  private chooseRoadObstacleType(): 'barricade' | 'concreteBlock' | 'wreck' {
-    const barricadeWeight = this.config.world.barricade.spawnWeight;
-    const concreteWeight = this.config.world.concreteBlock.spawnWeight;
-    const wreckWeight = this.config.world.wreckSpawnWeight;
-    const totalWeight = barricadeWeight + concreteWeight + wreckWeight;
-    const roll = Math.random() * totalWeight;
-
-    if (roll < barricadeWeight) {
-      return 'barricade';
+    if (type === 'brokenLane') {
+      obstacle.width = this.config.world.brokenLane.width;
+      obstacle.depth = this.config.world.brokenLane.depth;
+      obstacle.damage = this.config.world.brokenLane.damage;
+      obstacle.handlingPenalty = this.config.world.brokenLane.handlingPenalty;
+      obstacle.aimShake = this.config.world.brokenLane.aimShake;
+      obstacle.threatScore = 2.35;
+      obstacle.blocksLane = false;
+      return;
     }
 
-    if (roll < barricadeWeight + concreteWeight) {
-      return 'concreteBlock';
+    if (type === 'pothole') {
+      obstacle.width = this.config.world.pothole.width;
+      obstacle.depth = this.config.world.pothole.depth;
+      obstacle.damage = this.config.world.pothole.damage;
+      obstacle.handlingPenalty = this.config.world.pothole.handlingPenalty;
+      obstacle.aimShake = this.config.world.pothole.aimShake;
+      obstacle.threatScore = 1.12;
+      obstacle.blocksLane = false;
+      return;
     }
 
-    return 'wreck';
+    obstacle.width = 1.45;
+    obstacle.depth = 1.45;
+    obstacle.damage = this.config.world.barrel.collisionDamage;
+    obstacle.handlingPenalty = 0.05;
+    obstacle.aimShake = 0.015;
+    obstacle.threatScore = 1.2;
+    obstacle.blocksLane = false;
   }
 
-  private createBarricadeVariant(): Group {
+  private async loadCarTemplate(): Promise<void> {
+    if (this.carLoadPromise) {
+      return this.carLoadPromise;
+    }
+
+    this.carLoadPromise = (async () => {
+      try {
+        const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
+        const loader = new GLTFLoader();
+        let scene: Group;
+
+        try {
+          const gltf = await loader.loadAsync(this.config.world.car.assetPath);
+          scene = gltf.scene;
+        } catch {
+          const gltf = await loader.loadAsync(this.config.world.car.fallbackAssetPath);
+          scene = gltf.scene;
+        }
+
+        this.carTemplate = this.prepareStaticTemplate(scene);
+        this.refreshObstacleTemplates();
+      } catch (error) {
+        console.warn('Failed to load car obstacle model, using fallback.', error);
+      }
+    })();
+
+    return this.carLoadPromise;
+  }
+
+  private async loadBarrelTemplate(): Promise<void> {
+    if (this.barrelLoadPromise) {
+      return this.barrelLoadPromise;
+    }
+
+    this.barrelLoadPromise = (async () => {
+      try {
+        const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
+        const loader = new GLTFLoader();
+        const gltf = await loader.loadAsync(this.config.world.barrel.assetPath);
+        this.barrelTemplate = this.prepareStaticTemplate(gltf.scene);
+        this.refreshObstacleTemplates();
+      } catch (error) {
+        console.warn('Failed to load barrel obstacle model, using fallback.', error);
+      }
+    })();
+
+    return this.barrelLoadPromise;
+  }
+
+  private refreshObstacleTemplates(): void {
+    for (const obstacle of this.obstacles) {
+      this.applyCarVisual(obstacle.carVisualRoot);
+      this.applyWreckVisual(obstacle.wreckVisualRoot);
+      this.applyBarrelVisual(obstacle.barrelVisualRoot);
+    }
+  }
+
+  private prepareStaticTemplate(scene: Object3D): Group {
+    scene.traverse((object) => {
+      object.frustumCulled = false;
+      const maybeMesh = object as Mesh;
+      if (!maybeMesh.isMesh) {
+        return;
+      }
+
+      maybeMesh.renderOrder = 3;
+      const materials = Array.isArray(maybeMesh.material)
+        ? maybeMesh.material
+        : [maybeMesh.material];
+
+      for (const material of materials) {
+        if ('depthWrite' in material) {
+          material.depthWrite = true;
+        }
+      }
+    });
+
+    const bounds = new Box3().setFromObject(scene);
+    const center = bounds.getCenter(new Vector3());
+    scene.position.set(-center.x, -bounds.min.y, -center.z);
+
+    const wrapper = new Group();
+    wrapper.add(scene);
+    return wrapper;
+  }
+
+  private applyCarVisual(root: Group): void {
+    root.clear();
+    const visual = this.carTemplate
+      ? this.carTemplate.clone(true)
+      : this.createFallbackCarVisual();
+    visual.scale.setScalar(this.config.world.car.scale);
+    visual.position.y = this.config.world.car.yOffset;
+    root.add(visual);
+  }
+
+  private applyWreckVisual(root: Group): void {
+    root.clear();
+    if (!this.carTemplate) {
+      root.add(this.createFallbackWreckVisual());
+      return;
+    }
+
+    const visual = this.carTemplate.clone(true);
+    visual.scale.setScalar(this.config.world.car.scale * 0.98);
+    visual.position.set(0.1, this.config.world.car.yOffset - 0.12, 0);
+    visual.rotation.set(0, Math.PI * 0.08, 0.11);
+    root.add(visual);
+  }
+
+  private applyBarrelVisual(root: Group): void {
+    root.clear();
+    const visual = this.barrelTemplate
+      ? this.barrelTemplate.clone(true)
+      : this.createFallbackBarrelVisual();
+    visual.scale.setScalar(this.config.world.barrel.scale);
+    visual.position.y = 0.08;
+    root.add(visual);
+  }
+
+  private createFallbackCarVisual(): Group {
     const group = new Group();
-    group.position.y = this.config.world.barricade.yOffset;
-    group.add(this.createFallbackBarricadeMesh());
+    const body = new Mesh(
+      ROAD_BLOCK_GEOMETRY,
+      new MeshStandardMaterial({
+        color: 0x4a535d,
+        flatShading: true,
+        roughness: 0.92,
+      }),
+    );
+    body.position.y = 0.54;
+    body.scale.set(2.15, 0.62, 3.55);
+    group.add(body);
+
+    const cabin = new Mesh(
+      ROAD_BLOCK_GEOMETRY,
+      new MeshStandardMaterial({
+        color: 0x616972,
+        flatShading: true,
+        roughness: 0.92,
+      }),
+    );
+    cabin.position.set(0, 1.02, -0.12);
+    cabin.scale.set(1.45, 0.52, 1.8);
+    group.add(cabin);
+
     return group;
   }
 
-  private createFallbackBarricadeMesh(): Group {
+  private createFallbackWreckVisual(): Group {
     const group = new Group();
-
-    const base = new Mesh(
-      BARRICADE_FALLBACK_BASE,
+    const body = new Mesh(
+      ROAD_BLOCK_GEOMETRY,
       new MeshStandardMaterial({
-        color: 0xe1ddd3,
-        flatShading: true,
-        roughness: 0.96,
-      }),
-    );
-    base.position.y = 0.42;
-    group.add(base);
-
-    const upperRail = new Mesh(
-      new BoxGeometry(2.3, 0.16, 0.9),
-      new MeshStandardMaterial({
-        color: 0xd9d2c6,
-        flatShading: true,
-        roughness: 0.94,
-      }),
-    );
-    upperRail.position.y = 0.89;
-    group.add(upperRail);
-
-    const stripe = new Mesh(
-      new BoxGeometry(2.34, 0.18, 0.92),
-      new MeshStandardMaterial({
-        color: 0xd06d2f,
+        color: 0x6f3d34,
         flatShading: true,
         roughness: 0.88,
       }),
     );
-    stripe.position.y = 0.57;
-    group.add(stripe);
-
-    return group;
-  }
-
-  private createConcreteBlockVariant(): Group {
-    const group = new Group();
-    group.position.y = this.config.world.concreteBlock.yOffset;
-    group.add(this.createFallbackConcreteBlockMesh());
-    return group;
-  }
-
-  private createFallbackConcreteBlockMesh(): Group {
-    const group = new Group();
-
-    const base = new Mesh(
-      CONCRETE_FALLBACK_BASE,
-      new MeshStandardMaterial({
-        color: 0xbab9b3,
-        flatShading: true,
-        roughness: 1,
-      }),
-    );
-    base.position.y = 0.44;
-    group.add(base);
-
-    const cap = new Mesh(
-      CONCRETE_FALLBACK_CAP,
-      new MeshStandardMaterial({
-        color: 0xd0cec8,
-        flatShading: true,
-        roughness: 1,
-      }),
-    );
-    cap.position.y = 0.96;
-    group.add(cap);
-
-    return group;
-  }
-
-  private createWreckVariant(): Group {
-    const group = new Group();
-
-    const body = new Mesh(
-      new BoxGeometry(2.5, 0.9, 1.55),
-      new MeshStandardMaterial({
-        color: 0x6e3f39,
-        flatShading: true,
-        roughness: 0.86,
-      }),
-    );
-    body.position.y = 0.5;
+    body.position.y = 0.48;
+    body.scale.set(2.2, 0.84, 2.45);
     group.add(body);
 
     const roof = new Mesh(
-      new BoxGeometry(1.5, 0.44, 1.2),
+      ROAD_BLOCK_GEOMETRY,
       new MeshStandardMaterial({
-        color: 0x946259,
+        color: 0x3d2f2c,
         flatShading: true,
-        roughness: 0.8,
+        roughness: 0.96,
       }),
     );
-    roof.position.set(0.1, 1.06, 0);
-    roof.rotation.z = 0.08;
+    roof.position.set(0.08, 1.06, 0);
+    roof.rotation.z = 0.16;
+    roof.scale.set(1.18, 0.44, 1.4);
     group.add(roof);
 
-    const hood = new Mesh(
-      new BoxGeometry(1.1, 0.24, 0.92),
-      new MeshStandardMaterial({
-        color: 0x3f3a39,
-        flatShading: true,
-        roughness: 0.94,
-      }),
-    );
-    hood.position.set(0.66, 0.82, 0);
-    hood.rotation.z = -0.2;
-    group.add(hood);
-
     return group;
   }
 
-  private createCarVariant(): Group {
-    const group = new Group();
-    group.position.y = this.config.world.car.yOffset;
-    group.add(this.createFallbackCarMesh());
-    return group;
-  }
-
-  private createFallbackCarMesh(): Group {
-    const group = new Group();
-    group.rotation.y = Math.PI * 0.5;
-
-    const bodyMaterial = new MeshStandardMaterial({
-      color: 0x4e5963,
-      flatShading: true,
-      roughness: 0.9,
-      metalness: 0.08,
-    });
-    const trimMaterial = new MeshStandardMaterial({
-      color: 0x202328,
-      flatShading: true,
-      roughness: 0.94,
-      metalness: 0.04,
-    });
-    const glassMaterial = new MeshStandardMaterial({
-      color: 0x8ca6bb,
-      flatShading: true,
-      roughness: 0.42,
-      metalness: 0.06,
-    });
-
-    const body = new Mesh(CAR_FALLBACK_BODY, bodyMaterial);
-    body.position.y = 0.44;
-    group.add(body);
-
-    const cabin = new Mesh(CAR_FALLBACK_CABIN, bodyMaterial);
-    cabin.position.set(0, 0.87, -0.08);
-    group.add(cabin);
-
-    const hood = new Mesh(CAR_FALLBACK_HOOD, trimMaterial);
-    hood.position.set(0, 0.58, 1.04);
-    hood.rotation.x = -0.06;
-    group.add(hood);
-
-    const windshield = new Mesh(
-      new BoxGeometry(1.18, 0.22, 0.68),
-      glassMaterial,
-    );
-    windshield.position.set(0, 0.95, 0.34);
-    windshield.rotation.x = -0.22;
-    group.add(windshield);
-
-    for (const x of [-0.86, 0.86]) {
-      for (const z of [-1.08, 1.08]) {
-        const wheel = new Mesh(CAR_FALLBACK_WHEEL, trimMaterial);
-        wheel.rotation.z = Math.PI * 0.5;
-        wheel.position.set(x, 0.24, z);
-        group.add(wheel);
-      }
-    }
-
-    return group;
-  }
-
-  private createBarrelVariant(): Group {
-    const group = new Group();
-    group.position.y = 0.56;
-    group.add(this.createFallbackBarrelMesh());
-    return group;
-  }
-
-  private createFallbackBarrelMesh(): Group {
+  private createFallbackBarrelVisual(): Group {
     const group = new Group();
     const body = new Mesh(
       BARREL_BODY_GEOMETRY,
@@ -890,319 +1251,21 @@ export class WorldSystem {
         metalness: 0.02,
       }),
     );
-    body.position.y = 0.18;
+    body.position.y = 0.86;
     group.add(body);
-
-    for (const y of [-0.36, 0.18, 0.72]) {
-      const band = new Mesh(
-        BARREL_BAND_GEOMETRY,
-        new MeshStandardMaterial({
-          color: 0x756b64,
-          roughness: 0.72,
-          metalness: 0.3,
-        }),
-      );
-      band.position.y = y + 0.18;
-      group.add(band);
-    }
-
     return group;
   }
 
-  private spawnBreakEffect(obstacle: ObstacleRecord): void {
-    const effect = this.breakEffects.find((entry) => !entry.active);
-    if (!effect) {
-      return;
-    }
-
-    const colors = this.getBreakColors(obstacle.type);
-    const burst = this.config.world.breakEffect;
-    effect.active = true;
-    effect.life = burst.lifetime;
-    effect.maxLife = burst.lifetime;
-    effect.group.visible = true;
-    effect.group.position.copy(obstacle.mesh.position);
-    effect.group.position.y = this.config.world.roadSurfaceY + 0.14;
-
-    for (let index = 0; index < effect.pieces.length; index += 1) {
-      const piece = effect.pieces[index];
-      const material = piece.mesh.material as MeshStandardMaterial;
-      const useAccent = index % 3 === 0;
-      piece.mesh.visible = true;
-      piece.baseScale = burst.pieceSize * randomRange(0.74, 1.26);
-      piece.mesh.scale.setScalar(piece.baseScale);
-      piece.mesh.position.set(
-        randomRange(-0.3, 0.3),
-        randomRange(0.12, 0.86),
-        randomRange(-0.22, 0.22),
-      );
-      piece.mesh.rotation.set(
-        randomRange(-0.8, 0.8),
-        randomRange(-0.8, 0.8),
-        randomRange(-0.8, 0.8),
-      );
-      piece.velocity.set(
-        randomRange(-1, 1) * burst.horizontalSpeed,
-        burst.upwardSpeed + randomRange(-0.1, 1.2),
-        randomRange(-0.45, 0.85) * burst.horizontalSpeed * 0.7,
-      );
-      piece.rotationVelocity.set(
-        randomRange(-7, 7),
-        randomRange(-7, 7),
-        randomRange(-7, 7),
-      );
-      material.color.setHex(useAccent ? colors.accent : colors.base);
-      material.opacity = 1;
-    }
-
-    for (let index = 0; index < effect.dust.length; index += 1) {
-      const puff = effect.dust[index];
-      const material = puff.material as MeshBasicMaterial;
-      const baseScale = burst.dustSize * randomRange(0.72, 1.15);
-      puff.visible = true;
-      puff.position.set(
-        randomRange(-0.32, 0.32),
-        randomRange(0.02, 0.1),
-        randomRange(-0.18, 0.18),
-      );
-      puff.scale.setScalar(baseScale);
-      puff.userData.baseScale = baseScale;
-      material.color.setHex(colors.dust);
-      material.opacity = 0.3;
-    }
-  }
-
-  private getBreakColors(type: ActiveObstacle['type']): {
-    base: number;
-    accent: number;
-    dust: number;
-  } {
-    if (type === 'barricade') {
-      return {
-        base: this.config.world.barricade.tintColor,
-        accent: 0xd57a39,
-        dust: 0xb1a89d,
-      };
-    }
-
-    if (type === 'concreteBlock') {
-      return {
-        base: this.config.world.concreteBlock.tintColor,
-        accent: 0x8c8d88,
-        dust: 0x767772,
-      };
-    }
-
-    if (type === 'car') {
-      return {
-        base: 0x4e5963,
-        accent: 0x23272c,
-        dust: 0x5b6168,
-      };
-    }
-
-    return {
-      base: 0x6e3f39,
-      accent: 0x3f3a39,
-      dust: 0x58514e,
-    };
-  }
-
-  private playObstacleImpactSound(obstacle: ObstacleRecord): void {
-    const baseVolume = this.config.world.audio.obstacleImpactVolume;
-
-    if (obstacle.type === 'barrel') {
-      this.obstacleImpactSound.play(baseVolume * 0.82, randomRange(0.88, 0.95));
-      return;
-    }
-
-    if (obstacle.type === 'wreck') {
-      this.obstacleImpactSound.play(baseVolume * 0.9, randomRange(0.84, 0.92));
-      return;
-    }
-
-    if (obstacle.type === 'car') {
-      this.obstacleImpactSound.play(baseVolume * 1.06, randomRange(0.72, 0.82));
-      return;
-    }
-
-    if (obstacle.type === 'concreteBlock') {
-      this.obstacleImpactSound.play(baseVolume, randomRange(0.9, 0.98));
-      return;
-    }
-
-    this.obstacleImpactSound.play(baseVolume * 0.96, randomRange(0.96, 1.04));
-  }
-
-  private async loadBarrelAssets(): Promise<void> {
-    if (this.barrelLoadPromise) {
-      return this.barrelLoadPromise;
-    }
-
-    this.barrelLoadPromise = this.loadObstacleTemplate(
-      this.config.world.barrel.assetPath,
-    )
-      .then((template) => {
-        this.barrelTemplate = template;
-        for (const obstacle of this.obstacles) {
-          this.applyBarrelVisual(obstacle);
-        }
-      })
-      .catch((error) => {
-        console.warn('Failed to load optimized barrel obstacle, using fallback mesh.', error);
-      });
-
-    return this.barrelLoadPromise;
-  }
-
-  private async loadBarricadeAssets(): Promise<void> {
-    if (this.barricadeLoadPromise) {
-      return this.barricadeLoadPromise;
-    }
-
-    this.barricadeLoadPromise = this.loadObstacleTemplate(
-      this.config.world.barricade.assetPath,
-    )
-      .then((template) => {
-        this.barricadeTemplate = template;
-        for (const obstacle of this.obstacles) {
-          this.applyBarricadeVisual(obstacle);
-        }
-      })
-      .catch((error) => {
-        console.warn('Failed to load barricade obstacle, using fallback mesh.', error);
-      });
-
-    return this.barricadeLoadPromise;
-  }
-
-  private async loadConcreteBlockAssets(): Promise<void> {
-    if (this.concreteBlockLoadPromise) {
-      return this.concreteBlockLoadPromise;
-    }
-
-    this.concreteBlockLoadPromise = this.loadObstacleTemplate(
-      this.config.world.concreteBlock.assetPath,
-    )
-      .then((template) => {
-        this.concreteBlockTemplate = template;
-        for (const obstacle of this.obstacles) {
-          this.applyConcreteBlockVisual(obstacle);
-        }
-      })
-      .catch((error) => {
-        console.warn('Failed to load concrete block obstacle, using fallback mesh.', error);
-      });
-
-    return this.concreteBlockLoadPromise;
-  }
-
-  private async loadCarAssets(): Promise<void> {
-    if (this.carLoadPromise) {
-      return this.carLoadPromise;
-    }
-
-    this.carLoadPromise = this.loadObstacleTemplate(
-      this.config.world.car.assetPath,
-    )
-      .catch(async (error) => {
-        console.warn('Failed to load textured car obstacle, falling back to base mesh.', error);
-        return this.loadObstacleTemplate(this.config.world.car.fallbackAssetPath);
-      })
-      .then((template) => {
-        this.carTemplate = template;
-        for (const obstacle of this.obstacles) {
-          this.applyCarVisual(obstacle);
-        }
-      })
-      .catch((error) => {
-        console.warn('Failed to load car obstacle, using fallback mesh.', error);
-      });
-
-    return this.carLoadPromise;
-  }
-
-  private async loadObstacleTemplate(assetPath: string): Promise<Group> {
-    const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
-    const loader = new GLTFLoader();
-    const gltf = await loader.loadAsync(assetPath);
-    this.prepareObstacleTemplate(gltf.scene);
-    return gltf.scene;
-  }
-
-  private prepareObstacleTemplate(root: Group): void {
-    root.traverse((object) => {
-      const maybeMesh = object as Mesh;
-      if (!maybeMesh.isMesh) {
-        return;
+  private async loadBarrelMarkerTexture(): Promise<void> {
+    try {
+      const texture = await new TextureLoader().loadAsync('/sprites/shotgun-muzzle-flash.png');
+      texture.generateMipmaps = false;
+      for (const material of this.barrelMarkerMaterials) {
+        material.map = texture;
+        material.needsUpdate = true;
       }
-
-      maybeMesh.frustumCulled = false;
-      if (Array.isArray(maybeMesh.material)) {
-        for (const material of maybeMesh.material) {
-          material.depthWrite = true;
-        }
-      } else {
-        maybeMesh.material.depthWrite = true;
-      }
-    });
-  }
-
-  private applyBarricadeVisual(obstacle: ObstacleRecord): void {
-    this.replaceVariantVisual(
-      obstacle.barricadeVariant,
-      this.barricadeTemplate,
-      () => this.createFallbackBarricadeMesh(),
-      this.config.world.barricade.scale,
-      this.config.world.barricade.yOffset,
-    );
-  }
-
-  private applyConcreteBlockVisual(obstacle: ObstacleRecord): void {
-    this.replaceVariantVisual(
-      obstacle.concreteBlockVariant,
-      this.concreteBlockTemplate,
-      () => this.createFallbackConcreteBlockMesh(),
-      this.config.world.concreteBlock.scale,
-      this.config.world.concreteBlock.yOffset,
-    );
-  }
-
-  private applyBarrelVisual(obstacle: ObstacleRecord): void {
-    this.replaceVariantVisual(
-      obstacle.barrelVariant,
-      this.barrelTemplate,
-      () => this.createFallbackBarrelMesh(),
-      this.config.world.barrel.scale,
-      0.56,
-      obstacle.id,
-    );
-  }
-
-  private applyCarVisual(obstacle: ObstacleRecord): void {
-    obstacle.carVariant.clear();
-    obstacle.carVariant.position.y = this.config.world.car.yOffset;
-    const visual = this.carTemplate ? this.carTemplate.clone(true) : this.createFallbackCarMesh();
-    visual.scale.setScalar(this.config.world.car.scale);
-    obstacle.carVariant.add(visual);
-  }
-
-  private replaceVariantVisual(
-    target: Group,
-    template: Group | null,
-    fallbackFactory: () => Group,
-    scale: number,
-    yOffset: number,
-    obstacleId?: number,
-  ): void {
-    target.clear();
-    target.position.y = yOffset;
-    const visual = template ? template.clone(true) : fallbackFactory();
-    visual.scale.setScalar(scale);
-    target.add(visual);
-
-    if (obstacleId !== undefined) {
-      this.assignObstacleId(target, obstacleId);
+    } catch (error) {
+      console.warn('Failed to load barrel warning sprite.', error);
     }
   }
 
@@ -1210,6 +1273,32 @@ export class WorldSystem {
     root.traverse((object) => {
       object.userData.obstacleId = obstacleId;
     });
+  }
+
+  private disposeObject(object: Object3D | null): void {
+    if (!object) {
+      return;
+    }
+
+    object.traverse((entry) => {
+      const maybeMesh = entry as Mesh;
+      if (!maybeMesh.isMesh) {
+        return;
+      }
+
+      maybeMesh.geometry.dispose();
+      const materials = Array.isArray(maybeMesh.material)
+        ? maybeMesh.material
+        : [maybeMesh.material];
+      for (const material of materials) {
+        material.dispose();
+      }
+    });
+  }
+
+  private getCurveOffset(zPosition: number): number {
+    return Math.sin((zPosition - this.time * 12) * this.config.world.roadCurveFrequency) *
+      this.config.world.roadCurveAmplitude;
   }
 
   private spawnExplosion(position: Vector3): void {
@@ -1266,6 +1355,66 @@ export class WorldSystem {
     effect.light.intensity = 0;
   }
 
+  private spawnBreakEffect(obstacle: ObstacleRecord): void {
+    const effect = this.breakEffects.find((entry) => !entry.active);
+    if (!effect) {
+      return;
+    }
+
+    const burst = this.config.world.breakEffect;
+    effect.active = true;
+    effect.life = burst.lifetime;
+    effect.maxLife = burst.lifetime;
+    effect.group.visible = true;
+    effect.group.position.copy(obstacle.mesh.position);
+    effect.group.position.y = this.config.world.roadSurfaceY + 0.14;
+
+    for (let index = 0; index < effect.pieces.length; index += 1) {
+      const piece = effect.pieces[index];
+      const material = piece.mesh.material as MeshStandardMaterial;
+      piece.mesh.visible = true;
+      piece.baseScale = burst.pieceSize * randomRange(0.74, 1.26);
+      piece.mesh.scale.setScalar(piece.baseScale);
+      piece.mesh.position.set(
+        randomRange(-0.3, 0.3),
+        randomRange(0.12, 0.86),
+        randomRange(-0.22, 0.22),
+      );
+      piece.mesh.rotation.set(
+        randomRange(-0.8, 0.8),
+        randomRange(-0.8, 0.8),
+        randomRange(-0.8, 0.8),
+      );
+      piece.velocity.set(
+        randomRange(-1, 1) * burst.horizontalSpeed,
+        burst.upwardSpeed + randomRange(-0.1, 1.2),
+        randomRange(-0.45, 0.85) * burst.horizontalSpeed * 0.7,
+      );
+      piece.rotationVelocity.set(
+        randomRange(-7, 7),
+        randomRange(-7, 7),
+        randomRange(-7, 7),
+      );
+      material.color.setHex(obstacle.type === 'car' ? 0x4e5963 : 0x6e3f39);
+      material.opacity = 1;
+    }
+
+    for (let index = 0; index < effect.dust.length; index += 1) {
+      const puff = effect.dust[index];
+      const material = puff.material as MeshBasicMaterial;
+      const baseScale = burst.dustSize * randomRange(0.72, 1.15);
+      puff.visible = true;
+      puff.position.set(
+        randomRange(-0.32, 0.32),
+        randomRange(0.02, 0.1),
+        randomRange(-0.18, 0.18),
+      );
+      puff.scale.setScalar(baseScale);
+      puff.userData.baseScale = baseScale;
+      material.opacity = 0.3;
+    }
+  }
+
   private updateBreakEffects(deltaTime: number, scrollDistance: number): void {
     for (const effect of this.breakEffects) {
       if (!effect.active) {
@@ -1303,7 +1452,8 @@ export class WorldSystem {
 
       for (const puff of effect.dust) {
         const material = puff.material as MeshBasicMaterial;
-        const baseScale = (puff.userData.baseScale as number | undefined) ?? this.config.world.breakEffect.dustSize;
+        const baseScale =
+          (puff.userData.baseScale as number | undefined) ?? this.config.world.breakEffect.dustSize;
         puff.scale.setScalar(baseScale * (0.75 + progress * 1.65));
         material.opacity = 0.28 * alpha;
       }
@@ -1336,4 +1486,29 @@ export class WorldSystem {
     }
   }
 
+  private playObstacleImpactSound(obstacle: ObstacleRecord): void {
+    const baseVolume = this.config.world.audio.obstacleImpactVolume;
+
+    if (obstacle.type === 'pothole') {
+      this.obstacleImpactSound.play(baseVolume * 0.72, randomRange(1.08, 1.18));
+      return;
+    }
+
+    if (obstacle.type === 'brokenLane') {
+      this.obstacleImpactSound.play(baseVolume * 0.8, randomRange(0.88, 0.96));
+      return;
+    }
+
+    if (obstacle.type === 'car') {
+      this.obstacleImpactSound.play(baseVolume * 1.06, randomRange(0.72, 0.82));
+      return;
+    }
+
+    if (obstacle.type === 'wreck') {
+      this.obstacleImpactSound.play(baseVolume * 0.9, randomRange(0.84, 0.92));
+      return;
+    }
+
+    this.obstacleImpactSound.play(baseVolume * 0.82, randomRange(0.88, 0.95));
+  }
 }

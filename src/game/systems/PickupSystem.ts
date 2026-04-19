@@ -1,4 +1,5 @@
 import {
+  AdditiveBlending,
   BoxGeometry,
   CylinderGeometry,
   Group,
@@ -18,6 +19,7 @@ type PickupRecord = ActivePickup & {
   bazookaVariant: Group;
   ammoCrateVariant: Group;
   glow: Mesh;
+  beacon: Mesh;
 };
 
 export class PickupSystem {
@@ -57,11 +59,12 @@ export class PickupSystem {
   update(
     deltaTime: number,
     playerX: number,
+    forwardSpeed: number,
     elapsedSeconds: number,
     shotgunUnlocked: boolean,
   ): PickupEvent[] {
     const events: PickupEvent[] = [];
-    const scrollDistance = this.config.player.forwardSpeed * deltaTime;
+    const scrollDistance = forwardSpeed * deltaTime;
 
     for (const pickup of this.pickups) {
       if (!pickup.active) {
@@ -72,7 +75,15 @@ export class PickupSystem {
       pickup.mesh.rotation.y += pickup.spinSpeed * deltaTime;
       this.bobVector.set(0, Math.sin(elapsedSeconds * 5.2 + pickup.bobOffset) * 0.05, 0);
       pickup.mesh.position.y = this.config.world.roadSurfaceY + 0.85 + this.bobVector.y;
-      pickup.glow.scale.setScalar(1 + Math.sin(elapsedSeconds * 4 + pickup.bobOffset) * 0.08);
+      const pulse = 1 + Math.sin(elapsedSeconds * 4 + pickup.bobOffset) * 0.18;
+      pickup.glow.scale.setScalar(1.08 * pulse);
+      pickup.beacon.scale.set(
+        0.92 + pulse * 0.12,
+        1 + pulse * 0.28,
+        0.92 + pulse * 0.12,
+      );
+      (pickup.glow.material as MeshBasicMaterial).opacity = 0.2 + Math.max(0, pulse - 0.88) * 0.22;
+      (pickup.beacon.material as MeshBasicMaterial).opacity = 0.2 + Math.max(0, pulse - 0.86) * 0.16;
 
       if (pickup.mesh.position.z > this.config.pickups.cleanupZ) {
         this.deactivate(pickup);
@@ -102,7 +113,7 @@ export class PickupSystem {
 
     const bazookaUnlocked =
       devWeapons || elapsedSeconds >= this.config.pickups.bazookaUnlockTimeSeconds;
-    const desiredActiveCount = bazookaUnlocked ? 3 : shotgunUnlocked ? 2 : 1;
+    const desiredActiveCount = bazookaUnlocked ? 4 : shotgunUnlocked ? 3 : 2;
     while (this.getActiveCount() < desiredActiveCount) {
       const slot = this.pickups.find((entry) => !entry.active);
       if (!slot) {
@@ -135,12 +146,24 @@ export class PickupSystem {
         new MeshBasicMaterial({
           color: 0xffc067,
           transparent: true,
-          opacity: 0.18,
+          opacity: 0.26,
           depthWrite: false,
+          blending: AdditiveBlending,
         }),
       );
       glow.position.y = 0.18;
-      mesh.add(glow, shotgunVariant, bazookaVariant, ammoCrateVariant);
+      const beacon = new Mesh(
+        new CylinderGeometry(0.24, 0.42, 2.7, 10, 1, true),
+        new MeshBasicMaterial({
+          color: 0xffd07b,
+          transparent: true,
+          opacity: 0.24,
+          depthWrite: false,
+          blending: AdditiveBlending,
+        }),
+      );
+      beacon.position.y = 1.5;
+      mesh.add(beacon, glow, shotgunVariant, bazookaVariant, ammoCrateVariant);
       this.root.add(mesh);
 
       this.pickups.push({
@@ -158,6 +181,7 @@ export class PickupSystem {
         bazookaVariant,
         ammoCrateVariant,
         glow,
+        beacon,
       });
 
       this.applyShotgunVisual(this.pickups[index]);
@@ -199,6 +223,7 @@ export class PickupSystem {
       pickup.bazookaVariant.visible = false;
       pickup.ammoCrateVariant.visible = false;
       (pickup.glow.material as MeshBasicMaterial).color.setHex(0xffca6e);
+      (pickup.beacon.material as MeshBasicMaterial).color.setHex(0xffca6e);
       this.nextSpawnZ -= randomRange(
         this.config.pickups.shotgunPickupSpacingMin,
         this.config.pickups.shotgunPickupSpacingMax,
@@ -214,6 +239,7 @@ export class PickupSystem {
       pickup.bazookaVariant.visible = true;
       pickup.ammoCrateVariant.visible = false;
       (pickup.glow.material as MeshBasicMaterial).color.setHex(0xff8d5b);
+      (pickup.beacon.material as MeshBasicMaterial).color.setHex(0xff8d5b);
       this.nextSpawnZ -= randomRange(
         this.config.pickups.bazookaPickupSpacingMin,
         this.config.pickups.bazookaPickupSpacingMax,
@@ -231,6 +257,7 @@ export class PickupSystem {
     pickup.bazookaVariant.visible = false;
     pickup.ammoCrateVariant.visible = true;
     (pickup.glow.material as MeshBasicMaterial).color.setHex(0x9cff8d);
+    (pickup.beacon.material as MeshBasicMaterial).color.setHex(0x9cff8d);
     this.nextSpawnZ -= randomRange(
       this.config.pickups.ammoCrateSpacingMin,
       this.config.pickups.ammoCrateSpacingMax,
