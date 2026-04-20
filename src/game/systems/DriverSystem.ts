@@ -190,6 +190,22 @@ export class DriverSystem {
       (this.shakeOffTimer > 0 ? this.config.driver.shakeOffCameraShake : 0) +
       (this.forceGapTimer > 0 ? this.config.driver.forceGapCameraShake : 0) +
       failureSeverity * this.config.vehicle.stage1Rig.failureShakeAmplitude;
+    const manualBrakeActiveRatio =
+      this.config.ride.brakeDuration > 0
+        ? clamp(this.brakeTimer / this.config.ride.brakeDuration, 0, 1)
+        : 0;
+    const manualBoostActiveRatio =
+      this.config.ride.boostDuration > 0
+        ? clamp(this.manualBoostTimer / this.config.ride.boostDuration, 0, 1)
+        : 0;
+    const manualBrakeReadyRatio =
+      this.config.ride.inputCooldown > 0
+        ? 1 - clamp(this.manualBrakeCooldown / this.config.ride.inputCooldown, 0, 1)
+        : 1;
+    const manualBoostReadyRatio =
+      this.config.ride.inputCooldown > 0
+        ? 1 - clamp(this.manualBoostCooldown / this.config.ride.inputCooldown, 0, 1)
+        : 1;
 
     return {
       laneIndex: this.laneIndex,
@@ -205,6 +221,10 @@ export class DriverSystem {
       latchActive: hasLatch,
       latchWiggle: 0,
       latchWiggleRatio: 0,
+      manualBrakeActiveRatio,
+      manualBrakeReadyRatio,
+      manualBoostActiveRatio,
+      manualBoostReadyRatio,
       manualBrakeCooldown: this.manualBrakeCooldown,
       manualBoostCooldown: this.manualBoostCooldown,
       prompt: this.prompt,

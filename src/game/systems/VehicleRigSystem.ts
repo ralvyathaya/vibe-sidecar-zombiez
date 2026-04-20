@@ -5,6 +5,8 @@ import {
   Mesh,
   MeshStandardMaterial,
   Object3D,
+  PointLight,
+  SpotLight,
   Vector3,
 } from 'three';
 import type { GameConfig, GameStateType, RideState } from '../../core/types';
@@ -19,6 +21,10 @@ export class VehicleRigSystem {
   private readonly cameraYaw = new Group();
   private readonly cameraPitch = new Group();
   private readonly sidecarLatchAnchor = new Group();
+  private readonly headlightPivot = new Group();
+  private readonly headlightTarget = new Group();
+  private readonly headlight = new SpotLight(0xffffff, 1);
+  private readonly headlightFill = new PointLight(0xffffff, 0.4);
   private readonly baseRigOffset = new Vector3();
   private readonly baseModelPosition = new Vector3();
   private readonly baseModelRotation = new Vector3();
@@ -26,6 +32,8 @@ export class VehicleRigSystem {
   private readonly baseCameraOffset = new Vector3();
   private readonly lookDownReveal = new Vector3();
   private readonly baseLatchPosition = new Vector3();
+  private readonly baseHeadlightPosition = new Vector3();
+  private readonly baseHeadlightTargetPosition = new Vector3();
   private loadedScene: Object3D | null = null;
   private time = 0;
   private hitShake = 0;
@@ -56,12 +64,40 @@ export class VehicleRigSystem {
     this.baseCameraOffset.set(...rig.cameraOffset);
     this.lookDownReveal.set(...rig.lookDownReveal);
     this.baseLatchPosition.set(...rig.sidecarLatchPosition);
+    this.baseHeadlightPosition.set(...rig.headlightPosition);
+    this.baseHeadlightTargetPosition.set(...rig.headlightTargetPosition);
+
+    this.headlightPivot.name = 'VehicleHeadlightPivot';
+    this.headlightTarget.name = 'VehicleHeadlightTarget';
+    this.headlight.color.setHex(rig.headlightColor);
+    this.headlight.intensity = rig.headlightIntensity;
+    this.headlight.distance = rig.headlightDistance;
+    this.headlight.angle = MathUtils.degToRad(rig.headlightAngleDegrees);
+    this.headlight.penumbra = rig.headlightPenumbra;
+    this.headlight.decay = rig.headlightDecay;
+    this.headlight.castShadow = false;
+    this.headlightFill.color.setHex(rig.headlightFillColor);
+    this.headlightFill.intensity = rig.headlightFillIntensity;
+    this.headlightFill.distance = rig.headlightFillDistance;
+    this.headlightFill.decay = 1.8;
+    this.headlight.target = this.headlightTarget;
+    this.headlightPivot.position.copy(this.baseHeadlightPosition);
+    this.headlight.position.set(0, 0, 0);
+    this.headlightFill.position.set(0, 0, -0.1);
+    this.headlightTarget.position.copy(this.baseHeadlightTargetPosition);
+    this.headlightPivot.add(this.headlight, this.headlightFill);
 
     this.seatPivot.position.copy(this.baseSeatPivotPosition);
     this.cameraYaw.position.copy(this.baseCameraOffset);
     this.sidecarLatchAnchor.position.copy(this.baseLatchPosition);
 
-    this.vehicleSpace.add(this.modelRoot, this.seatPivot, this.sidecarLatchAnchor);
+    this.vehicleSpace.add(
+      this.modelRoot,
+      this.seatPivot,
+      this.sidecarLatchAnchor,
+      this.headlightPivot,
+      this.headlightTarget,
+    );
     this.seatPivot.add(this.cameraYaw);
     this.cameraYaw.add(this.cameraPitch);
     this.obstructionShakeGroup.add(this.vehicleSpace);
@@ -108,6 +144,11 @@ export class VehicleRigSystem {
     );
     this.sidecarLatchAnchor.position.copy(this.baseLatchPosition);
     this.sidecarLatchAnchor.rotation.set(0, 0, 0);
+    this.headlightPivot.position.copy(this.baseHeadlightPosition);
+    this.headlightPivot.rotation.set(0, 0, 0);
+    this.headlightTarget.position.copy(this.baseHeadlightTargetPosition);
+    this.headlight.intensity = this.config.vehicle.stage1Rig.headlightIntensity;
+    this.headlightFill.intensity = this.config.vehicle.stage1Rig.headlightFillIntensity;
     this.vehicleRig.visible = true;
   }
 
@@ -185,6 +226,26 @@ export class VehicleRigSystem {
       this.baseLatchPosition.y + rideShake * 0.12,
       this.baseLatchPosition.z,
     );
+    this.headlightPivot.position.set(
+      this.baseHeadlightPosition.x + laneShift * 0.28,
+      this.baseHeadlightPosition.y + rideShake * 0.22 + wheelHop * 0.45,
+      this.baseHeadlightPosition.z,
+    );
+    this.headlightPivot.rotation.set(
+      wheelHop * 0.55 + rideShake * 0.18,
+      laneShift * 0.05 + cutOvershoot * 0.08,
+      slamRoll * 0.2,
+    );
+    this.headlightTarget.position.set(
+      this.baseHeadlightTargetPosition.x + laneShift * 0.34,
+      this.baseHeadlightTargetPosition.y,
+      this.baseHeadlightTargetPosition.z,
+    );
+    const headlightFailureDrop = 1 - Math.min(0.3, (ride?.failureSeverity ?? 0) * 0.16);
+    this.headlight.intensity =
+      rig.headlightIntensity * (running ? 1 : 0.86) * headlightFailureDrop;
+    this.headlightFill.intensity =
+      rig.headlightFillIntensity * (running ? 1 : 0.82) * headlightFailureDrop;
 
     const shakeNoiseA = Math.sin(this.time * 42.0);
     const shakeNoiseB = Math.cos(this.time * 37.0);

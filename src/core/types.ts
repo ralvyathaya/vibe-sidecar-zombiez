@@ -212,6 +212,17 @@ export interface GameConfig {
       failureShakeAmplitude: number;
       latchShakeAmplitude: number;
       sidecarLatchPosition: Vec3Tuple;
+      headlightPosition: Vec3Tuple;
+      headlightTargetPosition: Vec3Tuple;
+      headlightColor: number;
+      headlightIntensity: number;
+      headlightDistance: number;
+      headlightAngleDegrees: number;
+      headlightPenumbra: number;
+      headlightDecay: number;
+      headlightFillColor: number;
+      headlightFillIntensity: number;
+      headlightFillDistance: number;
     };
   };
   ride: {

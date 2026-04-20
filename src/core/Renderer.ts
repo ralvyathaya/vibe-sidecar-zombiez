@@ -99,34 +99,34 @@ export class RendererSystem {
   }
 
   private addLighting(): void {
-    const skyLight = new HemisphereLight(0xd9ecfb, 0x7b7c79, 1.7);
+    const skyLight = new HemisphereLight(0x2d4660, 0x050608, 0.16);
     this.scene.add(skyLight);
 
-    const sunLight = new DirectionalLight(0xfff3d7, 1.7);
-    sunLight.position.set(20, 26, -20);
-    this.scene.add(sunLight);
+    const moonLight = new DirectionalLight(0x8fb8ff, 0.12);
+    moonLight.position.set(-18, 24, -28);
+    this.scene.add(moonLight);
 
-    const fillLight = new DirectionalLight(0xd6e7f5, 0.42);
-    fillLight.position.set(-12, 14, 16);
+    const fillLight = new DirectionalLight(0x24364b, 0.08);
+    fillLight.position.set(12, 10, 14);
     this.scene.add(fillLight);
   }
 
   private addSun(): void {
     const sunCore = new Mesh(
-      new SphereGeometry(4.8, 18, 18),
+      new SphereGeometry(2.2, 16, 16),
       new MeshBasicMaterial({
-        color: 0xfff1c2,
+        color: 0xbcd6ff,
         fog: false,
       }),
     );
-    sunCore.position.set(58, 42, -148);
+    sunCore.position.set(-56, 40, -164);
 
     const sunHalo = new Mesh(
-      new SphereGeometry(7.2, 16, 16),
+      new SphereGeometry(4.8, 14, 14),
       new MeshBasicMaterial({
-        color: 0xffe4a3,
+        color: 0x7ea7ff,
         transparent: true,
-        opacity: 0.11,
+        opacity: 0.08,
         blending: AdditiveBlending,
         depthWrite: false,
         fog: false,
@@ -139,9 +139,9 @@ export class RendererSystem {
 
   private addClouds(): void {
     const cloudMaterial = new MeshBasicMaterial({
-      color: 0xf6fbff,
+      color: 0x182330,
       transparent: true,
-      opacity: 0.82,
+      opacity: 0.14,
       depthWrite: false,
       fog: false,
     });

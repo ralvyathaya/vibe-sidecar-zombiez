@@ -109,11 +109,12 @@ export class EnemySystem {
   private readonly latchPresentationOffset = new Vector3();
   private readonly latchPresentationRotation = new Vector3();
   private readonly latchOccluder = new Mesh(
-    new BoxGeometry(0.84, 0.92, 0.68),
-    new MeshStandardMaterial({
-      color: 0x32353b,
-      roughness: 0.98,
-      metalness: 0.02,
+    new BoxGeometry(0.3, 0.34, 0.18),
+    new MeshBasicMaterial({
+      color: 0x0b0c0e,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
     }),
   );
 
@@ -163,9 +164,10 @@ export class EnemySystem {
       this.latchPresentationRotation.z,
     );
     this.latchPresentationRoot.scale.setScalar(latchModel.latchPresentationScale ?? 1);
-    this.latchOccluder.position.set(0.06, 0.08, -0.06);
-    this.latchOccluder.rotation.set(0.12, 0.16, -0.08);
+    this.latchOccluder.position.set(0.02, -0.16, -0.02);
+    this.latchOccluder.rotation.set(0.08, 0.04, -0.1);
     this.latchOccluder.renderOrder = 7;
+    this.latchOccluder.visible = false;
     this.latchPresentationRoot.add(this.latchOccluder);
     void this.loadLatchPresentation();
 
@@ -895,7 +897,7 @@ export class EnemySystem {
 
     this.latchAnchor.getWorldPosition(this.latchWorldPosition);
     zombie.group.position.copy(this.latchWorldPosition);
-    zombie.group.rotation.set(0.12, Math.PI * 0.56, -0.14);
+    zombie.group.rotation.set(0.26, Math.PI * 0.62, -0.32);
     if (this.latchPresentationLoaded) {
       this.attachLatchPresentation(zombie);
     }

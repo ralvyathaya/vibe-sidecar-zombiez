@@ -87,6 +87,17 @@ export class UISystem {
   private readonly adrenalineBuff = document.createElement('div');
   private readonly nitroBuff = document.createElement('div');
   private readonly controlHint = document.createElement('div');
+  private readonly drivePanel = document.createElement('div');
+  private readonly driveBoostRow = document.createElement('div');
+  private readonly driveBoostLabel = document.createElement('span');
+  private readonly driveBoostValue = document.createElement('span');
+  private readonly driveBoostTrack = document.createElement('div');
+  private readonly driveBoostFill = document.createElement('div');
+  private readonly driveBrakeRow = document.createElement('div');
+  private readonly driveBrakeLabel = document.createElement('span');
+  private readonly driveBrakeValue = document.createElement('span');
+  private readonly driveBrakeTrack = document.createElement('div');
+  private readonly driveBrakeFill = document.createElement('div');
   private readonly driverPanel = document.createElement('div');
   private readonly driverPortraitFrame = document.createElement('div');
   private readonly driverPortrait = document.createElement('img');
@@ -212,6 +223,24 @@ export class UISystem {
     this.adrenalineBuff.className = 'buff-chip';
     this.nitroBuff.className = 'buff-chip';
     this.controlHint.className = 'control-hint';
+    this.drivePanel.className = 'drive-panel';
+    this.driveBoostRow.className = 'drive-row';
+    this.driveBoostLabel.className = 'drive-label';
+    this.driveBoostLabel.textContent = 'W Accel';
+    this.driveBoostValue.className = 'drive-value';
+    this.driveBoostTrack.className = 'drive-track';
+    this.driveBoostFill.className = 'drive-fill';
+    this.driveBoostTrack.append(this.driveBoostFill);
+    this.driveBoostRow.append(this.driveBoostLabel, this.driveBoostValue, this.driveBoostTrack);
+    this.driveBrakeRow.className = 'drive-row';
+    this.driveBrakeLabel.className = 'drive-label';
+    this.driveBrakeLabel.textContent = 'S Brake';
+    this.driveBrakeValue.className = 'drive-value';
+    this.driveBrakeTrack.className = 'drive-track';
+    this.driveBrakeFill.className = 'drive-fill';
+    this.driveBrakeTrack.append(this.driveBrakeFill);
+    this.driveBrakeRow.append(this.driveBrakeLabel, this.driveBrakeValue, this.driveBrakeTrack);
+    this.drivePanel.append(this.driveBoostRow, this.driveBrakeRow);
     this.driverPanel.className = 'driver-panel';
     this.driverPortraitFrame.className = 'driver-portrait-frame';
     this.driverPortrait.className = 'driver-portrait';
@@ -297,6 +326,7 @@ export class UISystem {
     this.root.append(
       hud,
       this.controlHint,
+      this.drivePanel,
       this.driverPanel,
       this.latchWarning,
       this.rewardCallout,
@@ -441,6 +471,39 @@ export class UISystem {
         ? 'Q Cancel  |  E Approve'
         : 'W Accelerate  |  S Brake';
     this.controlHint.dataset.alert = snapshot.ride?.prompt ? 'true' : 'false';
+    const boostState = this.resolveDrivePulseState(
+      snapshot.ride?.manualBoostActiveRatio ?? 0,
+      snapshot.ride?.manualBoostReadyRatio ?? 1,
+    );
+    const boostRatio = this.resolveDrivePulseRatio(
+      snapshot.ride?.manualBoostActiveRatio ?? 0,
+      snapshot.ride?.manualBoostReadyRatio ?? 1,
+    );
+    const brakeState = this.resolveDrivePulseState(
+      snapshot.ride?.manualBrakeActiveRatio ?? 0,
+      snapshot.ride?.manualBrakeReadyRatio ?? 1,
+    );
+    const brakeRatio = this.resolveDrivePulseRatio(
+      snapshot.ride?.manualBrakeActiveRatio ?? 0,
+      snapshot.ride?.manualBrakeReadyRatio ?? 1,
+    );
+    this.drivePanel.hidden = snapshot.gameState !== 'running';
+    this.driveBoostRow.dataset.state = boostState;
+    this.driveBrakeRow.dataset.state = brakeState;
+    this.driveBoostFill.style.transform = `scaleX(${boostRatio.toFixed(3)})`;
+    this.driveBrakeFill.style.transform = `scaleX(${brakeRatio.toFixed(3)})`;
+    this.driveBoostValue.textContent =
+      boostState === 'active'
+        ? 'PULSE'
+        : boostState === 'cooldown'
+          ? 'REFILL'
+          : 'READY';
+    this.driveBrakeValue.textContent =
+      brakeState === 'active'
+        ? 'PULSE'
+        : brakeState === 'cooldown'
+          ? 'REFILL'
+          : 'READY';
 
     const driverPresentation = this.resolveDriverPresentation(snapshot);
     if (snapshot.gameState !== 'running') {
@@ -778,6 +841,25 @@ export class UISystem {
       return 'BLACKOUT';
     }
     return '';
+  }
+
+  private resolveDrivePulseRatio(activeRatio: number, readyRatio: number): number {
+    return activeRatio > 0 ? activeRatio : readyRatio;
+  }
+
+  private resolveDrivePulseState(
+    activeRatio: number,
+    readyRatio: number,
+  ): 'active' | 'cooldown' | 'ready' {
+    if (activeRatio > 0.001) {
+      return 'active';
+    }
+
+    if (readyRatio < 0.999) {
+      return 'cooldown';
+    }
+
+    return 'ready';
   }
 
 }

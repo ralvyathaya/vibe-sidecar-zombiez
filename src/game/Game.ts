@@ -276,7 +276,7 @@ export class Game {
       this.lastRideState = finalRide;
       this.rendererSystem.updateAtmosphere(
         simulationDelta,
-        finalRide.segment,
+        'dark',
         finalRide.activeEvent,
       );
       this.vehicleRigSystem.update(
@@ -305,7 +305,7 @@ export class Game {
           this.playerSystem.hasNitro(),
         ),
       );
-      this.rendererSystem.updateAtmosphere(deltaTime, idleRide.segment, idleRide.activeEvent);
+      this.rendererSystem.updateAtmosphere(deltaTime, 'dark', idleRide.activeEvent);
       this.playerSystem.updateIdle(deltaTime);
       this.vehicleRigSystem.update(
         deltaTime,
