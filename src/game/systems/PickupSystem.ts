@@ -11,8 +11,15 @@ import {
   SphereGeometry,
   Vector3,
 } from 'three';
-import type { ActivePickup, GameConfig, PickupEvent, PickupType } from '../../core/types';
-import { randomInt, randomRange } from '../../core/utils';
+import type {
+  ActivePickup,
+  GameConfig,
+  LaneThreatState,
+  LoadoutState,
+  PickupEvent,
+  PickupType,
+} from '../../core/types';
+import { randomInt, randomRange, sampleRoadCurveOffset } from '../../core/utils';
 
 type PickupRecord = ActivePickup & {
   shotgunVariant: Group;
@@ -61,7 +68,7 @@ export class PickupSystem {
     playerX: number,
     forwardSpeed: number,
     elapsedSeconds: number,
-    shotgunUnlocked: boolean,
+    loadout: LoadoutState,
   ): PickupEvent[] {
     const events: PickupEvent[] = [];
     const scrollDistance = forwardSpeed * deltaTime;
@@ -72,9 +79,10 @@ export class PickupSystem {
       }
 
       pickup.mesh.position.z += scrollDistance;
+      this.groundToRoad(pickup, pickup.mesh.position.z, elapsedSeconds);
       pickup.mesh.rotation.y += pickup.spinSpeed * deltaTime;
       this.bobVector.set(0, Math.sin(elapsedSeconds * 5.2 + pickup.bobOffset) * 0.05, 0);
-      pickup.mesh.position.y = this.config.world.roadSurfaceY + 0.85 + this.bobVector.y;
+      pickup.mesh.position.y += this.bobVector.y;
       const pulse = 1 + Math.sin(elapsedSeconds * 4 + pickup.bobOffset) * 0.18;
       pickup.glow.scale.setScalar(1.08 * pulse);
       pickup.beacon.scale.set(
@@ -113,17 +121,66 @@ export class PickupSystem {
 
     const bazookaUnlocked =
       devWeapons || elapsedSeconds >= this.config.pickups.bazookaUnlockTimeSeconds;
-    const desiredActiveCount = bazookaUnlocked ? 4 : shotgunUnlocked ? 3 : 2;
+    const desiredActiveCount = bazookaUnlocked ? 4 : loadout.shotgunUnlocked ? 3 : 2;
     while (this.getActiveCount() < desiredActiveCount) {
       const slot = this.pickups.find((entry) => !entry.active);
       if (!slot) {
         break;
       }
 
-      this.spawn(slot, shotgunUnlocked, bazookaUnlocked);
+      this.spawn(slot, loadout, bazookaUnlocked, elapsedSeconds);
     }
 
     return events;
+  }
+
+  getLaneHints(loadout: LoadoutState, elapsedSeconds: number): LaneThreatState[] {
+    const hints: LaneThreatState[] = this.config.world.laneCenters.map((_, laneIndex) => ({
+      laneIndex,
+      score: 0,
+      blocker: false,
+      blockerType: null,
+      blockerDistance: null,
+      brokenLane: false,
+      pothole: false,
+      smallCount: 0,
+      bruteCount: 0,
+      pickupKind: null,
+      pickupDistance: null,
+      pickupValue: 0,
+      pickupRisk: 0,
+    }));
+
+    for (const pickup of this.pickups) {
+      if (!pickup.active) {
+        continue;
+      }
+
+      const distanceAhead = -pickup.mesh.position.z;
+      if (distanceAhead < 0 || distanceAhead > this.config.driver.pickupWindowDistance) {
+        continue;
+      }
+
+      const lane = hints[pickup.lane];
+      if (!lane) {
+        continue;
+      }
+
+      const value = this.getPickupValue(pickup.kind, loadout, elapsedSeconds);
+      if (value <= lane.pickupValue) {
+        continue;
+      }
+
+      const proximity = 1 - Math.min(distanceAhead / this.config.driver.pickupWindowDistance, 1);
+      const laneCenter = this.config.world.laneCenters[pickup.lane] ?? 0;
+      const localOffset = Math.abs(pickup.laneLocalX - laneCenter);
+      lane.pickupKind = pickup.kind;
+      lane.pickupDistance = distanceAhead;
+      lane.pickupValue = value;
+      lane.pickupRisk = proximity * 0.35 + localOffset * 0.6;
+    }
+
+    return hints;
   }
 
   destroy(): void {
@@ -171,6 +228,7 @@ export class PickupSystem {
         active: false,
         kind: 'shotgun',
         lane: 0,
+        laneLocalX: 0,
         width: 1.8,
         depth: 1.2,
         ammo: this.config.pickups.shotgunPickupAmmo,
@@ -191,27 +249,36 @@ export class PickupSystem {
 
   private spawn(
     pickup: PickupRecord,
-    shotgunUnlocked: boolean,
+    loadout: LoadoutState,
     bazookaUnlocked: boolean,
+    elapsedSeconds: number,
   ): void {
     const laneIndex = randomInt(0, this.config.world.laneCenters.length - 1);
     const laneCenter = this.config.world.laneCenters[laneIndex] ?? 0;
     let kind: PickupType = 'shotgun';
-    if (bazookaUnlocked && Math.random() < this.config.pickups.bazookaSpawnChance) {
+    if (!loadout.shotgunUnlocked || elapsedSeconds < 28) {
+      kind = 'shotgun';
+    } else if (
+      bazookaUnlocked &&
+      elapsedSeconds >= 45 &&
+      elapsedSeconds <= 70 &&
+      loadout.bazookaAmmo <= 0 &&
+      Math.random() < this.config.pickups.bazookaSpawnChance * 1.2
+    ) {
       kind = 'bazooka';
-    } else if (shotgunUnlocked && Math.random() < this.config.pickups.ammoCrateChance) {
+    } else if (
+      loadout.shotgunUnlocked &&
+      Math.random() < this.config.pickups.ammoCrateChance
+    ) {
       kind = 'shotgunAmmo';
     }
 
     pickup.active = true;
     pickup.kind = kind;
     pickup.lane = laneIndex;
+    pickup.laneLocalX = laneCenter + randomRange(-0.25, 0.25);
     pickup.mesh.visible = true;
-    pickup.mesh.position.set(
-      laneCenter + randomRange(-0.25, 0.25),
-      this.config.world.roadSurfaceY + 0.85,
-      this.nextSpawnZ,
-    );
+    this.groundToRoad(pickup, this.nextSpawnZ, elapsedSeconds);
     pickup.mesh.rotation.set(0, randomRange(-0.3, 0.3), 0);
     pickup.spinSpeed = randomRange(0.8, 1.35);
     pickup.bobOffset = Math.random() * Math.PI * 2;
@@ -268,6 +335,7 @@ export class PickupSystem {
     pickup.active = false;
     pickup.mesh.visible = false;
     pickup.mesh.position.set(0, 0, 999);
+    pickup.laneLocalX = 0;
     pickup.shotgunVariant.visible = pickup.kind === 'shotgun';
     pickup.bazookaVariant.visible = pickup.kind === 'bazooka';
     pickup.ammoCrateVariant.visible = pickup.kind === 'shotgunAmmo';
@@ -495,5 +563,50 @@ export class PickupSystem {
         material.dispose();
       }
     });
+  }
+
+  private groundToRoad(pickup: PickupRecord, zPosition: number, elapsedSeconds: number): void {
+    const curveOffset = sampleRoadCurveOffset(
+      zPosition,
+      elapsedSeconds,
+      this.config.world.roadCurveFrequency,
+      this.config.world.roadCurveAmplitude,
+    );
+    pickup.mesh.position.set(
+      pickup.laneLocalX + curveOffset,
+      this.config.world.roadSurfaceY + 0.85,
+      zPosition,
+    );
+  }
+
+  private getPickupValue(
+    kind: PickupType,
+    loadout: LoadoutState,
+    elapsedSeconds: number,
+  ): number {
+    if (kind === 'shotgun') {
+      return loadout.shotgunUnlocked ? 0.4 : elapsedSeconds < 30 ? 2.1 : 1.7;
+    }
+
+    if (kind === 'bazooka') {
+      return loadout.bazookaAmmo <= 0 ? 2.15 : 0.65;
+    }
+
+    if (!loadout.shotgunUnlocked) {
+      return 0.2;
+    }
+
+    const ammoRatio = loadout.shotgunAmmo / Math.max(this.config.shotgun.maxAmmo, 1);
+    if (ammoRatio <= 0.2) {
+      return 1.95;
+    }
+    if (ammoRatio <= 0.45) {
+      return 1.45;
+    }
+    if (ammoRatio <= 0.75) {
+      return 0.9;
+    }
+
+    return 0.35;
   }
 }

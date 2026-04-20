@@ -19,3 +19,11 @@ export const approach = (value: number, target: number, delta: number): number =
 };
 
 export const formatDistance = (distance: number): string => `${Math.floor(distance)}m`;
+
+export const sampleRoadCurveOffset = (
+  zPosition: number,
+  elapsedTime: number,
+  frequency: number,
+  amplitude: number,
+): number =>
+  Math.sin((zPosition - elapsedTime * 12) * frequency) * amplitude;

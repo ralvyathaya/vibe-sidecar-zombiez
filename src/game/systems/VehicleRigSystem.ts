@@ -130,6 +130,9 @@ export class VehicleRigSystem {
     const rideShake = ride?.cameraShake ?? 0;
     const latchShake = ride?.latchActive ? rig.latchShakeAmplitude : 0;
     const failureShake = (ride?.failureSeverity ?? 0) * rig.failureShakeAmplitude;
+    const laneCutJolt = ride?.laneCutJolt ?? 0;
+    const potholeJolt = ride?.potholeJolt ?? 0;
+    const barrelJolt = ride?.barrelJolt ?? 0;
 
     this.vehicleRig.position.copy(playerPosition).add(this.baseRigOffset);
 
@@ -154,19 +157,22 @@ export class VehicleRigSystem {
     const turnRoll = MathUtils.degToRad(rig.turnRollDegrees) * turnSign * turnAmount;
     const laneShift = laneDirection * laneTravel * rig.laneShift;
     const laneRoll = MathUtils.degToRad(rig.laneRollDegrees) * laneDirection * laneTravel;
+    const cutOvershoot = laneDirection * laneCutJolt * 0.12;
+    const wheelHop = Math.sin(this.time * 28) * potholeJolt * 0.08;
+    const slamRoll = Math.sin(this.time * 20) * barrelJolt * 0.05;
 
     // The whole vehicle and seat move together as one ride space, so the model
     // feels seated/world-attached while the FPS weapon remains a separate child
     // of the camera itself.
     this.vehicleSpace.position.set(
-      swayX + turnShift + vibration * 0.65 + laneShift,
-      swayY + vibration * 0.45 + rideShake * 0.3,
+      swayX + turnShift + vibration * 0.65 + laneShift + cutOvershoot,
+      swayY + vibration * 0.45 + rideShake * 0.3 + wheelHop,
       swayZ,
     );
     this.vehicleSpace.rotation.set(
-      vibration * 0.06 + rideShake * 0.18,
-      -turnShift * 0.08 + laneShift * 0.18,
-      turnRoll + laneRoll + vibration * 0.12,
+      vibration * 0.06 + rideShake * 0.18 + wheelHop * 0.4,
+      -turnShift * 0.08 + laneShift * 0.18 + cutOvershoot * 0.45,
+      turnRoll + laneRoll + vibration * 0.12 + slamRoll,
     );
 
     this.cameraYaw.position.set(
@@ -183,7 +189,13 @@ export class VehicleRigSystem {
     const shakeNoiseA = Math.sin(this.time * 42.0);
     const shakeNoiseB = Math.cos(this.time * 37.0);
     const shakeNoiseC = Math.sin(this.time * 29.0);
-    const totalShake = this.hitShake + latchShake + failureShake + rideShake;
+    const totalShake =
+      this.hitShake +
+      latchShake +
+      failureShake +
+      rideShake +
+      potholeJolt * 0.04 +
+      barrelJolt * 0.05;
     this.obstructionShakeGroup.position.set(
       shakeNoiseA * totalShake,
       shakeNoiseB * totalShake * 0.65,

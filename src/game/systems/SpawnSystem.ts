@@ -18,6 +18,13 @@ export class SpawnSystem {
     this.runnerCooldown = 0;
   }
 
+  notifyLatchResolved(): void {
+    this.runnerCooldown = Math.max(
+      this.runnerCooldown,
+      randomRange(this.config.spawn.runnerCooldownMin, this.config.spawn.runnerCooldownMax),
+    );
+  }
+
   update(deltaTime: number, enemies: EnemySystem, segment: RunSegment): void {
     this.elapsedSeconds += deltaTime;
     this.segment = segment;
@@ -60,9 +67,18 @@ export class SpawnSystem {
       ) - index * randomRange(5, 9);
 
       const zombieType = this.pickZombieType(ramp);
+      if (
+        zombieType === 'runner' &&
+        enemies.getActiveCountByType('runner') >= this.config.spawn.runnerMaxActive
+      ) {
+        continue;
+      }
       enemies.spawn(zombieType, laneX, spawnZ);
       if (zombieType === 'runner') {
-        this.runnerCooldown = this.segment === 'dark' ? 2.6 : 3.1;
+        this.runnerCooldown = randomRange(
+          this.config.spawn.runnerCooldownMin,
+          this.config.spawn.runnerCooldownMax,
+        );
       }
       if (availableLanes.length === 0) {
         availableLanes.push(...this.config.world.laneCenters);

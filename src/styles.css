@@ -136,13 +136,14 @@ body {
   justify-content: center;
   gap: 4px;
   margin-bottom: 3px;
+  width: clamp(122px, 13vw, 156px);
 }
 
 .weapon-icon {
-  width: clamp(92px, 11vw, 138px);
-  max-width: 100%;
-  height: auto;
+  width: 100%;
+  height: clamp(54px, 6vw, 72px);
   object-fit: contain;
+  object-position: center center;
   filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.3));
 }
 
@@ -851,10 +852,20 @@ body {
   align-items: end;
   gap: 14px;
   width: min(560px, calc(100vw - 48px));
+  opacity: 0;
+  transform: translateY(10px) scale(0.98);
+  transition: opacity 150ms ease, transform 150ms ease;
+}
+
+.driver-panel[data-visible="true"] {
+  opacity: 1;
+  transform: translateY(0) scale(1);
 }
 
 .driver-portrait-frame {
-  width: clamp(108px, 14vw, 154px);
+  width: clamp(114px, 14vw, 150px);
+  aspect-ratio: 0.92 / 1.08;
+  flex: 0 0 auto;
   border-radius: 24px;
   overflow: hidden;
   background:
@@ -875,7 +886,9 @@ body {
 .driver-portrait {
   display: block;
   width: 100%;
-  height: auto;
+  height: 100%;
+  object-fit: cover;
+  object-position: center top;
 }
 
 .driver-prompt {

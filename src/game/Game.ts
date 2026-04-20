@@ -49,7 +49,12 @@ export class Game {
   private roadHandlingPenalty = 0;
   private roadAimShake = 0;
   private roadCameraShake = 0;
+  private roadFreezeTimer = 0;
   private latchEscapeProgress = 0;
+  private laneCutJolt = 0;
+  private potholeJolt = 0;
+  private barrelJolt = 0;
+  private latchWasActive = false;
   private frameRideState: RideState | null = null;
   private lastRideState: RideState | null = null;
 
@@ -135,15 +140,19 @@ export class Game {
 
   private update(deltaTime: number): void {
     if (this.state === 'running') {
+      const simulationDelta = this.consumeSimulationDelta(deltaTime);
       this.handleContextActions();
       this.decayRoadFeedback(deltaTime);
 
+      let loadout = this.weaponSystem.getLoadoutState();
+      const pickupHints = this.pickupSystem.getLaneHints(loadout, this.spawnSystem.elapsedSeconds);
       let combinedLaneThreats = this.combineLaneThreats(
         this.worldSystem.getLaneThreats(),
         this.enemySystem.getLaneThreats(),
+        pickupHints,
       );
       const baseRide = this.driverSystem.update(
-        deltaTime,
+        simulationDelta,
         combinedLaneThreats,
         this.enemySystem.hasLatchedRunner(),
         this.playerSystem.state.failureSeverity,
@@ -151,31 +160,36 @@ export class Game {
       const promptResolution = this.driverSystem.consumePromptResolution();
       if (promptResolution) {
         this.applyDriverResolution(promptResolution);
+        const refreshedPickupHints = this.pickupSystem.getLaneHints(
+          loadout,
+          this.spawnSystem.elapsedSeconds,
+        );
         combinedLaneThreats = this.combineLaneThreats(
           this.worldSystem.getLaneThreats(),
           this.enemySystem.getLaneThreats(),
+          refreshedPickupHints,
         );
       }
       const preWorldRide = this.composeRideState(baseRide, combinedLaneThreats);
       this.frameRideState = preWorldRide;
 
-      this.playerSystem.updateRunning(deltaTime, this.inputSystem, preWorldRide);
-      this.spawnSystem.update(deltaTime, this.enemySystem, preWorldRide.segment);
+      this.playerSystem.updateRunning(simulationDelta, this.inputSystem, preWorldRide);
+      this.spawnSystem.update(simulationDelta, this.enemySystem, preWorldRide.segment);
       this.playerSystem.state.score += this.rewardSystem.update(
-        deltaTime,
+        simulationDelta,
         this.spawnSystem.elapsedSeconds,
       );
 
       this.enemySystem.update(
-        deltaTime,
+        simulationDelta,
         this.playerSystem.getPosition(this.playerPosition),
         preWorldRide.forwardSpeed,
         (zombie) => this.handleEnemyContact(zombie),
       );
-      this.updateLatchState(deltaTime);
+      this.updateLatchState(simulationDelta);
 
       this.weaponSystem.updateRunning(
-        deltaTime,
+        simulationDelta,
         this.inputSystem,
         this.playerSystem,
         this.enemySystem,
@@ -183,12 +197,16 @@ export class Game {
         this.rewardSystem,
       );
 
+      if (this.latchWasActive && !this.enemySystem.hasLatchedRunner()) {
+        this.spawnSystem.notifyLatchResolved();
+      }
       if (!this.enemySystem.hasLatchedRunner()) {
         this.driverSystem.clearLatchAssist();
       }
+      this.latchWasActive = this.enemySystem.hasLatchedRunner();
 
       const worldImpact = this.worldSystem.update(
-        deltaTime,
+        simulationDelta,
         this.playerSystem.state.strafeX,
         preWorldRide.forwardSpeed,
         preWorldRide.segment,
@@ -199,27 +217,34 @@ export class Game {
         this.playerSystem.applyDamage(worldImpact.damage);
       }
 
+      loadout = this.weaponSystem.getLoadoutState();
       const pickupEvents = this.pickupSystem.update(
-        deltaTime,
+        simulationDelta,
         this.playerSystem.state.strafeX,
         preWorldRide.forwardSpeed,
         this.spawnSystem.elapsedSeconds,
-        this.weaponSystem.hasUnlockedShotgun(),
+        loadout,
       );
       for (const pickupEvent of pickupEvents) {
         this.weaponSystem.applyPickup(pickupEvent, this.playerSystem);
       }
 
+      const finalLoadout = this.weaponSystem.getLoadoutState();
+      const finalPickupHints = this.pickupSystem.getLaneHints(
+        finalLoadout,
+        this.spawnSystem.elapsedSeconds,
+      );
       const finalLaneThreats = this.combineLaneThreats(
         this.worldSystem.getLaneThreats(),
         this.enemySystem.getLaneThreats(),
+        finalPickupHints,
       );
       const finalRide = this.composeRideState(baseRide, finalLaneThreats);
       this.frameRideState = finalRide;
       this.lastRideState = finalRide;
-      this.rendererSystem.updateAtmosphere(deltaTime, finalRide.segment);
+      this.rendererSystem.updateAtmosphere(simulationDelta, finalRide.segment);
       this.vehicleRigSystem.update(
-        deltaTime,
+        simulationDelta,
         this.playerSystem.getPosition(this.playerPosition),
         this.playerSystem.getEngineTurnAmount(),
         this.playerSystem.state.hitFlash,
@@ -351,18 +376,30 @@ export class Game {
     this.roadHandlingPenalty = approach(this.roadHandlingPenalty, 0, deltaTime * 0.9);
     this.roadAimShake = approach(this.roadAimShake, 0, deltaTime * 0.12);
     this.roadCameraShake = approach(this.roadCameraShake, 0, deltaTime * 0.16);
+    this.laneCutJolt = approach(this.laneCutJolt, 0, deltaTime * 5.2);
+    this.potholeJolt = approach(this.potholeJolt, 0, deltaTime * 4.1);
+    this.barrelJolt = approach(this.barrelJolt, 0, deltaTime * 5.8);
   }
 
   private applyWorldImpact(impact: WorldImpactResult): void {
     this.roadHandlingPenalty = Math.max(this.roadHandlingPenalty, impact.handlingPenalty);
     this.roadAimShake = Math.max(this.roadAimShake, impact.aimShake);
     this.roadCameraShake = Math.max(this.roadCameraShake, impact.cameraShake);
+    this.roadFreezeTimer = Math.max(this.roadFreezeTimer, impact.freezeDuration);
+
+    if (impact.reaction === 'pothole' || impact.reaction === 'brokenLane') {
+      this.potholeJolt = Math.max(this.potholeJolt, 1);
+    }
+
+    if (impact.reaction === 'barrel') {
+      this.barrelJolt = Math.max(this.barrelJolt, 1);
+    }
   }
 
   private applyDriverResolution(resolution: DriverPromptResolution): void {
     if (
       resolution.intent === 'scrapeWreck' &&
-      (resolution.decision === 'approve' || resolution.decision === 'timeout')
+      resolution.effectiveDecision === 'approve'
     ) {
       const impact = this.worldSystem.scrapeNearestObstacle(
         resolution.targetLaneIndex ?? this.playerSystem.state.laneIndex,
@@ -375,12 +412,21 @@ export class Game {
 
     if (
       resolution.intent === 'shakeItOff' &&
-      (resolution.decision === 'approve' || resolution.decision === 'timeout')
+      resolution.effectiveDecision === 'approve'
     ) {
       this.latchEscapeProgress = Math.max(
         this.latchEscapeProgress,
         GAME_CONFIG.ride.latchWiggleRequired * 0.32,
       );
+      this.potholeJolt = Math.max(this.potholeJolt, 0.7);
+      return;
+    }
+
+    if (
+      (resolution.intent === 'cutLeft' || resolution.intent === 'pickupOpportunity') &&
+      resolution.effectiveDecision === 'approve'
+    ) {
+      this.laneCutJolt = Math.max(this.laneCutJolt, 1);
     }
   }
 
@@ -412,6 +458,9 @@ export class Game {
         0,
         1,
       ),
+      laneCutJolt: Math.max(baseRide.laneCutJolt, this.laneCutJolt),
+      potholeJolt: this.potholeJolt,
+      barrelJolt: this.barrelJolt,
       laneThreats,
     };
   }
@@ -419,6 +468,7 @@ export class Game {
   private combineLaneThreats(
     worldThreats: LaneThreatState[],
     enemyThreats: LaneThreatState[],
+    pickupThreats: LaneThreatState[] = [],
   ): LaneThreatState[] {
     const laneCount = GAME_CONFIG.world.laneCenters.length;
     const combined: LaneThreatState[] = [];
@@ -426,6 +476,7 @@ export class Game {
     for (let laneIndex = 0; laneIndex < laneCount; laneIndex += 1) {
       const worldThreat = worldThreats[laneIndex];
       const enemyThreat = enemyThreats[laneIndex];
+      const pickupThreat = pickupThreats[laneIndex];
       combined.push({
         laneIndex,
         score: (worldThreat?.score ?? 0) + (enemyThreat?.score ?? 0),
@@ -436,6 +487,10 @@ export class Game {
         pothole: Boolean(worldThreat?.pothole),
         smallCount: (worldThreat?.smallCount ?? 0) + (enemyThreat?.smallCount ?? 0),
         bruteCount: (worldThreat?.bruteCount ?? 0) + (enemyThreat?.bruteCount ?? 0),
+        pickupKind: pickupThreat?.pickupKind ?? null,
+        pickupDistance: pickupThreat?.pickupDistance ?? null,
+        pickupValue: pickupThreat?.pickupValue ?? 0,
+        pickupRisk: pickupThreat?.pickupRisk ?? 0,
       });
     }
 
@@ -445,6 +500,15 @@ export class Game {
   private limitRadarContacts<T>(contacts: T[], radarStrength: number): T[] {
     const count = Math.max(4, Math.round(contacts.length * Math.max(0.35, radarStrength)));
     return contacts.slice(0, count);
+  }
+
+  private consumeSimulationDelta(deltaTime: number): number {
+    if (this.roadFreezeTimer <= 0) {
+      return deltaTime;
+    }
+
+    this.roadFreezeTimer = Math.max(0, this.roadFreezeTimer - deltaTime);
+    return 0;
   }
 
   private handleDeath(): void {
@@ -473,7 +537,12 @@ export class Game {
     this.roadHandlingPenalty = 0;
     this.roadAimShake = 0;
     this.roadCameraShake = 0;
+    this.roadFreezeTimer = 0;
     this.latchEscapeProgress = 0;
+    this.laneCutJolt = 0;
+    this.potholeJolt = 0;
+    this.barrelJolt = 0;
+    this.latchWasActive = false;
     this.frameRideState = null;
     this.lastRideState = null;
   }

@@ -258,6 +258,7 @@ export class EnemySystem {
     zombie.config = zombieConfig;
     zombie.health = zombieConfig.maxHealth;
     zombie.velocity.set(0, 0, 0);
+    zombie.deathAngularVelocity.set(0, 0, 0);
     if (zombie.group.parent !== this.scene) {
       this.scene.add(zombie.group);
     }
@@ -343,6 +344,7 @@ export class EnemySystem {
       } else if (zombie.state === 'dying') {
         zombie.deathElapsed += deltaTime;
         zombie.deathTimer -= deltaTime;
+        this.updateDyingZombie(zombie, deltaTime);
         this.triggerDelayedDeathEffects(zombie);
         this.updateHumanoidDeathFade(zombie);
       }
@@ -499,6 +501,13 @@ export class EnemySystem {
     return this.pool.reduce((count, zombie) => count + (zombie.active ? 1 : 0), 0);
   }
 
+  getActiveCountByType(type: ZombieType): number {
+    return this.pool.reduce(
+      (count, zombie) => count + (zombie.active && zombie.state === 'alive' && zombie.type === type ? 1 : 0),
+      0,
+    );
+  }
+
   setLatchAnchor(anchor: Object3D | null): void {
     this.latchAnchor = anchor;
   }
@@ -600,6 +609,10 @@ export class EnemySystem {
       pothole: false,
       smallCount: 0,
       bruteCount: 0,
+      pickupKind: null,
+      pickupDistance: null,
+      pickupValue: 0,
+      pickupRisk: 0,
     }));
 
     for (const zombie of this.pool) {
@@ -789,6 +802,7 @@ export class EnemySystem {
       hitFlash: 0,
       deathTimer: 0,
       deathElapsed: 0,
+      deathAngularVelocity: new Vector3(),
       spawnPoseTimer: 0,
       spawnPoseActive: false,
       approachCueTriggered: false,
@@ -884,6 +898,24 @@ export class EnemySystem {
     zombie.group.rotation.set(0.12, Math.PI * 0.56, -0.14);
     if (this.latchPresentationLoaded) {
       this.attachLatchPresentation(zombie);
+    }
+  }
+
+  private updateDyingZombie(zombie: ActiveZombie, deltaTime: number): void {
+    zombie.group.position.addScaledVector(zombie.velocity, deltaTime);
+    zombie.group.rotation.x += zombie.deathAngularVelocity.x * deltaTime;
+    zombie.group.rotation.y += zombie.deathAngularVelocity.y * deltaTime;
+    zombie.group.rotation.z += zombie.deathAngularVelocity.z * deltaTime;
+    zombie.velocity.z *= 0.97;
+    zombie.velocity.x *= 0.95;
+    zombie.velocity.y -= 8.8 * deltaTime;
+    zombie.deathAngularVelocity.multiplyScalar(0.965);
+
+    if (zombie.group.position.y <= 0) {
+      zombie.group.position.y = 0;
+      zombie.velocity.y = Math.max(0, zombie.velocity.y) * 0.12;
+      zombie.velocity.x *= 0.9;
+      zombie.velocity.z *= 0.94;
     }
   }
 
@@ -1076,7 +1108,17 @@ export class EnemySystem {
 
     const modelConfig = this.getHumanoidConfig(type);
     zombie.state = 'dying';
-    zombie.velocity.set(0, 0, 0);
+    this.getImpactDirection(zombie, this.effectDirection);
+    zombie.velocity.set(
+      this.effectDirection.x * randomRange(0.8, 1.65),
+      randomRange(0.9, 1.8),
+      Math.max(0.45, this.effectDirection.z * randomRange(0.8, 1.4)),
+    );
+    zombie.deathAngularVelocity.set(
+      randomRange(-3.6, 3.6),
+      randomRange(-4.2, 4.2),
+      randomRange(-3.4, 3.4),
+    );
     zombie.deathElapsed = 0;
     zombie.bodySplatterTriggered = true;
     zombie.bloodBurstTriggered = false;
@@ -1310,6 +1352,7 @@ export class EnemySystem {
     zombie.group.position.set(0, 0, 999);
     zombie.group.removeFromParent();
     zombie.velocity.set(0, 0, 0);
+    zombie.deathAngularVelocity.set(0, 0, 0);
     zombie.hitFlash = 0;
     zombie.deathTimer = 0;
     zombie.deathElapsed = 0;

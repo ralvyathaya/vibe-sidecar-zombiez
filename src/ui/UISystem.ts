@@ -32,6 +32,19 @@ type HUDSnapshot = {
   radarContacts: RadarContact[];
 };
 
+type DriverPresentation = {
+  key: string;
+  mood: DriverPortraitMood;
+  label: string;
+  speaker: string;
+  intent: string;
+  showTimer: boolean;
+  timerRatio: number;
+  showControls: boolean;
+  controlsLabel: string;
+  persistSeconds: number;
+};
+
 export class UISystem {
   onPrimaryAction?: () => void;
 
@@ -93,6 +106,9 @@ export class UISystem {
   private readonly vignette = document.createElement('div');
   private readonly ammoRounds: HTMLSpanElement[] = [];
   private readonly radarDots: HTMLSpanElement[] = [];
+  private driverPanelHold = 0;
+  private lastElapsedSeconds = 0;
+  private lastDriverPresentation: DriverPresentation | null = null;
 
   constructor(host: HTMLElement) {
     this.root.className = 'ui-root';
@@ -285,6 +301,11 @@ export class UISystem {
 
   setState(gameState: GameStateType): void {
     this.root.dataset.state = gameState;
+    if (gameState !== 'running') {
+      this.driverPanelHold = 0;
+      this.lastDriverPresentation = null;
+      this.lastElapsedSeconds = 0;
+    }
 
     switch (gameState) {
       case 'menu':
@@ -316,6 +337,11 @@ export class UISystem {
   }
 
   update(snapshot: HUDSnapshot): void {
+    const deltaTime =
+      snapshot.gameState === 'running' && snapshot.elapsedSeconds >= this.lastElapsedSeconds
+        ? snapshot.elapsedSeconds - this.lastElapsedSeconds
+        : 0;
+    this.lastElapsedSeconds = snapshot.elapsedSeconds;
     const healthRatio = Math.max(0, snapshot.player.health / snapshot.player.maxHealth);
     this.healthFill.style.transform = `scaleX(${healthRatio})`;
     this.healthValue.textContent = `${Math.ceil(snapshot.player.health)} / ${snapshot.player.maxHealth}`;
@@ -392,34 +418,40 @@ export class UISystem {
         : 'Q Brake  |  E Boost';
     this.controlHint.dataset.alert = snapshot.ride?.prompt ? 'true' : 'false';
 
-    const driverMood = this.resolveDriverMood(snapshot);
-    this.driverPanel.hidden = snapshot.gameState !== 'running';
-    this.driverPanel.dataset.mood = driverMood;
-    const prompt = snapshot.ride?.prompt;
-    this.driverPanel.dataset.prompt = prompt ? 'true' : 'false';
-    this.driverPortrait.src = DRIVER_PORTRAITS[driverMood];
-    this.driverPortrait.alt = `Driver ${driverMood}`;
-    this.driverPrompt.hidden = false;
-    this.driverPrompt.dataset.intent = prompt?.intent ?? 'idle';
-    if (prompt) {
-      this.driverPromptLabel.textContent = prompt.label;
-      this.driverPromptTimerFill.style.transform = `scaleX(${(prompt.timer / prompt.duration).toFixed(3)})`;
-      this.driverPromptControls.textContent = 'Q cancel   E approve';
-      this.driverPromptSpeaker.textContent =
-        driverMood === 'panic' ? 'Driver  Losing It' : 'Driver  Calling It';
-      this.driverPromptTimer.hidden = false;
-      this.driverPromptControls.hidden = false;
+    const driverPresentation = this.resolveDriverPresentation(snapshot);
+    if (snapshot.gameState !== 'running') {
+      this.driverPanelHold = 0;
+      this.lastDriverPresentation = null;
+    } else if (driverPresentation) {
+      this.lastDriverPresentation = driverPresentation;
+      this.driverPanelHold = driverPresentation.persistSeconds;
     } else {
-      this.driverPromptLabel.textContent = this.getIdleDriverLine(snapshot, driverMood);
-      this.driverPromptSpeaker.textContent =
-        driverMood === 'panic'
-          ? 'Driver  Rattled'
-          : driverMood === 'observing'
-            ? 'Driver  Watching'
-            : 'Driver  Cruising';
-      this.driverPromptTimer.hidden = true;
-      this.driverPromptControls.hidden = true;
+      this.driverPanelHold = Math.max(0, this.driverPanelHold - deltaTime);
+      if (this.driverPanelHold <= 0) {
+        this.lastDriverPresentation = null;
+      }
     }
+
+    const visibleDriverPresentation =
+      driverPresentation ?? (this.driverPanelHold > 0 ? this.lastDriverPresentation : null);
+    this.driverPanel.hidden = snapshot.gameState !== 'running';
+    this.driverPanel.dataset.visible = visibleDriverPresentation ? 'true' : 'false';
+    this.driverPanel.dataset.mood = visibleDriverPresentation?.mood ?? 'calm';
+    this.driverPanel.dataset.prompt =
+      visibleDriverPresentation?.showControls ? 'true' : 'false';
+    this.driverPortrait.src = DRIVER_PORTRAITS[visibleDriverPresentation?.mood ?? 'calm'];
+    this.driverPortrait.alt = `Driver ${visibleDriverPresentation?.mood ?? 'calm'}`;
+    this.driverPrompt.hidden = false;
+    this.driverPrompt.dataset.intent = visibleDriverPresentation?.intent ?? 'idle';
+    this.driverPromptLabel.textContent = visibleDriverPresentation?.label ?? '';
+    this.driverPromptSpeaker.textContent = visibleDriverPresentation?.speaker ?? '';
+    this.driverPromptTimerFill.style.transform = `scaleX(${(
+      visibleDriverPresentation?.timerRatio ?? 0
+    ).toFixed(3)})`;
+    this.driverPromptTimer.hidden = !visibleDriverPresentation?.showTimer;
+    this.driverPromptControls.hidden = !visibleDriverPresentation?.showControls;
+    this.driverPromptControls.textContent =
+      visibleDriverPresentation?.controlsLabel ?? '';
 
     this.latchWarning.hidden = !snapshot.ride?.latchActive;
     if (snapshot.ride?.latchActive) {
@@ -545,22 +577,123 @@ export class UISystem {
     return 'calm';
   }
 
-  private getIdleDriverLine(
-    snapshot: HUDSnapshot,
-    mood: DriverPortraitMood,
-  ): string {
+  private resolveDriverPresentation(snapshot: HUDSnapshot): DriverPresentation | null {
+    const prompt = snapshot.ride?.prompt;
+    if (prompt) {
+      const mood =
+        prompt.intent === 'cutLeft'
+          ? 'observing'
+          : prompt.intent === 'shakeItOff' ||
+              prompt.intent === 'scrapeWreck' ||
+              prompt.intent === 'forceGap'
+            ? 'panic'
+            : this.resolveDriverMood(snapshot);
+      return {
+        key: `prompt:${prompt.intent}:${prompt.label}`,
+        mood,
+        label: prompt.label,
+        speaker: mood === 'panic' ? 'Driver  Losing It' : 'Driver  Calling It',
+        intent: prompt.intent,
+        showTimer: true,
+        timerRatio: prompt.duration > 0 ? prompt.timer / prompt.duration : 0,
+        showControls: true,
+        controlsLabel: 'Q cancel   E approve',
+        persistSeconds: 0.12,
+      };
+    }
+
+    if (snapshot.ride?.shakeOffMode) {
+      return {
+        key: 'event:shake-off',
+        mood: 'panic',
+        label: "Hang on. I'm shaking it loose!",
+        speaker: 'Driver  Panicking',
+        intent: 'shakeItOff',
+        showTimer: false,
+        timerRatio: 0,
+        showControls: false,
+        controlsLabel: '',
+        persistSeconds: 0.95,
+      };
+    }
+
+    if (snapshot.ride?.scrapeMode) {
+      return {
+        key: 'event:scrape',
+        mood: 'panic',
+        label: "Keep low. I'm grinding the wreck!",
+        speaker: 'Driver  Committing',
+        intent: 'scrapeWreck',
+        showTimer: false,
+        timerRatio: 0,
+        showControls: false,
+        controlsLabel: '',
+        persistSeconds: 0.95,
+      };
+    }
+
+    if (snapshot.ride?.forceGapMode) {
+      return {
+        key: 'event:force-gap',
+        mood: 'panic',
+        label: "Tight squeeze. Keep shooting!",
+        speaker: 'Driver  Forcing It',
+        intent: 'forceGap',
+        showTimer: false,
+        timerRatio: 0,
+        showControls: false,
+        controlsLabel: '',
+        persistSeconds: 0.95,
+      };
+    }
+
     if (snapshot.ride?.latchActive) {
-      return 'Shoot low. It is hanging off the sidecar.';
+      return {
+        key: 'event:latch',
+        mood: 'panic',
+        label: "Shoot low. It's hanging off the sidecar!",
+        speaker: 'Driver  Alarmed',
+        intent: 'latch',
+        showTimer: false,
+        timerRatio: 0,
+        showControls: false,
+        controlsLabel: '',
+        persistSeconds: 0.45,
+      };
     }
 
-    if (mood === 'panic') {
-      return 'Keep it together. I still have the road.';
+    const failureSeverity = snapshot.ride?.failureSeverity ?? 0;
+    if (failureSeverity >= 0.82) {
+      return {
+        key: 'event:critical-failure',
+        mood: 'panic',
+        label: "I'm losing the bike. Clear the lane!",
+        speaker: 'Driver  Breaking',
+        intent: 'critical',
+        showTimer: false,
+        timerRatio: 0,
+        showControls: false,
+        controlsLabel: '',
+        persistSeconds: 1.05,
+      };
     }
 
-    if (mood === 'observing') {
-      return 'Watching the lanes. Pick the fast targets first.';
+    if (failureSeverity >= 0.48) {
+      return {
+        key: 'event:warning-failure',
+        mood: 'panic',
+        label: 'Brace. This ride is getting sloppy.',
+        speaker: 'Driver  Rattled',
+        intent: 'warning',
+        showTimer: false,
+        timerRatio: 0,
+        showControls: false,
+        controlsLabel: '',
+        persistSeconds: 0.85,
+      };
     }
 
-    return 'Steady gunner. Easy road for a second.';
+    return null;
   }
+
 }

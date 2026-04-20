@@ -17,7 +17,13 @@ export type AmmoRoundStyle = 'bullet' | 'shell' | 'rocket';
 export type PickupType = 'shotgun' | 'shotgunAmmo' | 'bazooka';
 export type CrosshairStyle = 'pistol' | 'shotgun' | 'bazooka';
 export type RunSegment = 'rest' | 'chaos' | 'dark';
-export type DriverIntentType = 'cutLeft' | 'scrapeWreck' | 'shakeItOff' | 'forceGap';
+export type DriverIntentType =
+  | 'cutLeft'
+  | 'scrapeWreck'
+  | 'shakeItOff'
+  | 'forceGap'
+  | 'pickupOpportunity';
+export type DriverPromptCategory = 'emergency' | 'opportunity';
 export type DriverPromptDecision = 'approve' | 'cancel' | 'timeout';
 export type ObstacleType =
   | 'barricade'
@@ -29,6 +35,14 @@ export type ObstacleType =
   | 'pothole';
 
 export type Vec3Tuple = [number, number, number];
+export type WorldReactionType =
+  | 'none'
+  | 'laneCut'
+  | 'scrape'
+  | 'pothole'
+  | 'brokenLane'
+  | 'barrel'
+  | 'shakeOff';
 
 export interface FlashMaterial {
   emissive: {
@@ -219,6 +233,14 @@ export interface GameConfig {
     promptIntervalMin: number;
     promptIntervalMax: number;
     promptDuration: number;
+    opportunityPromptCooldown: number;
+    blockerVetoDistance: number;
+    criticalFailureVetoSeverity: number;
+    pickupWindowDistance: number;
+    pickupAutoValueThreshold: number;
+    pickupPromptValueThreshold: number;
+    pickupAutoMaxCost: number;
+    pickupPromptMaxCost: number;
     laneRescanInterval: number;
     laneChangeDuration: number;
     laneChangeCommitDuration: number;
@@ -405,6 +427,9 @@ export interface GameConfig {
     intervalEnd: number;
     batchChance: number;
     laneGroupChance: number;
+    runnerCooldownMin: number;
+    runnerCooldownMax: number;
+    runnerMaxActive: number;
   };
   world: {
     roadWidth: number;
@@ -597,6 +622,13 @@ export interface RewardState {
   lastRunScore: number;
 }
 
+export interface LoadoutState {
+  activeWeapon: WeaponKind;
+  shotgunUnlocked: boolean;
+  shotgunAmmo: number;
+  bazookaAmmo: number;
+}
+
 export interface RadarContact {
   id: number;
   offset: number;
@@ -606,16 +638,24 @@ export interface RadarContact {
 
 export interface DriverPromptState {
   intent: DriverIntentType;
+  category: DriverPromptCategory;
   label: string;
   timer: number;
   duration: number;
   targetLaneIndex: number | null;
+  fallbackDecision: Extract<DriverPromptDecision, 'approve' | 'cancel'>;
+  source: 'hazard' | 'pickup' | 'latch';
+  reason: string;
 }
 
 export interface DriverPromptResolution {
   intent: DriverIntentType;
   decision: DriverPromptDecision;
+  effectiveDecision: Extract<DriverPromptDecision, 'approve' | 'cancel'>;
   targetLaneIndex: number | null;
+  category: DriverPromptCategory;
+  source: 'hazard' | 'pickup' | 'latch';
+  reason: string;
 }
 
 export interface LaneThreatState {
@@ -628,6 +668,10 @@ export interface LaneThreatState {
   pothole: boolean;
   smallCount: number;
   bruteCount: number;
+  pickupKind: PickupType | null;
+  pickupDistance: number | null;
+  pickupValue: number;
+  pickupRisk: number;
 }
 
 export interface RideState {
@@ -653,6 +697,9 @@ export interface RideState {
   scrapeMode: boolean;
   shakeOffMode: boolean;
   forceGapMode: boolean;
+  laneCutJolt: number;
+  potholeJolt: number;
+  barrelJolt: number;
   failureSeverity: number;
   radarStrength: number;
   laneThreats: LaneThreatState[];
@@ -663,6 +710,8 @@ export interface WorldImpactResult {
   handlingPenalty: number;
   aimShake: number;
   cameraShake: number;
+  reaction: WorldReactionType;
+  freezeDuration: number;
   laneThreats: LaneThreatState[];
 }
 
@@ -688,6 +737,7 @@ export interface ActiveZombie {
   hitFlash: number;
   deathTimer: number;
   deathElapsed: number;
+  deathAngularVelocity: Vector3;
   spawnPoseTimer: number;
   spawnPoseActive: boolean;
   approachCueTriggered: boolean;
@@ -705,6 +755,7 @@ export interface ActiveObstacle {
   mesh: Group;
   active: boolean;
   lane: number;
+  laneLocalX: number;
   width: number;
   depth: number;
   damage: number;
@@ -723,6 +774,7 @@ export interface ActivePickup {
   active: boolean;
   kind: PickupType;
   lane: number;
+  laneLocalX: number;
   width: number;
   depth: number;
   ammo: number;

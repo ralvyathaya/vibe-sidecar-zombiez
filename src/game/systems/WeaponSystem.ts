@@ -1,5 +1,11 @@
 import type { Camera } from 'three';
-import type { GameConfig, PickupEvent, WeaponKind, WeaponStatus } from '../../core/types';
+import type {
+  GameConfig,
+  LoadoutState,
+  PickupEvent,
+  WeaponKind,
+  WeaponStatus,
+} from '../../core/types';
 import { BazookaWeapon } from '../weapons/BazookaWeapon';
 import { PistolWeapon } from '../weapons/PistolWeapon';
 import { ShotgunWeapon } from '../weapons/ShotgunWeapon';
@@ -126,6 +132,15 @@ export class WeaponSystem {
 
   hasUnlockedShotgun(): boolean {
     return this.shotgunUnlocked;
+  }
+
+  getLoadoutState(): LoadoutState {
+    return {
+      activeWeapon: this.activeWeapon,
+      shotgunUnlocked: this.shotgunUnlocked,
+      shotgunAmmo: this.shotgunWeapon.getAmmo(),
+      bazookaAmmo: this.bazookaWeapon.getAmmo(),
+    };
   }
 
   destroy(): void {

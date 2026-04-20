@@ -1,10 +1,12 @@
 import type {
   DriverIntentType,
+  DriverPromptCategory,
   DriverPromptDecision,
   DriverPromptResolution,
   DriverPromptState,
   GameConfig,
   LaneThreatState,
+  PickupType,
   RideState,
   RunSegment,
 } from '../../core/types';
@@ -19,6 +21,7 @@ export class DriverSystem {
   private laneChangeDurationCurrent = 0;
   private laneRescanTimer = 0;
   private nextPromptIn = 0;
+  private nextOpportunityIn = 0;
   private promptLockout = 0;
   private manualBoostTimer = 0;
   private brakeTimer = 0;
@@ -49,6 +52,7 @@ export class DriverSystem {
     this.laneChangeDurationCurrent = this.config.driver.laneChangeDuration;
     this.laneRescanTimer = 0;
     this.nextPromptIn = this.rollPromptTimer();
+    this.nextOpportunityIn = this.rollOpportunityTimer();
     this.promptLockout = 0;
     this.manualBoostTimer = 0;
     this.brakeTimer = 0;
@@ -88,6 +92,7 @@ export class DriverSystem {
     this.cutLeftBiasTimer = Math.max(0, this.cutLeftBiasTimer - deltaTime);
     this.manualBrakeCooldown = Math.max(0, this.manualBrakeCooldown - deltaTime);
     this.manualBoostCooldown = Math.max(0, this.manualBoostCooldown - deltaTime);
+    this.nextOpportunityIn = Math.max(0, this.nextOpportunityIn - deltaTime);
 
     if (!hasLatch) {
       this.shakeOffTimer = 0;
@@ -102,18 +107,29 @@ export class DriverSystem {
       if (this.prompt.timer <= 0) {
         this.resolvePrompt('timeout');
       }
-    } else if (hasLatch && this.promptLockout <= 0 && !this.hasBlockingEffect()) {
-      this.prompt = this.createPrompt('shakeItOff', "I'll shake it off!");
-    } else if (!hasLatch && this.promptLockout <= 0 && !this.hasBlockingEffect()) {
-      this.nextPromptIn -= deltaTime;
-      if (this.nextPromptIn <= 0) {
-        this.tryCreatePrompt(failureSeverity);
+    } else if (this.promptLockout <= 0 && !this.hasBlockingEffect()) {
+      if (hasLatch) {
+        this.prompt = this.createPrompt(
+          'shakeItOff',
+          "I'll shake it off!",
+          'emergency',
+          'approve',
+          'latch',
+          'runner latched on the sidecar',
+        );
+      } else {
+        this.nextPromptIn -= deltaTime;
+        if (this.nextOpportunityIn <= 0 && this.tryCreatePickupPrompt(failureSeverity, hasLatch)) {
+          // Opportunity prompt created.
+        } else if (this.nextPromptIn <= 0) {
+          this.tryCreateEmergencyPrompt(failureSeverity, hasLatch);
+        }
       }
     }
 
-    if (!hasLatch && !this.prompt && this.laneRescanTimer <= 0) {
+    if (!this.prompt && this.laneRescanTimer <= 0) {
       this.laneRescanTimer = this.config.driver.laneRescanInterval;
-      this.updateLaneChoice();
+      this.updateLaneChoice(failureSeverity, hasLatch);
     }
 
     const laneAlpha =
@@ -182,6 +198,9 @@ export class DriverSystem {
       scrapeMode: this.scrapeTimer > 0,
       shakeOffMode: this.shakeOffTimer > 0,
       forceGapMode: this.forceGapTimer > 0,
+      laneCutJolt: this.laneChangeTimer > 0 ? Math.sin(laneAlpha * Math.PI) : 0,
+      potholeJolt: 0,
+      barrelJolt: 0,
       failureSeverity,
       radarStrength: this.config.renderer.atmosphere[this.segment].radarStrength,
       laneThreats: this.laneThreats,
@@ -213,19 +232,34 @@ export class DriverSystem {
       return;
     }
 
-    const { intent, targetLaneIndex } = this.prompt;
+    const currentPrompt = this.prompt;
+    const effectiveDecision =
+      decision === 'timeout'
+        ? currentPrompt.fallbackDecision
+        : decision === 'approve'
+          ? 'approve'
+          : 'cancel';
     this.prompt = null;
-    this.nextPromptIn = this.rollPromptTimer();
-    this.promptLockout = this.config.driver.promptEffectLockout;
     this.pendingResolution = {
-      intent,
+      intent: currentPrompt.intent,
       decision,
-      targetLaneIndex,
+      effectiveDecision,
+      targetLaneIndex: currentPrompt.targetLaneIndex,
+      category: currentPrompt.category,
+      source: currentPrompt.source,
+      reason: currentPrompt.reason,
     };
+    this.nextPromptIn = this.rollPromptTimer();
+    this.nextOpportunityIn = this.rollOpportunityTimer();
+    this.promptLockout =
+      currentPrompt.category === 'opportunity' ? 1.2 : this.config.driver.promptEffectLockout;
 
-    if (intent === 'cutLeft') {
-      if ((decision === 'approve' || decision === 'timeout') && targetLaneIndex !== null) {
-        this.startLaneChange(targetLaneIndex, this.config.driver.laneChangeCommitDuration);
+    if (currentPrompt.intent === 'cutLeft') {
+      if (effectiveDecision === 'approve' && currentPrompt.targetLaneIndex !== null) {
+        this.startLaneChange(
+          currentPrompt.targetLaneIndex,
+          this.config.driver.laneChangeCommitDuration,
+        );
         this.cutLeftBiasTimer = this.config.driver.cutLeftBiasDuration;
         this.cautiousHoldTimer = 0;
       } else {
@@ -234,8 +268,8 @@ export class DriverSystem {
       return;
     }
 
-    if (intent === 'scrapeWreck') {
-      if (decision === 'approve' || decision === 'timeout') {
+    if (currentPrompt.intent === 'scrapeWreck') {
+      if (effectiveDecision === 'approve') {
         this.scrapeTimer = this.config.driver.scrapeDuration;
         this.manualBoostTimer = 0;
         this.brakeTimer = 0;
@@ -246,8 +280,8 @@ export class DriverSystem {
       return;
     }
 
-    if (intent === 'shakeItOff') {
-      if (decision === 'approve' || decision === 'timeout') {
+    if (currentPrompt.intent === 'shakeItOff') {
+      if (effectiveDecision === 'approve') {
         this.shakeOffTimer = this.config.driver.shakeOffDuration;
         this.manualBoostTimer = 0;
         this.brakeTimer = 0;
@@ -258,12 +292,25 @@ export class DriverSystem {
       return;
     }
 
-    if (decision === 'approve' || decision === 'timeout') {
-      this.forceGapTimer = this.config.driver.forceGapDuration;
-      this.cautiousHoldTimer = 0;
-      if (targetLaneIndex !== null) {
-        this.startLaneChange(targetLaneIndex, this.config.driver.laneChangeCommitDuration);
+    if (currentPrompt.intent === 'forceGap') {
+      if (effectiveDecision === 'approve') {
+        this.forceGapTimer = this.config.driver.forceGapDuration;
+        this.cautiousHoldTimer = 0;
+        if (currentPrompt.targetLaneIndex !== null) {
+          this.startLaneChange(
+            currentPrompt.targetLaneIndex,
+            this.config.driver.laneChangeCommitDuration,
+          );
+        }
+      } else {
+        this.cautiousHoldTimer = this.config.driver.cautiousHoldDuration;
       }
+      return;
+    }
+
+    if (effectiveDecision === 'approve' && currentPrompt.targetLaneIndex !== null) {
+      this.startLaneChange(currentPrompt.targetLaneIndex, this.config.driver.laneChangeDuration);
+      this.cautiousHoldTimer = 0.35;
     } else {
       this.cautiousHoldTimer = this.config.driver.cautiousHoldDuration;
     }
@@ -295,12 +342,16 @@ export class DriverSystem {
     return resolution;
   }
 
-  private tryCreatePrompt(failureSeverity: number): void {
-    const cutLeftCandidate = this.getCutLeftCandidate();
+  private tryCreateEmergencyPrompt(failureSeverity: number, hasLatch: boolean): void {
+    const cutLeftCandidate = this.getCutLeftCandidate(failureSeverity, hasLatch);
     if (cutLeftCandidate) {
       this.prompt = this.createPrompt(
         'cutLeft',
         "Hang on, I'm cutting left!",
+        'emergency',
+        'approve',
+        'hazard',
+        'left lane looks cleaner',
         cutLeftCandidate.laneIndex,
       );
       return;
@@ -311,6 +362,10 @@ export class DriverSystem {
       this.prompt = this.createPrompt(
         'scrapeWreck',
         "Duck, I'm scraping the wreck!",
+        'emergency',
+        'approve',
+        'hazard',
+        'wreck is pinching the lane',
         scrapeCandidate.laneIndex,
       );
       return;
@@ -321,6 +376,10 @@ export class DriverSystem {
       this.prompt = this.createPrompt(
         'forceGap',
         "There's a gap, I'm forcing through!",
+        'emergency',
+        'approve',
+        'hazard',
+        'pressure is stacking up ahead',
         forceGapCandidate.laneIndex,
       );
       return;
@@ -329,38 +388,98 @@ export class DriverSystem {
     this.nextPromptIn = this.rollPromptTimer();
   }
 
-  private updateLaneChoice(): void {
+  private tryCreatePickupPrompt(failureSeverity: number, hasLatch: boolean): boolean {
+    const currentLane = this.getLaneThreat(this.targetLaneIndex);
+    let bestCandidate: LaneThreatState | null = null;
+    let bestScore = Number.NEGATIVE_INFINITY;
+
+    for (const lane of this.laneThreats) {
+      if (
+        lane.laneIndex === this.targetLaneIndex ||
+        !lane.pickupKind ||
+        lane.pickupValue < this.config.driver.pickupPromptValueThreshold ||
+        lane.pickupDistance === null
+      ) {
+        continue;
+      }
+
+      if (this.canAutoPickupLane(lane, currentLane, failureSeverity, hasLatch)) {
+        continue;
+      }
+
+      if (this.isHardVeto(lane, failureSeverity, true, hasLatch)) {
+        continue;
+      }
+
+      const pickupCost =
+        Math.max(0, lane.score - currentLane.score) +
+        lane.pickupRisk +
+        (lane.brokenLane ? 0.7 : 0) +
+        (lane.pothole ? 0.45 : 0);
+      if (pickupCost > this.config.driver.pickupPromptMaxCost) {
+        continue;
+      }
+
+      const valueScore = lane.pickupValue - pickupCost * 0.55;
+      if (valueScore > bestScore) {
+        bestCandidate = lane;
+        bestScore = valueScore;
+      }
+    }
+
+    if (!bestCandidate) {
+      this.nextOpportunityIn = this.rollOpportunityTimer();
+      return false;
+    }
+
+    this.prompt = this.createPrompt(
+      'pickupOpportunity',
+      this.getPickupPromptLabel(bestCandidate.pickupKind),
+      'opportunity',
+      'cancel',
+      'pickup',
+      `opportunity for ${bestCandidate.pickupKind}`,
+      bestCandidate.laneIndex,
+    );
+    return true;
+  }
+
+  private updateLaneChoice(failureSeverity: number, hasLatch: boolean): void {
     if (this.cautiousHoldTimer > 0 || this.forceGapTimer > 0 || this.shakeOffTimer > 0) {
       return;
     }
 
     const currentLane = this.getLaneThreat(this.targetLaneIndex);
-    const bestLane = this.laneThreats
-      .slice()
-      .sort(
-        (left, right) =>
-          left.score - this.getLaneBias(left.laneIndex) -
-          (right.score - this.getLaneBias(right.laneIndex)),
-      )[0];
-    if (!bestLane) {
+    let bestLane = currentLane;
+    let bestScore = this.getLaneDriveScore(currentLane, currentLane, failureSeverity, hasLatch);
+
+    for (const lane of this.laneThreats) {
+      const driveScore = this.getLaneDriveScore(lane, currentLane, failureSeverity, hasLatch);
+      if (driveScore < bestScore) {
+        bestLane = lane;
+        bestScore = driveScore;
+      }
+    }
+
+    if (!bestLane || bestLane.laneIndex === this.targetLaneIndex) {
       return;
     }
 
-    if (bestLane.laneIndex === this.targetLaneIndex) {
+    if (this.isHardVeto(bestLane, failureSeverity, false, hasLatch)) {
       return;
     }
 
-    if (bestLane.blocker && (bestLane.blockerDistance ?? Number.POSITIVE_INFINITY) < 26) {
-      return;
-    }
-
-    const currentScore = currentLane.score;
-    const bestScore = bestLane.score - this.getLaneBias(bestLane.laneIndex);
+    const currentScore = this.getLaneDriveScore(currentLane, currentLane, failureSeverity, hasLatch);
     const currentHasHardThreat =
-      currentLane.blocker || currentLane.bruteCount > 0 || currentLane.smallCount >= 3;
+      currentLane.blocker ||
+      currentLane.bruteCount > 0 ||
+      currentLane.smallCount >= 3 ||
+      currentLane.brokenLane;
     const shouldChange =
       currentHasHardThreat ||
-      bestScore + this.config.driver.scoreMarginToChange < currentScore;
+      bestScore + this.config.driver.scoreMarginToChange < currentScore ||
+      this.canAutoPickupLane(bestLane, currentLane, failureSeverity, hasLatch);
+
     if (!shouldChange) {
       return;
     }
@@ -368,19 +487,25 @@ export class DriverSystem {
     this.startLaneChange(bestLane.laneIndex, this.config.driver.laneChangeDuration);
   }
 
-  private getCutLeftCandidate(): LaneThreatState | null {
+  private getCutLeftCandidate(
+    failureSeverity: number,
+    hasLatch: boolean,
+  ): LaneThreatState | null {
     if (this.targetLaneIndex <= 0) {
       return null;
     }
 
     const leftLane = this.getLaneThreat(this.targetLaneIndex - 1);
     const currentLane = this.getLaneThreat(this.targetLaneIndex);
-    if (leftLane.blocker && (leftLane.blockerDistance ?? Number.POSITIVE_INFINITY) < 24) {
+    if (this.isHardVeto(leftLane, failureSeverity, false, hasLatch)) {
       return null;
     }
 
-    const leftScore = leftLane.score - this.config.driver.cutLeftLaneBonus;
-    if (leftScore + this.config.driver.scoreMarginToChange >= currentLane.score) {
+    const leftScore =
+      this.getLaneDriveScore(leftLane, currentLane, failureSeverity, hasLatch) -
+      this.config.driver.cutLeftLaneBonus;
+    const currentScore = this.getLaneDriveScore(currentLane, currentLane, failureSeverity, hasLatch);
+    if (leftScore + this.config.driver.scoreMarginToChange >= currentScore) {
       return null;
     }
 
@@ -416,15 +541,7 @@ export class DriverSystem {
     let bestScore = Number.POSITIVE_INFINITY;
 
     for (const lane of this.laneThreats) {
-      if (lane.laneIndex === this.targetLaneIndex) {
-        continue;
-      }
-
-      if (lane.blocker && (lane.blockerDistance ?? Number.POSITIVE_INFINITY) < 24) {
-        continue;
-      }
-
-      if (lane.bruteCount > 0) {
+      if (lane.laneIndex === this.targetLaneIndex || this.isHardVeto(lane, failureSeverity, false, false)) {
         continue;
       }
 
@@ -449,6 +566,91 @@ export class DriverSystem {
 
     const pressureDelta = currentLane.score - bestCandidate.score;
     return pressureDelta >= 0.55 || currentLane.smallCount >= 2 ? bestCandidate : null;
+  }
+
+  private getLaneDriveScore(
+    lane: LaneThreatState,
+    currentLane: LaneThreatState,
+    failureSeverity: number,
+    hasLatch: boolean,
+  ): number {
+    if (this.isHardVeto(lane, failureSeverity, false, hasLatch)) {
+      return Number.POSITIVE_INFINITY;
+    }
+
+    const hazardCost =
+      (lane.brokenLane ? 0.85 : 0) +
+      (lane.pothole ? 0.42 : 0) +
+      lane.smallCount * 0.08 +
+      lane.bruteCount * 1.2;
+    const pickupBonus = this.canAutoPickupLane(lane, currentLane, failureSeverity, hasLatch)
+      ? lane.pickupValue * 0.85
+      : 0;
+    return lane.score + hazardCost - pickupBonus - this.getLaneBias(lane.laneIndex);
+  }
+
+  private canAutoPickupLane(
+    lane: LaneThreatState,
+    currentLane: LaneThreatState,
+    failureSeverity: number,
+    hasLatch: boolean,
+  ): boolean {
+    if (
+      !lane.pickupKind ||
+      lane.pickupDistance === null ||
+      lane.pickupValue < this.config.driver.pickupAutoValueThreshold
+    ) {
+      return false;
+    }
+
+    if (this.isHardVeto(lane, failureSeverity, true, hasLatch)) {
+      return false;
+    }
+
+    const pickupCost =
+      Math.max(0, lane.score - currentLane.score) +
+      lane.pickupRisk +
+      (lane.brokenLane ? 0.55 : 0) +
+      (lane.pothole ? 0.35 : 0);
+    return pickupCost <= this.config.driver.pickupAutoMaxCost;
+  }
+
+  private isHardVeto(
+    lane: LaneThreatState,
+    failureSeverity: number,
+    chasingPickup: boolean,
+    hasLatch: boolean,
+  ): boolean {
+    const blockerDistance = lane.blockerDistance ?? Number.POSITIVE_INFINITY;
+    if (lane.blocker && blockerDistance < this.config.driver.blockerVetoDistance) {
+      return true;
+    }
+
+    if (lane.bruteCount > 0) {
+      return true;
+    }
+
+    if (!chasingPickup) {
+      return false;
+    }
+
+    if (hasLatch || failureSeverity >= this.config.driver.criticalFailureVetoSeverity) {
+      return true;
+    }
+
+    return lane.brokenLane && lane.pothole;
+  }
+
+  private getPickupPromptLabel(kind: PickupType | null): string {
+    if (kind === 'shotgun') {
+      return 'Shotgun on the left, quick grab?';
+    }
+
+    if (kind === 'bazooka') {
+      return "Rocket tube there, I'm diving for it!";
+    }
+
+    return 'Ammo crate there, want it?';
   }
 
   private getSpeedMultiplier(failureSeverity: number, hasLatch: boolean): number {
@@ -512,14 +714,22 @@ export class DriverSystem {
   private createPrompt(
     intent: DriverIntentType,
     label: string,
+    category: DriverPromptCategory,
+    fallbackDecision: Extract<DriverPromptDecision, 'approve' | 'cancel'>,
+    source: 'hazard' | 'pickup' | 'latch',
+    reason: string,
     targetLaneIndex: number | null = null,
   ): DriverPromptState {
     return {
       intent,
+      category,
       label,
       timer: this.config.driver.promptDuration,
       duration: this.config.driver.promptDuration,
       targetLaneIndex,
+      fallbackDecision,
+      source,
+      reason,
     };
   }
 
@@ -535,6 +745,10 @@ export class DriverSystem {
         pothole: false,
         smallCount: 0,
         bruteCount: 0,
+        pickupKind: null,
+        pickupDistance: null,
+        pickupValue: 0,
+        pickupRisk: 0,
       }
     );
   }
@@ -576,6 +790,10 @@ export class DriverSystem {
       pothole: false,
       smallCount: 0,
       bruteCount: 0,
+      pickupKind: null,
+      pickupDistance: null,
+      pickupValue: 0,
+      pickupRisk: 0,
     }));
   }
 
@@ -583,6 +801,13 @@ export class DriverSystem {
     return randomRange(
       this.config.driver.promptIntervalMin,
       this.config.driver.promptIntervalMax,
+    );
+  }
+
+  private rollOpportunityTimer(): number {
+    return randomRange(
+      this.config.driver.opportunityPromptCooldown,
+      this.config.driver.opportunityPromptCooldown + 4,
     );
   }
 }
