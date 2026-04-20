@@ -1,12 +1,20 @@
 import {
+  AdditiveBlending,
   Camera,
+  CanvasTexture,
+  ConeGeometry,
+  DoubleSide,
   Group,
   MathUtils,
   Mesh,
+  MeshBasicMaterial,
   MeshStandardMaterial,
   Object3D,
+  PlaneGeometry,
   PointLight,
   SpotLight,
+  Sprite,
+  SpriteMaterial,
   Vector3,
 } from 'three';
 import type { GameConfig, GameStateType, RideState } from '../../core/types';
@@ -26,6 +34,17 @@ export class VehicleRigSystem {
   private readonly headlight = new SpotLight(0xffffff, 1);
   private readonly focusHeadlight = new SpotLight(0xffffff, 0);
   private readonly headlightFill = new PointLight(0xffffff, 0.4);
+  private readonly headlightCone: Mesh;
+  private readonly focusHeadlightCone: Mesh;
+  private readonly headlightBeamSheet: Mesh;
+  private readonly focusHeadlightBeamSheet: Mesh;
+  private readonly headlightRoadSplash: Mesh;
+  private readonly focusHeadlightRoadSplash: Mesh;
+  private readonly headlightGlow: Sprite;
+  private readonly focusHeadlightGlow: Sprite;
+  private readonly beamTexture: CanvasTexture;
+  private readonly splashTexture: CanvasTexture;
+  private readonly glowTexture: CanvasTexture;
   private readonly baseRigOffset = new Vector3();
   private readonly baseModelPosition = new Vector3();
   private readonly baseModelRotation = new Vector3();
@@ -45,6 +64,24 @@ export class VehicleRigSystem {
     private readonly config: GameConfig,
   ) {
     const rig = this.config.vehicle.stage1Rig;
+    const baseConeLength = Math.max(6, rig.headlightDistance * 0.9);
+    const baseConeRadius = Math.max(
+      1.8,
+      Math.tan(MathUtils.degToRad(rig.headlightAngleDegrees)) * baseConeLength * 0.7,
+    );
+    const focusConeLength = Math.max(10, rig.focusHeadlightDistance * 0.92);
+    const focusConeRadius = Math.max(
+      1.2,
+      Math.tan(MathUtils.degToRad(rig.focusHeadlightAngleDegrees)) * focusConeLength * 0.5,
+    );
+    const baseSplashWidth = Math.max(4.6, baseConeRadius * 2.4);
+    const baseSplashLength = Math.max(7.2, baseConeLength * 0.72);
+    const focusSplashWidth = Math.max(5.2, focusConeRadius * 2.8);
+    const focusSplashLength = Math.max(11.5, focusConeLength * 0.62);
+
+    this.beamTexture = this.createBeamTexture();
+    this.splashTexture = this.createSplashTexture();
+    this.glowTexture = this.createGlowTexture();
 
     this.vehicleRig.name = 'VehicleRig';
     this.obstructionShakeGroup.name = 'VehicleObstructionShake';
@@ -90,12 +127,148 @@ export class VehicleRigSystem {
     this.headlightFill.decay = 1.8;
     this.headlight.target = this.headlightTarget;
     this.focusHeadlight.target = this.headlightTarget;
+    this.headlightCone = new Mesh(
+      new ConeGeometry(baseConeRadius, baseConeLength, 18, 1, true),
+      new MeshBasicMaterial({
+        color: rig.headlightColor,
+        map: this.beamTexture,
+        transparent: true,
+        opacity: 0.18,
+        blending: AdditiveBlending,
+        depthWrite: false,
+        side: DoubleSide,
+        fog: false,
+      }),
+    );
+    this.focusHeadlightCone = new Mesh(
+      new ConeGeometry(focusConeRadius, focusConeLength, 20, 1, true),
+      new MeshBasicMaterial({
+        color: rig.focusHeadlightColor,
+        map: this.beamTexture,
+        transparent: true,
+        opacity: 0,
+        blending: AdditiveBlending,
+        depthWrite: false,
+        side: DoubleSide,
+        fog: false,
+      }),
+    );
+    this.headlightBeamSheet = new Mesh(
+      new PlaneGeometry(baseConeRadius * 1.8, baseConeLength),
+      new MeshBasicMaterial({
+        color: rig.headlightColor,
+        map: this.beamTexture,
+        transparent: true,
+        opacity: 0.42,
+        blending: AdditiveBlending,
+        depthWrite: false,
+        side: DoubleSide,
+        fog: false,
+      }),
+    );
+    this.focusHeadlightBeamSheet = new Mesh(
+      new PlaneGeometry(focusConeRadius * 1.35, focusConeLength),
+      new MeshBasicMaterial({
+        color: rig.focusHeadlightColor,
+        map: this.beamTexture,
+        transparent: true,
+        opacity: 0,
+        blending: AdditiveBlending,
+        depthWrite: false,
+        side: DoubleSide,
+        fog: false,
+      }),
+    );
+    this.headlightRoadSplash = new Mesh(
+      new PlaneGeometry(baseSplashWidth, baseSplashLength),
+      new MeshBasicMaterial({
+        color: rig.headlightColor,
+        map: this.splashTexture,
+        transparent: true,
+        opacity: 0.48,
+        blending: AdditiveBlending,
+        depthWrite: false,
+        side: DoubleSide,
+        fog: false,
+      }),
+    );
+    this.focusHeadlightRoadSplash = new Mesh(
+      new PlaneGeometry(focusSplashWidth, focusSplashLength),
+      new MeshBasicMaterial({
+        color: rig.focusHeadlightColor,
+        map: this.splashTexture,
+        transparent: true,
+        opacity: 0,
+        blending: AdditiveBlending,
+        depthWrite: false,
+        side: DoubleSide,
+        fog: false,
+      }),
+    );
+    this.headlightGlow = new Sprite(
+      new SpriteMaterial({
+        color: rig.headlightColor,
+        map: this.glowTexture,
+        transparent: true,
+        opacity: 0.78,
+        blending: AdditiveBlending,
+        depthWrite: false,
+        fog: false,
+      }),
+    );
+    this.focusHeadlightGlow = new Sprite(
+      new SpriteMaterial({
+        color: rig.focusHeadlightColor,
+        map: this.glowTexture,
+        transparent: true,
+        opacity: 0,
+        blending: AdditiveBlending,
+        depthWrite: false,
+        fog: false,
+      }),
+    );
+    this.headlightCone.rotation.x = -Math.PI * 0.5;
+    this.focusHeadlightCone.rotation.x = -Math.PI * 0.5;
+    this.headlightCone.position.z = -baseConeLength * 0.5;
+    this.focusHeadlightCone.position.z = -focusConeLength * 0.5;
+    this.headlightBeamSheet.rotation.x = -Math.PI * 0.5;
+    this.focusHeadlightBeamSheet.rotation.x = -Math.PI * 0.5;
+    this.headlightBeamSheet.position.set(0, -0.02, -baseConeLength * 0.48);
+    this.focusHeadlightBeamSheet.position.set(0, 0.03, -focusConeLength * 0.5);
+    this.headlightRoadSplash.rotation.x = -Math.PI * 0.5;
+    this.focusHeadlightRoadSplash.rotation.x = -Math.PI * 0.5;
+    this.headlightRoadSplash.position.set(0, -0.24, -baseSplashLength * 0.5);
+    this.focusHeadlightRoadSplash.position.set(0, -0.235, -focusSplashLength * 0.52);
+    this.headlightGlow.position.set(0, 0.01, -0.2);
+    this.focusHeadlightGlow.position.set(0, 0.02, -0.22);
+    this.headlightGlow.scale.setScalar(0.8);
+    this.focusHeadlightGlow.scale.setScalar(1.2);
+    this.headlightCone.renderOrder = 4;
+    this.focusHeadlightCone.renderOrder = 4;
+    this.headlightBeamSheet.renderOrder = 4;
+    this.focusHeadlightBeamSheet.renderOrder = 4;
+    this.headlightRoadSplash.renderOrder = 3;
+    this.focusHeadlightRoadSplash.renderOrder = 3;
+    this.headlightGlow.renderOrder = 5;
+    this.focusHeadlightGlow.renderOrder = 5;
     this.headlightPivot.position.copy(this.baseHeadlightPosition);
     this.headlight.position.set(0, 0, 0);
     this.focusHeadlight.position.set(0, 0, -0.02);
     this.headlightFill.position.set(0, 0, -0.1);
     this.headlightTarget.position.copy(this.baseHeadlightTargetPosition);
-    this.headlightPivot.add(this.headlight, this.focusHeadlight, this.headlightFill);
+    this.headlightPivot.add(
+      this.headlightCone,
+      this.focusHeadlightCone,
+      this.headlightBeamSheet,
+      this.focusHeadlightBeamSheet,
+      this.headlightRoadSplash,
+      this.focusHeadlightRoadSplash,
+      this.headlightGlow,
+      this.focusHeadlightGlow,
+      this.headlight,
+      this.focusHeadlight,
+      this.headlightFill,
+    );
 
     this.seatPivot.position.copy(this.baseSeatPivotPosition);
     this.cameraYaw.position.copy(this.baseCameraOffset);
@@ -160,6 +333,14 @@ export class VehicleRigSystem {
     this.headlight.intensity = this.config.vehicle.stage1Rig.headlightIntensity;
     this.focusHeadlight.intensity = 0;
     this.headlightFill.intensity = this.config.vehicle.stage1Rig.headlightFillIntensity;
+    (this.headlightCone.material as MeshBasicMaterial).opacity = 0.18;
+    (this.focusHeadlightCone.material as MeshBasicMaterial).opacity = 0;
+    (this.headlightBeamSheet.material as MeshBasicMaterial).opacity = 0.42;
+    (this.focusHeadlightBeamSheet.material as MeshBasicMaterial).opacity = 0;
+    (this.headlightRoadSplash.material as MeshBasicMaterial).opacity = 0.48;
+    (this.focusHeadlightRoadSplash.material as MeshBasicMaterial).opacity = 0;
+    (this.headlightGlow.material as SpriteMaterial).opacity = 0.78;
+    (this.focusHeadlightGlow.material as SpriteMaterial).opacity = 0;
     this.vehicleRig.visible = true;
   }
 
@@ -253,16 +434,35 @@ export class VehicleRigSystem {
       this.baseHeadlightTargetPosition.z,
     );
     const headlightFailureDrop = 1 - Math.min(0.3, (ride?.failureSeverity ?? 0) * 0.16);
+    const focusBeamAlpha =
+      (ride?.focusBeamStrength ?? 0) * (ride?.focusBeamOverheated ? 0 : 1);
     this.headlight.intensity =
       rig.headlightIntensity * (running ? 1 : 0.86) * headlightFailureDrop;
     this.focusHeadlight.intensity =
       rig.focusHeadlightIntensity *
-      (ride?.focusBeamStrength ?? 0) *
+      focusBeamAlpha *
       (running ? 1 : 0.82) *
-      headlightFailureDrop *
-      (ride?.focusBeamOverheated ? 0 : 1);
+      headlightFailureDrop;
     this.headlightFill.intensity =
       rig.headlightFillIntensity * (running ? 1 : 0.82) * headlightFailureDrop;
+    (this.headlightCone.material as MeshBasicMaterial).opacity =
+      (running ? 0.22 : 0.16) * headlightFailureDrop;
+    (this.focusHeadlightCone.material as MeshBasicMaterial).opacity =
+      0.34 * focusBeamAlpha * headlightFailureDrop;
+    (this.headlightBeamSheet.material as MeshBasicMaterial).opacity =
+      (running ? 0.56 : 0.4) * headlightFailureDrop;
+    (this.focusHeadlightBeamSheet.material as MeshBasicMaterial).opacity =
+      0.72 * focusBeamAlpha * headlightFailureDrop;
+    (this.headlightRoadSplash.material as MeshBasicMaterial).opacity =
+      (running ? 0.62 : 0.46) * headlightFailureDrop;
+    (this.focusHeadlightRoadSplash.material as MeshBasicMaterial).opacity =
+      0.78 * focusBeamAlpha * headlightFailureDrop;
+    (this.headlightGlow.material as SpriteMaterial).opacity =
+      (running ? 0.88 : 0.68) * headlightFailureDrop;
+    (this.focusHeadlightGlow.material as SpriteMaterial).opacity =
+      0.86 * focusBeamAlpha * headlightFailureDrop;
+    this.headlightGlow.scale.setScalar(0.8 + rideShake * 3.2);
+    this.focusHeadlightGlow.scale.setScalar(1.1 + focusBeamAlpha * 0.75 + rideShake * 2.4);
 
     const shakeNoiseA = Math.sin(this.time * 42.0);
     const shakeNoiseB = Math.cos(this.time * 37.0);
@@ -372,5 +572,110 @@ export class VehicleRigSystem {
         material.dispose();
       }
     });
+  }
+
+  private createBeamTexture(): CanvasTexture {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 1024;
+    const context = canvas.getContext('2d');
+    if (!context) {
+      throw new Error('Unable to create headlight beam texture.');
+    }
+
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.globalCompositeOperation = 'source-over';
+
+    const outerGradient = context.createLinearGradient(0, 0, 0, canvas.height);
+    outerGradient.addColorStop(0, 'rgba(255,255,255,0.9)');
+    outerGradient.addColorStop(0.2, 'rgba(255,255,255,0.42)');
+    outerGradient.addColorStop(0.58, 'rgba(255,255,255,0.14)');
+    outerGradient.addColorStop(1, 'rgba(255,255,255,0)');
+    context.fillStyle = outerGradient;
+    context.beginPath();
+    context.moveTo(canvas.width * 0.44, 0);
+    context.quadraticCurveTo(canvas.width * 0.11, canvas.height * 0.26, canvas.width * 0.04, canvas.height);
+    context.lineTo(canvas.width * 0.96, canvas.height);
+    context.quadraticCurveTo(canvas.width * 0.89, canvas.height * 0.26, canvas.width * 0.56, 0);
+    context.closePath();
+    context.fill();
+
+    const coreGradient = context.createLinearGradient(0, 0, 0, canvas.height);
+    coreGradient.addColorStop(0, 'rgba(255,255,255,1)');
+    coreGradient.addColorStop(0.12, 'rgba(255,255,255,0.92)');
+    coreGradient.addColorStop(0.4, 'rgba(255,255,255,0.26)');
+    coreGradient.addColorStop(1, 'rgba(255,255,255,0)');
+    context.fillStyle = coreGradient;
+    context.beginPath();
+    context.moveTo(canvas.width * 0.485, 0);
+    context.quadraticCurveTo(canvas.width * 0.35, canvas.height * 0.18, canvas.width * 0.28, canvas.height);
+    context.lineTo(canvas.width * 0.72, canvas.height);
+    context.quadraticCurveTo(canvas.width * 0.65, canvas.height * 0.18, canvas.width * 0.515, 0);
+    context.closePath();
+    context.fill();
+
+    const texture = new CanvasTexture(canvas);
+    texture.needsUpdate = true;
+    return texture;
+  }
+
+  private createSplashTexture(): CanvasTexture {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 512;
+    const context = canvas.getContext('2d');
+    if (!context) {
+      throw new Error('Unable to create headlight splash texture.');
+    }
+
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.translate(canvas.width * 0.5, canvas.height * 0.42);
+    context.scale(1, 1.55);
+    const gradient = context.createRadialGradient(0, 0, 18, 0, 0, 188);
+    gradient.addColorStop(0, 'rgba(255,255,255,0.96)');
+    gradient.addColorStop(0.22, 'rgba(255,255,255,0.74)');
+    gradient.addColorStop(0.55, 'rgba(255,255,255,0.24)');
+    gradient.addColorStop(1, 'rgba(255,255,255,0)');
+    context.fillStyle = gradient;
+    context.beginPath();
+    context.arc(0, 0, 188, 0, Math.PI * 2);
+    context.fill();
+    context.setTransform(1, 0, 0, 1, 0, 0);
+
+    const texture = new CanvasTexture(canvas);
+    texture.needsUpdate = true;
+    return texture;
+  }
+
+  private createGlowTexture(): CanvasTexture {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 256;
+    const context = canvas.getContext('2d');
+    if (!context) {
+      throw new Error('Unable to create headlight glow texture.');
+    }
+
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    const gradient = context.createRadialGradient(
+      canvas.width * 0.5,
+      canvas.height * 0.5,
+      6,
+      canvas.width * 0.5,
+      canvas.height * 0.5,
+      canvas.width * 0.5,
+    );
+    gradient.addColorStop(0, 'rgba(255,255,255,1)');
+    gradient.addColorStop(0.18, 'rgba(255,255,255,0.96)');
+    gradient.addColorStop(0.52, 'rgba(255,255,255,0.28)');
+    gradient.addColorStop(1, 'rgba(255,255,255,0)');
+    context.fillStyle = gradient;
+    context.beginPath();
+    context.arc(canvas.width * 0.5, canvas.height * 0.5, canvas.width * 0.5, 0, Math.PI * 2);
+    context.fill();
+
+    const texture = new CanvasTexture(canvas);
+    texture.needsUpdate = true;
+    return texture;
   }
 }

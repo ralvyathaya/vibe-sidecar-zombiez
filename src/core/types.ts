@@ -29,8 +29,11 @@ export type DriverIntentType =
   | 'scrapeWreck'
   | 'shakeItOff'
   | 'forceGap'
-  | 'pickupOpportunity';
-export type DriverPromptCategory = 'emergency' | 'opportunity';
+  | 'pickupOpportunity'
+  | 'floorIt'
+  | 'brake'
+  | 'lights';
+export type DriverPromptCategory = 'emergency' | 'opportunity' | 'support';
 export type DriverPromptDecision = 'approve' | 'cancel' | 'timeout';
 export type ObstacleType =
   | 'barricade'
@@ -223,6 +226,8 @@ export interface GameConfig {
       headlightFillColor: number;
       headlightFillIntensity: number;
       headlightFillDistance: number;
+      headlightFillAngleDegrees: number;
+      headlightFillPenumbra: number;
       focusHeadlightColor: number;
       focusHeadlightIntensity: number;
       focusHeadlightDistance: number;
@@ -302,6 +307,8 @@ export interface GameConfig {
     forceGapAimShake: number;
     forceGapCameraShake: number;
     cautiousHoldDuration: number;
+    supportCueDuration: number;
+    supportCueCooldown: number;
   };
   pacing: {
     sequence: RunSegment[];
@@ -709,7 +716,7 @@ export interface DriverPromptState {
   duration: number;
   targetLaneIndex: number | null;
   fallbackDecision: Extract<DriverPromptDecision, 'approve' | 'cancel'>;
-  source: 'hazard' | 'pickup' | 'latch';
+  source: 'hazard' | 'pickup' | 'latch' | 'support';
   reason: string;
 }
 
@@ -719,7 +726,7 @@ export interface DriverPromptResolution {
   effectiveDecision: Extract<DriverPromptDecision, 'approve' | 'cancel'>;
   targetLaneIndex: number | null;
   category: DriverPromptCategory;
-  source: 'hazard' | 'pickup' | 'latch';
+  source: 'hazard' | 'pickup' | 'latch' | 'support';
   reason: string;
 }
 

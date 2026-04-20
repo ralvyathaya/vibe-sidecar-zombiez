@@ -129,6 +129,10 @@ export class UISystem {
   private driverPanelHold = 0;
   private lastElapsedSeconds = 0;
   private lastDriverPresentation: DriverPresentation | null = null;
+  private lastWeaponType: WeaponStatus['weaponType'] | null = null;
+  private lastAdrenalineTimer = 0;
+  private lastNitroTimer = 0;
+  private tankWarningCooldown = 0;
 
   constructor(host: HTMLElement) {
     this.root.className = 'ui-root';
@@ -394,6 +398,7 @@ export class UISystem {
         ? snapshot.elapsedSeconds - this.lastElapsedSeconds
         : 0;
     this.lastElapsedSeconds = snapshot.elapsedSeconds;
+    this.tankWarningCooldown = Math.max(0, this.tankWarningCooldown - deltaTime);
     const healthRatio = Math.max(0, snapshot.player.health / snapshot.player.maxHealth);
     this.healthFill.style.transform = `scaleX(${healthRatio})`;
     this.healthValue.textContent = `${Math.ceil(snapshot.player.health)} / ${snapshot.player.maxHealth}`;
@@ -509,6 +514,22 @@ export class UISystem {
         (snapshot.ride?.focusBeamOverheated ?? false)
       );
     this.drivePanel.hidden = !showDrivePanel;
+    this.driveBoostRow.hidden =
+      !(
+        (snapshot.ride?.manualBoostEngaged ?? false) ||
+        (snapshot.ride?.manualBoostMeterRatio ?? 1) < 0.995
+      );
+    this.driveBrakeRow.hidden =
+      !(
+        (snapshot.ride?.manualBrakeEngaged ?? false) ||
+        (snapshot.ride?.manualBrakeMeterRatio ?? 1) < 0.995
+      );
+    this.driveFocusRow.hidden =
+      !(
+        (snapshot.ride?.focusBeamActive ?? false) ||
+        (snapshot.ride?.focusBeamHeatRatio ?? 0) > 0.02 ||
+        (snapshot.ride?.focusBeamOverheated ?? false)
+      );
     this.driveBoostRow.dataset.state = boostState;
     this.driveBrakeRow.dataset.state = brakeState;
     this.driveFocusRow.dataset.state = focusState;
@@ -646,6 +667,9 @@ export class UISystem {
         : snapshot.ride && snapshot.ride.failureSeverity >= 0.45
           ? 'warning'
           : 'stable';
+    this.lastWeaponType = snapshot.weapon.weaponType;
+    this.lastAdrenalineTimer = snapshot.player.adrenalineTimer;
+    this.lastNitroTimer = snapshot.player.nitroTimer;
     this.updateOverlay(snapshot);
   }
 
@@ -861,6 +885,94 @@ export class UISystem {
         showControls: false,
         controlsLabel: '',
         persistSeconds: 0.85,
+      };
+    }
+
+    if (this.lastAdrenalineTimer <= 0.1 && snapshot.player.adrenalineTimer > 0.1) {
+      return {
+        key: 'pickup:adrenaline',
+        mood: 'observing',
+        label: 'Adrenaline steadies your aim and helps you shake a latch faster.',
+        speaker: 'Driver  Explaining',
+        intent: 'pickup',
+        showTimer: false,
+        timerRatio: 0,
+        showControls: false,
+        controlsLabel: '',
+        persistSeconds: 1.35,
+      };
+    }
+
+    if (this.lastNitroTimer <= 0.1 && snapshot.player.nitroTimer > 0.1) {
+      return {
+        key: 'pickup:nitro',
+        mood: 'observing',
+        label: 'Nitro makes your accel bite harder and helps me commit faster.',
+        speaker: 'Driver  Explaining',
+        intent: 'pickup',
+        showTimer: false,
+        timerRatio: 0,
+        showControls: false,
+        controlsLabel: '',
+        persistSeconds: 1.35,
+      };
+    }
+
+    if (
+      this.lastWeaponType &&
+      this.lastWeaponType !== snapshot.weapon.weaponType &&
+      snapshot.weapon.weaponType === 'shotgun'
+    ) {
+      return {
+        key: 'pickup:shotgun',
+        mood: 'calm',
+        label: 'Shotgun is your panic cleaner. Keep it for close messes and latch trouble.',
+        speaker: 'Driver  Explaining',
+        intent: 'pickup',
+        showTimer: false,
+        timerRatio: 0,
+        showControls: false,
+        controlsLabel: '',
+        persistSeconds: 1.45,
+      };
+    }
+
+    if (
+      this.lastWeaponType &&
+      this.lastWeaponType !== snapshot.weapon.weaponType &&
+      snapshot.weapon.weaponType === 'bazooka'
+    ) {
+      return {
+        key: 'pickup:bazooka',
+        mood: 'observing',
+        label: 'Bazooka is your heavy answer. Save it for a brute or a real pileup.',
+        speaker: 'Driver  Explaining',
+        intent: 'pickup',
+        showTimer: false,
+        timerRatio: 0,
+        showControls: false,
+        controlsLabel: '',
+        persistSeconds: 1.5,
+      };
+    }
+
+    if (
+      snapshot.elapsedSeconds >= 54 &&
+      snapshot.radarContacts.some((contact) => contact.type === 'tank') &&
+      this.tankWarningCooldown <= 0
+    ) {
+      this.tankWarningCooldown = 6.5;
+      return {
+        key: `warning:tank:${Math.floor(snapshot.elapsedSeconds)}`,
+        mood: 'panic',
+        label: 'Brute on the road. Watch the tank zombie and save heavy damage for it.',
+        speaker: 'Driver  Warning',
+        intent: 'warning',
+        showTimer: false,
+        timerRatio: 0,
+        showControls: false,
+        controlsLabel: '',
+        persistSeconds: 1.25,
       };
     }
 

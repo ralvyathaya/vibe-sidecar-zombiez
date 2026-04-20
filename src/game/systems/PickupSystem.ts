@@ -43,6 +43,7 @@ export class PickupSystem {
   private shotgunLoadPromise: Promise<void> | null = null;
   private bazookaLoadPromise: Promise<void> | null = null;
   private nextSpawnZ = -110;
+  private scriptedBazookaSpawned = false;
 
   constructor(
     private readonly scene: Scene,
@@ -61,6 +62,7 @@ export class PickupSystem {
       this.config.pickups.spawnMinZ,
       this.config.pickups.spawnMaxZ,
     );
+    this.scriptedBazookaSpawned = false;
 
     for (const pickup of this.pickups) {
       this.deactivate(pickup);
@@ -126,6 +128,19 @@ export class PickupSystem {
 
     const bazookaUnlocked =
       devWeapons || elapsedSeconds >= this.config.pickups.bazookaUnlockTimeSeconds;
+    if (
+      bazookaUnlocked &&
+      !this.scriptedBazookaSpawned &&
+      elapsedSeconds >= 40 &&
+      loadout.bazookaAmmo <= 0 &&
+      !this.hasActiveKind('bazooka')
+    ) {
+      const slot = this.pickups.find((entry) => !entry.active);
+      if (slot) {
+        this.spawn(slot, loadout, player, bazookaUnlocked, elapsedSeconds, 'bazooka');
+        this.scriptedBazookaSpawned = true;
+      }
+    }
     const desiredWeaponCount = bazookaUnlocked ? 3 : loadout.shotgunUnlocked ? 2 : 1;
     const desiredSupportCount =
       elapsedSeconds >= this.config.pickups.unlockTimeSeconds ? 2 : 0;
@@ -280,11 +295,15 @@ export class PickupSystem {
     player: PlayerState,
     bazookaUnlocked: boolean,
     elapsedSeconds: number,
+    forcedKind?: PickupType,
   ): void {
     const laneIndex = randomInt(0, this.config.world.laneCenters.length - 1);
     const laneCenter = this.config.world.laneCenters[laneIndex] ?? 0;
     const activeSupportCount = this.getActiveSupportCount();
     let kind: PickupType;
+    if (forcedKind) {
+      kind = forcedKind;
+    } else {
     const canSpawnSupport =
       elapsedSeconds >= this.config.pickups.unlockTimeSeconds &&
       activeSupportCount < 2 &&
@@ -305,6 +324,7 @@ export class PickupSystem {
       kind = 'shotgunAmmo';
     } else {
       kind = 'shotgun';
+    }
     }
 
     pickup.active = true;
@@ -458,6 +478,10 @@ export class PickupSystem {
           : 0),
       0,
     );
+  }
+
+  private hasActiveKind(kind: PickupType): boolean {
+    return this.pickups.some((pickup) => pickup.active && pickup.kind === kind);
   }
 
   private createAmmoCrateVariant(): Group {

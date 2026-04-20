@@ -13,6 +13,7 @@ export class SpawnSystem {
   private eventTimer = 0;
   private eventDuration = 0;
   private lastEvent: Exclude<RunEventType, 'none'> | null = null;
+  private scriptedBerserkTriggered = false;
 
   constructor(private readonly config: GameConfig) {}
 
@@ -26,6 +27,7 @@ export class SpawnSystem {
     this.eventTimer = 0;
     this.eventDuration = 0;
     this.lastEvent = null;
+    this.scriptedBerserkTriggered = false;
   }
 
   notifyLatchResolved(): void {
@@ -173,6 +175,19 @@ export class SpawnSystem {
         this.eventDuration = 0;
         this.nextEventIn = this.rollEventInterval();
       }
+      return;
+    }
+
+    if (!this.scriptedBerserkTriggered) {
+      if (this.elapsedSeconds < 40) {
+        return;
+      }
+
+      this.activeEvent = 'berserkWave';
+      this.lastEvent = 'berserkWave';
+      this.eventDuration = 9;
+      this.eventTimer = this.eventDuration;
+      this.scriptedBerserkTriggered = true;
       return;
     }
 
