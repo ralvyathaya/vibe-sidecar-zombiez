@@ -46,6 +46,7 @@ export class PlayerSystem {
 
   updateRunning(deltaTime: number, input: InputSystem, ride: RideState): void {
     this.time += deltaTime;
+    this.updateBuffTimers(deltaTime);
     const leanAxis = input.getLeanAxis();
     const handlingScale = Math.max(0.45, 1 - ride.handlingPenalty);
     const leanTarget = leanAxis * this.config.player.leanRange * handlingScale;
@@ -103,6 +104,7 @@ export class PlayerSystem {
 
   updateIdle(deltaTime: number): void {
     this.time += deltaTime;
+    this.updateBuffTimers(deltaTime);
     this.state.hitFlash = approach(this.state.hitFlash, 0, deltaTime * 2.8);
     this.recoilPitch = approach(
       this.recoilPitch,
@@ -152,6 +154,29 @@ export class PlayerSystem {
 
   getEngineTurnAmount(): number {
     return this.engineTurnAmount;
+  }
+
+  heal(amount: number): void {
+    this.state.health = Math.min(this.state.maxHealth, this.state.health + amount);
+    this.state.failureSeverity = this.computeFailureSeverity();
+  }
+
+  grantAdrenaline(duration: number): void {
+    this.state.adrenalineDuration = duration;
+    this.state.adrenalineTimer = Math.max(this.state.adrenalineTimer, duration);
+  }
+
+  grantNitro(duration: number): void {
+    this.state.nitroDuration = duration;
+    this.state.nitroTimer = Math.max(this.state.nitroTimer, duration);
+  }
+
+  hasAdrenaline(): boolean {
+    return this.state.adrenalineTimer > 0;
+  }
+
+  hasNitro(): boolean {
+    return this.state.nitroTimer > 0;
   }
 
   private applyCameraTransform(leanAxis: number, ride: RideState | null): void {
@@ -230,6 +255,15 @@ export class PlayerSystem {
       alive: true,
       hitFlash: 0,
       failureSeverity: 0,
+      adrenalineTimer: 0,
+      adrenalineDuration: 0,
+      nitroTimer: 0,
+      nitroDuration: 0,
     };
+  }
+
+  private updateBuffTimers(deltaTime: number): void {
+    this.state.adrenalineTimer = Math.max(0, this.state.adrenalineTimer - deltaTime);
+    this.state.nitroTimer = Math.max(0, this.state.nitroTimer - deltaTime);
   }
 }

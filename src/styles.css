@@ -69,6 +69,7 @@ body {
   flex: 1;
   justify-content: flex-end;
   align-items: flex-start;
+  gap: 10px;
   padding-top: 18px;
 }
 
@@ -803,6 +804,61 @@ body {
   box-shadow: 0 12px 26px rgba(0, 0, 0, 0.16);
 }
 
+.event-chip,
+.buff-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(19, 22, 26, 0.84), rgba(12, 14, 16, 0.58));
+  border: 1px solid rgba(255, 232, 198, 0.14);
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #fff0d2;
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.16);
+}
+
+.event-chip[data-event="berserkWave"] {
+  color: #ffd0c7;
+  border-color: rgba(255, 132, 108, 0.24);
+}
+
+.event-chip[data-event="slipperyRoad"] {
+  color: #d6f0ff;
+  border-color: rgba(145, 215, 255, 0.24);
+}
+
+.event-chip[data-event="blackoutStretch"] {
+  color: #cfd9ff;
+  border-color: rgba(171, 186, 255, 0.22);
+}
+
+.buff-panel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: auto;
+}
+
+.buff-chip {
+  background: linear-gradient(180deg, rgba(24, 28, 32, 0.86), rgba(10, 12, 15, 0.6));
+  font-size: 0.58rem;
+}
+
+.buff-chip:first-child {
+  color: #d3fbff;
+  border-color: rgba(135, 247, 255, 0.2);
+}
+
+.buff-chip:last-child {
+  color: #ffe0b6;
+  border-color: rgba(255, 197, 122, 0.22);
+}
+
 .segment-chip[data-segment="rest"] {
   color: #e8ffd2;
 }
@@ -1046,6 +1102,7 @@ body {
   .hud-middle {
     padding-top: 10px;
     justify-content: center;
+    flex-wrap: wrap;
   }
 
   .hud-bottom {

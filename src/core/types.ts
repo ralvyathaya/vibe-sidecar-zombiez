@@ -14,9 +14,16 @@ export type HumanoidZombieType = 'walker' | 'runner' | 'tank';
 export type ZombieLifecycleState = 'inactive' | 'alive' | 'dying';
 export type WeaponKind = 'pistol' | 'shotgun' | 'bazooka';
 export type AmmoRoundStyle = 'bullet' | 'shell' | 'rocket';
-export type PickupType = 'shotgun' | 'shotgunAmmo' | 'bazooka';
+export type PickupType =
+  | 'shotgun'
+  | 'shotgunAmmo'
+  | 'bazooka'
+  | 'medkit'
+  | 'adrenaline'
+  | 'nitroCan';
 export type CrosshairStyle = 'pistol' | 'shotgun' | 'bazooka';
 export type RunSegment = 'rest' | 'chaos' | 'dark';
+export type RunEventType = 'none' | 'berserkWave' | 'slipperyRoad' | 'blackoutStretch';
 export type DriverIntentType =
   | 'cutLeft'
   | 'scrapeWreck'
@@ -39,7 +46,6 @@ export type WorldReactionType =
   | 'none'
   | 'laneCut'
   | 'scrape'
-  | 'pothole'
   | 'brokenLane'
   | 'barrel'
   | 'shakeOff';
@@ -228,6 +234,12 @@ export interface GameConfig {
     boostDuration: number;
     boostSpeedMultiplier: number;
     inputCooldown: number;
+    adrenalineAimShakeMultiplier: number;
+    adrenalineReloadMultiplier: number;
+    adrenalineWiggleMultiplier: number;
+    nitroBoostMultiplier: number;
+    nitroSpeedBonus: number;
+    nitroLaneChangeMultiplier: number;
   };
   driver: {
     promptIntervalMin: number;
@@ -274,6 +286,21 @@ export interface GameConfig {
     enemyLaneThreatBonus: Record<RunSegment, number>;
     hazardDensity: Record<RunSegment, number>;
     visibility: Record<RunSegment, number>;
+    events: {
+      warmup: number;
+      intervalMin: number;
+      intervalMax: number;
+      durationMin: number;
+      durationMax: number;
+      blackoutRadarMultiplier: number;
+      blackoutFogMultiplier: number;
+      slipperyHandlingPenalty: number;
+      slipperyPulseEffectiveness: number;
+      slipperyLaneChangeMultiplier: number;
+      berserkSpawnMultiplier: number;
+      berserkBatchBonus: number;
+      berserkRunnerBonus: number;
+    };
   };
   weapon: {
     fireRate: number;
@@ -530,6 +557,15 @@ export interface GameConfig {
     shotgunPickupScale: number;
     ammoCrateScale: number;
     bazookaPickupScale: number;
+    supportPickupScale: number;
+    supportPickupSpacingMin: number;
+    supportPickupSpacingMax: number;
+    supportPickupChance: number;
+    medkitHeal: number;
+    medkitLowHealthBias: number;
+    adrenalineDuration: number;
+    nitroDuration: number;
+    nitroEarliestSeconds: number;
   };
   rewards: {
     chainDuration: number;
@@ -571,6 +607,10 @@ export interface PlayerState {
   alive: boolean;
   hitFlash: number;
   failureSeverity: number;
+  adrenalineTimer: number;
+  adrenalineDuration: number;
+  nitroTimer: number;
+  nitroDuration: number;
 }
 
 export interface WeaponStatus {
@@ -688,12 +728,19 @@ export interface RideState {
   latchActive: boolean;
   latchWiggle: number;
   latchWiggleRatio: number;
+  manualBrakeActiveRatio: number;
+  manualBrakeReadyRatio: number;
+  manualBoostActiveRatio: number;
+  manualBoostReadyRatio: number;
   manualBrakeCooldown: number;
   manualBoostCooldown: number;
   prompt: DriverPromptState | null;
   segment: RunSegment;
   segmentElapsed: number;
   segmentDuration: number;
+  activeEvent: RunEventType;
+  eventTimer: number;
+  eventDuration: number;
   scrapeMode: boolean;
   shakeOffMode: boolean;
   forceGapMode: boolean;

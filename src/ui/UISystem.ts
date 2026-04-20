@@ -82,6 +82,10 @@ export class UISystem {
   private readonly radarContactLayer = document.createElement('div');
   private readonly radarCaret = document.createElement('div');
   private readonly segmentChip = document.createElement('div');
+  private readonly eventChip = document.createElement('div');
+  private readonly buffPanel = document.createElement('div');
+  private readonly adrenalineBuff = document.createElement('div');
+  private readonly nitroBuff = document.createElement('div');
   private readonly controlHint = document.createElement('div');
   private readonly driverPanel = document.createElement('div');
   private readonly driverPortraitFrame = document.createElement('div');
@@ -203,6 +207,10 @@ export class UISystem {
     this.ammoPanel.append(ammoLabel, this.weaponHeader, ammoRack, ammoHeader);
 
     this.segmentChip.className = 'segment-chip';
+    this.eventChip.className = 'event-chip';
+    this.buffPanel.className = 'buff-panel';
+    this.adrenalineBuff.className = 'buff-chip';
+    this.nitroBuff.className = 'buff-chip';
     this.controlHint.className = 'control-hint';
     this.driverPanel.className = 'driver-panel';
     this.driverPortraitFrame.className = 'driver-portrait-frame';
@@ -245,7 +253,8 @@ export class UISystem {
     this.rewardCallout.className = 'reward-callout';
 
     hudTop.append(this.rewardHud, this.radarPanel);
-    hudMiddle.append(this.segmentChip, statsPanel);
+    this.buffPanel.append(this.adrenalineBuff, this.nitroBuff);
+    hudMiddle.append(this.segmentChip, this.eventChip, this.buffPanel, statsPanel);
     hudBottom.append(leftPanel, this.ammoPanel);
     hud.append(hudTop, hudMiddle, hudBottom);
 
@@ -312,7 +321,7 @@ export class UISystem {
         this.overlay.hidden = false;
         this.overlayTitle.textContent = 'Dead Rush Sidecar';
         this.overlayText.textContent =
-          'Ride shotgun in the apocalypse. Mouse aim, click to fire, A/D to lean or wiggle free, Q/E to work with your reckless driver.';
+          'Ride shotgun in the apocalypse. Mouse aim, click to fire, A/D to lean or wiggle free, W/S for short accel-brake, Q/E to answer your reckless driver.';
         this.overlayButton.textContent = 'Click To Start';
         break;
       case 'paused':
@@ -412,10 +421,25 @@ export class UISystem {
 
     this.segmentChip.textContent = snapshot.ride ? snapshot.ride.segment.toUpperCase() : 'REST';
     this.segmentChip.dataset.segment = snapshot.ride?.segment ?? 'rest';
+    this.eventChip.hidden = !snapshot.ride || snapshot.ride.activeEvent === 'none';
+    this.eventChip.textContent = this.getEventLabel(snapshot.ride?.activeEvent ?? 'none');
+    this.eventChip.dataset.event = snapshot.ride?.activeEvent ?? 'none';
+    this.buffPanel.hidden =
+      snapshot.player.adrenalineTimer <= 0 && snapshot.player.nitroTimer <= 0;
+    this.adrenalineBuff.hidden = snapshot.player.adrenalineTimer <= 0;
+    this.nitroBuff.hidden = snapshot.player.nitroTimer <= 0;
+    this.adrenalineBuff.textContent =
+      snapshot.player.adrenalineTimer > 0
+        ? `Adrenaline ${(snapshot.player.adrenalineTimer).toFixed(1)}s`
+        : '';
+    this.nitroBuff.textContent =
+      snapshot.player.nitroTimer > 0
+        ? `Nitro ${(snapshot.player.nitroTimer).toFixed(1)}s`
+        : '';
     this.controlHint.textContent =
       snapshot.ride?.prompt
         ? 'Q Cancel  |  E Approve'
-        : 'Q Brake  |  E Boost';
+        : 'W Accelerate  |  S Brake';
     this.controlHint.dataset.alert = snapshot.ride?.prompt ? 'true' : 'false';
 
     const driverPresentation = this.resolveDriverPresentation(snapshot);
@@ -559,6 +583,7 @@ export class UISystem {
     if (
       snapshot.ride?.latchActive ||
       (snapshot.ride?.failureSeverity ?? 0) >= 0.45 ||
+      snapshot.ride?.activeEvent === 'berserkWave' ||
       snapshot.ride?.prompt?.intent === 'scrapeWreck' ||
       snapshot.ride?.prompt?.intent === 'shakeItOff' ||
       snapshot.ride?.prompt?.intent === 'forceGap'
@@ -568,6 +593,7 @@ export class UISystem {
 
     if (
       snapshot.ride?.segment === 'dark' ||
+      snapshot.ride?.activeEvent === 'blackoutStretch' ||
       snapshot.ride?.prompt?.intent === 'cutLeft' ||
       snapshot.radarContacts.length >= 4
     ) {
@@ -662,6 +688,51 @@ export class UISystem {
       };
     }
 
+    if (snapshot.ride?.activeEvent === 'berserkWave') {
+      return {
+        key: 'event:berserk',
+        mood: 'panic',
+        label: "They're all riled up. Keep them off me!",
+        speaker: 'Driver  Rattled',
+        intent: 'event',
+        showTimer: false,
+        timerRatio: 0,
+        showControls: false,
+        controlsLabel: '',
+        persistSeconds: 0.75,
+      };
+    }
+
+    if (snapshot.ride?.activeEvent === 'slipperyRoad') {
+      return {
+        key: 'event:slippery',
+        mood: 'observing',
+        label: "Road's slick. Don't throw the bike.",
+        speaker: 'Driver  Adjusting',
+        intent: 'event',
+        showTimer: false,
+        timerRatio: 0,
+        showControls: false,
+        controlsLabel: '',
+        persistSeconds: 0.75,
+      };
+    }
+
+    if (snapshot.ride?.activeEvent === 'blackoutStretch') {
+      return {
+        key: 'event:blackout',
+        mood: 'observing',
+        label: "Can't see much. Watch the flanks.",
+        speaker: 'Driver  Squinting',
+        intent: 'event',
+        showTimer: false,
+        timerRatio: 0,
+        showControls: false,
+        controlsLabel: '',
+        persistSeconds: 0.75,
+      };
+    }
+
     const failureSeverity = snapshot.ride?.failureSeverity ?? 0;
     if (failureSeverity >= 0.82) {
       return {
@@ -694,6 +765,19 @@ export class UISystem {
     }
 
     return null;
+  }
+
+  private getEventLabel(eventType: RideState['activeEvent']): string {
+    if (eventType === 'berserkWave') {
+      return 'BERSERK WAVE';
+    }
+    if (eventType === 'slipperyRoad') {
+      return 'SLIPPERY ROAD';
+    }
+    if (eventType === 'blackoutStretch') {
+      return 'BLACKOUT';
+    }
+    return '';
   }
 
 }

@@ -14,7 +14,7 @@ import {
   SphereGeometry,
   WebGLRenderer,
 } from 'three';
-import type { GameConfig, RunSegment } from './types';
+import type { GameConfig, RunEventType, RunSegment } from './types';
 import { lerp } from './utils';
 
 export class RendererSystem {
@@ -73,14 +73,22 @@ export class RendererSystem {
     this.renderer.dispose();
   }
 
-  updateAtmosphere(deltaTime: number, segment: RunSegment): void {
+  updateAtmosphere(deltaTime: number, segment: RunSegment, activeEvent: RunEventType = 'none'): void {
     const target = this.config.renderer.atmosphere[segment];
     const smoothing = Math.min(1, deltaTime * 2.4);
+    const fogMultiplier =
+      activeEvent === 'blackoutStretch'
+        ? this.config.pacing.events.blackoutFogMultiplier
+        : 1;
     this.currentClearColor = this.lerpColor(this.currentClearColor, target.clearColor, smoothing);
     this.currentFogColor = this.lerpColor(this.currentFogColor, target.fogColor, smoothing);
-    this.currentFogNear = lerp(this.currentFogNear, target.fogNear, smoothing);
-    this.currentFogFar = lerp(this.currentFogFar, target.fogFar, smoothing);
-    this.currentExposure = lerp(this.currentExposure, target.exposure, smoothing);
+    this.currentFogNear = lerp(this.currentFogNear, target.fogNear * fogMultiplier, smoothing);
+    this.currentFogFar = lerp(this.currentFogFar, target.fogFar * fogMultiplier, smoothing);
+    this.currentExposure = lerp(
+      this.currentExposure,
+      target.exposure * (activeEvent === 'blackoutStretch' ? 0.9 : 1),
+      smoothing,
+    );
 
     this.scene.background = new Color(this.currentClearColor);
     const fog = this.scene.fog as Fog;

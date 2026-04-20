@@ -99,6 +99,7 @@ export class PistolWeapon {
   private cooldown = 0;
   private reloadTimer = 0;
   private reloadElapsed = 0;
+  private reloadDurationCurrent = 0;
   private muzzleFlashTimer = 0;
   private hitConfirmTimer = 0;
   private dryFireTimer = 0;
@@ -235,11 +236,15 @@ export class PistolWeapon {
     player.state.reloading = false;
     this.reloadTimer = 0;
     this.reloadElapsed = 0;
+    this.reloadDurationCurrent = this.config.weapon.reloadDuration;
     this.restoreAnimatedNodes();
     this.applyViewmodelPose(false);
   }
 
   getStatus(player: PlayerSystem): WeaponStatus {
+    const reloadDuration = player.state.reloading
+      ? this.reloadDurationCurrent
+      : this.getReloadDuration(player);
     return {
       weaponType: 'pistol',
       weaponLabel: 'Handgun',
@@ -247,7 +252,7 @@ export class PistolWeapon {
       magazineSize: this.config.weapon.magazineSize,
       reloading: player.state.reloading,
       reloadProgress: player.state.reloading
-        ? this.reloadElapsed / this.config.weapon.reloadDuration
+        ? this.reloadElapsed / reloadDuration
         : 0,
       reserveAmmoText: Number.isFinite(player.state.ammoReserve)
         ? `${player.state.ammoReserve}`
@@ -669,7 +674,8 @@ export class PistolWeapon {
     }
 
     player.state.reloading = true;
-    this.reloadTimer = this.config.weapon.reloadDuration;
+    this.reloadDurationCurrent = this.getReloadDuration(player);
+    this.reloadTimer = this.reloadDurationCurrent;
     this.reloadElapsed = 0;
     this.reloadSound.play(
       this.config.weapon.audio.reloadVolume,
@@ -686,13 +692,14 @@ export class PistolWeapon {
     this.reloadElapsed = clamp(
       this.reloadElapsed + deltaTime,
       0,
-      this.config.weapon.reloadDuration,
+      this.reloadDurationCurrent,
     );
 
     if (this.reloadTimer <= 0) {
       player.state.reloading = false;
       player.state.ammoInMagazine = this.config.weapon.magazineSize;
       this.reloadElapsed = 0;
+      this.reloadDurationCurrent = this.config.weapon.reloadDuration;
     }
   }
 
@@ -730,8 +737,8 @@ export class PistolWeapon {
 
   private applyViewmodelPose(reloading: boolean): void {
     const reloadProgress =
-      reloading && this.config.weapon.reloadDuration > 0
-        ? this.reloadElapsed / this.config.weapon.reloadDuration
+      reloading && this.reloadDurationCurrent > 0
+        ? this.reloadElapsed / this.reloadDurationCurrent
         : 0;
     const reloadArc = reloading ? Math.sin(reloadProgress * Math.PI) : 0;
     const recoilPitch = MathUtils.degToRad(
@@ -810,6 +817,14 @@ export class PistolWeapon {
     }
 
     return 0;
+  }
+
+  private getReloadDuration(player: PlayerSystem | null): number {
+    const adrenalineMultiplier =
+      player && player.hasAdrenaline()
+        ? this.config.ride.adrenalineReloadMultiplier
+        : 1;
+    return Math.max(0.2, this.config.weapon.reloadDuration * adrenalineMultiplier);
   }
 
   private randomizeMuzzleFlash(): void {

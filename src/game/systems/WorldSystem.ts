@@ -436,7 +436,7 @@ export class WorldSystem {
         }
       }
       lane.brokenLane = lane.brokenLane || obstacle.type === 'brokenLane';
-      lane.pothole = lane.pothole || obstacle.type === 'pothole';
+      lane.pothole = false;
     }
 
     return laneThreats;
@@ -545,6 +545,8 @@ export class WorldSystem {
         }
       }
 
+      this.addBackdropSet(chunkGroup, -1);
+      this.addBackdropSet(chunkGroup, 1);
       this.addRoadsideSet(chunkGroup, -1);
       this.addRoadsideSet(chunkGroup, 1);
 
@@ -573,6 +575,37 @@ export class WorldSystem {
 
       this.worldRoot.add(chunkGroup);
       this.chunks.push({ group: chunkGroup });
+    }
+  }
+
+  private addBackdropSet(parent: Group, side: -1 | 1): void {
+    const farBaseX = side * randomRange(26, 31);
+    const midBaseX = side * randomRange(20.5, 23.5);
+
+    for (let index = 0; index < 4; index += 1) {
+      const z = -18 + index * 10 + randomRange(-2, 2);
+      parent.add(
+        this.createBackdropBillboard(
+          farBaseX + side * randomRange(1.5, 4.2),
+          z,
+          randomRange(7.8, 12.8),
+          randomRange(9.5, 16.5),
+          side,
+          index % 2 === 0 ? 0x4f545b : 0x5f615b,
+          0.22,
+        ),
+      );
+      parent.add(
+        this.createBackdropBillboard(
+          midBaseX + side * randomRange(0.8, 2.2),
+          z + randomRange(-1.2, 1.2),
+          randomRange(4.4, 7.2),
+          randomRange(4.8, 8.2),
+          side,
+          index % 2 === 0 ? 0x7b6657 : 0x6a5d53,
+          0.34,
+        ),
+      );
     }
   }
 
@@ -645,6 +678,53 @@ export class WorldSystem {
     }
 
     group.position.set(x, 0, z);
+    return group;
+  }
+
+  private createBackdropBillboard(
+    x: number,
+    z: number,
+    width: number,
+    height: number,
+    side: -1 | 1,
+    color: number,
+    opacity: number,
+  ): Group {
+    const group = new Group();
+    const shell = new Mesh(
+      BUILDING_GEOMETRY,
+      new MeshStandardMaterial({
+        color,
+        flatShading: true,
+        roughness: 1,
+        transparent: true,
+        opacity,
+      }),
+    );
+    shell.position.y = height * 0.5;
+    shell.scale.set(width, height, 0.18);
+    group.add(shell);
+
+    const jaggedTop = new Mesh(
+      BUILDING_GEOMETRY,
+      new MeshStandardMaterial({
+        color: 0x2b2d31,
+        flatShading: true,
+        roughness: 1,
+        transparent: true,
+        opacity: opacity * 0.9,
+      }),
+    );
+    jaggedTop.position.set(
+      randomRange(-0.3, 0.3),
+      height - 0.2,
+      0.02,
+    );
+    jaggedTop.scale.set(width * randomRange(0.42, 0.76), randomRange(0.22, 0.48), 0.12);
+    group.add(jaggedTop);
+
+    group.position.set(x, 0, z);
+    group.rotation.y = side < 0 ? Math.PI * 0.04 : -Math.PI * 0.04;
     return group;
   }
 
@@ -1013,7 +1093,7 @@ export class WorldSystem {
     let laneIndex = this.pickLaneIndexForType(type, spawnZ);
 
     if (this.wouldSealAllLanes(type, laneIndex, spawnZ)) {
-      type = this.currentSegment === 'chaos' ? 'brokenLane' : 'pothole';
+      type = this.currentSegment === 'chaos' ? 'brokenLane' : 'barrel';
       laneIndex = this.pickLaneIndexForType(type, spawnZ);
     }
 
@@ -1048,7 +1128,6 @@ export class WorldSystem {
       { type: 'car', weight: 1.08 + chaosBonus * 0.9 },
       { type: 'wreck', weight: 0.82 + chaosBonus * 0.55 },
       { type: 'brokenLane', weight: this.config.world.brokenLane.spawnWeight + chaosBonus * 0.24 },
-      { type: 'pothole', weight: this.config.world.pothole.spawnWeight + darkBonus * 0.7 },
     ];
     const totalWeight = weights.reduce((sum, entry) => sum + entry.weight, 0);
     let roll = Math.random() * totalWeight;
@@ -1060,7 +1139,7 @@ export class WorldSystem {
       }
     }
 
-    return 'pothole';
+    return 'brokenLane';
   }
 
   private applyObstacleType(obstacle: ObstacleRecord, type: ObstacleType): void {
@@ -1599,9 +1678,6 @@ export class WorldSystem {
   }
 
   private getObstacleReaction(type: ObstacleType) {
-    if (type === 'pothole') {
-      return 'pothole' as const;
-    }
     if (type === 'brokenLane') {
       return 'brokenLane' as const;
     }
@@ -1808,11 +1884,6 @@ export class WorldSystem {
 
   private playObstacleImpactSound(obstacle: ObstacleRecord): void {
     const baseVolume = this.config.world.audio.obstacleImpactVolume;
-
-    if (obstacle.type === 'pothole') {
-      this.obstacleImpactSound.play(baseVolume * 0.72, randomRange(1.08, 1.18));
-      return;
-    }
 
     if (obstacle.type === 'brokenLane') {
       this.obstacleImpactSound.play(baseVolume * 0.8, randomRange(0.88, 0.96));

@@ -8,6 +8,7 @@ import type {
   LaneThreatState,
   PickupType,
   RideState,
+  RunEventType,
   RunSegment,
 } from '../../core/types';
 import { clamp, lerp, randomRange } from '../../core/utils';
@@ -35,6 +36,10 @@ export class DriverSystem {
   private segmentIndex = 0;
   private segment: RunSegment = 'rest';
   private segmentElapsed = 0;
+  private activeEvent: RunEventType = 'none';
+  private eventTimer = 0;
+  private eventDuration = 0;
+  private nitroActive = false;
   private prompt: DriverPromptState | null = null;
   private pendingResolution: DriverPromptResolution | null = null;
   private laneThreats: LaneThreatState[] = [];
@@ -76,8 +81,16 @@ export class DriverSystem {
     laneThreats: LaneThreatState[],
     hasLatch: boolean,
     failureSeverity: number,
+    activeEvent: RunEventType,
+    eventTimer = 0,
+    eventDuration = 0,
+    nitroActive = false,
   ): RideState {
     this.laneThreats = laneThreats.length > 0 ? laneThreats : this.createFallbackLaneThreats();
+    this.activeEvent = activeEvent;
+    this.eventTimer = eventTimer;
+    this.eventDuration = eventDuration;
+    this.nitroActive = nitroActive;
     this.segmentElapsed += deltaTime;
     this.advanceSegmentIfNeeded();
 
@@ -154,13 +167,16 @@ export class DriverSystem {
     const fromCenter = this.resolveLaneCenter(this.laneFromIndex);
     const toCenter = this.resolveLaneCenter(this.laneToIndex);
     const laneCenterX = lerp(fromCenter, toCenter, laneAlpha);
-    const speedMultiplier = this.getSpeedMultiplier(failureSeverity, hasLatch);
+    const speedMultiplier = this.getSpeedMultiplier(failureSeverity, hasLatch, nitroActive);
     const handlingPenalty = clamp(
       failureSeverity * this.config.ride.failureHandlingPenalty +
         (this.brakeTimer > 0 ? 0.05 : 0) +
         (this.scrapeTimer > 0 ? this.config.driver.scrapeHandlingPenalty : 0) +
         (this.shakeOffTimer > 0 ? this.config.driver.shakeOffHandlingPenalty : 0) +
-        (this.forceGapTimer > 0 ? this.config.driver.forceGapHandlingPenalty : 0),
+        (this.forceGapTimer > 0 ? this.config.driver.forceGapHandlingPenalty : 0) +
+        (this.activeEvent === 'slipperyRoad'
+          ? this.config.pacing.events.slipperyHandlingPenalty
+          : 0),
       0,
       0.92,
     );
@@ -195,6 +211,9 @@ export class DriverSystem {
       segment: this.segment,
       segmentElapsed: this.segmentElapsed,
       segmentDuration: this.config.pacing.durations[this.segment],
+      activeEvent: this.activeEvent,
+      eventTimer: this.eventTimer,
+      eventDuration: this.eventDuration,
       scrapeMode: this.scrapeTimer > 0,
       shakeOffMode: this.shakeOffTimer > 0,
       forceGapMode: this.forceGapTimer > 0,
@@ -415,7 +434,7 @@ export class DriverSystem {
         Math.max(0, lane.score - currentLane.score) +
         lane.pickupRisk +
         (lane.brokenLane ? 0.7 : 0) +
-        (lane.pothole ? 0.45 : 0);
+        (this.activeEvent === 'slipperyRoad' ? 0.3 : 0);
       if (pickupCost > this.config.driver.pickupPromptMaxCost) {
         continue;
       }
@@ -547,7 +566,7 @@ export class DriverSystem {
 
       const roughness =
         (lane.brokenLane ? 1.15 : 0) +
-        (lane.pothole ? 0.75 : 0) +
+        (this.activeEvent === 'slipperyRoad' ? 0.5 : 0) +
         lane.smallCount * 0.22;
       if (roughness <= 0.35) {
         continue;
@@ -580,7 +599,7 @@ export class DriverSystem {
 
     const hazardCost =
       (lane.brokenLane ? 0.85 : 0) +
-      (lane.pothole ? 0.42 : 0) +
+      (this.activeEvent === 'slipperyRoad' ? 0.28 : 0) +
       lane.smallCount * 0.08 +
       lane.bruteCount * 1.2;
     const pickupBonus = this.canAutoPickupLane(lane, currentLane, failureSeverity, hasLatch)
@@ -611,7 +630,7 @@ export class DriverSystem {
       Math.max(0, lane.score - currentLane.score) +
       lane.pickupRisk +
       (lane.brokenLane ? 0.55 : 0) +
-      (lane.pothole ? 0.35 : 0);
+      (this.activeEvent === 'slipperyRoad' ? 0.2 : 0);
     return pickupCost <= this.config.driver.pickupAutoMaxCost;
   }
 
@@ -638,7 +657,7 @@ export class DriverSystem {
       return true;
     }
 
-    return lane.brokenLane && lane.pothole;
+    return lane.brokenLane;
   }
 
   private getPickupPromptLabel(kind: PickupType | null): string {
@@ -650,10 +669,26 @@ export class DriverSystem {
       return "Rocket tube there, I'm diving for it!";
     }
 
+    if (kind === 'medkit') {
+      return 'Medkit there, want me to cut for it?';
+    }
+
+    if (kind === 'adrenaline') {
+      return 'Adrenaline shot ahead, take the edge off?';
+    }
+
+    if (kind === 'nitroCan') {
+      return "Nitro can up there. I'm making for it!";
+    }
+
     return 'Ammo crate there, want it?';
   }
 
-  private getSpeedMultiplier(failureSeverity: number, hasLatch: boolean): number {
+  private getSpeedMultiplier(
+    failureSeverity: number,
+    hasLatch: boolean,
+    nitroActive: boolean,
+  ): number {
     const segmentVisibility = this.config.pacing.visibility[this.segment];
     const segmentSpeedBias =
       this.segment === 'chaos' ? 1.04 : this.segment === 'dark' ? 0.94 : 1;
@@ -666,24 +701,35 @@ export class DriverSystem {
             ? this.config.driver.forceGapSpeedMultiplier
             : 1;
     const boostMultiplier =
-      this.manualBoostTimer > 0 ? this.config.ride.boostSpeedMultiplier : 1;
+      this.manualBoostTimer > 0
+        ? this.config.ride.boostSpeedMultiplier *
+          (nitroActive ? this.config.ride.nitroBoostMultiplier : 1)
+        : 1;
     const brakeMultiplier =
       this.brakeTimer > 0 ? this.config.ride.brakeSpeedMultiplier : 1;
+    const pulseEffectiveness =
+      this.activeEvent === 'slipperyRoad'
+        ? this.config.pacing.events.slipperyPulseEffectiveness
+        : 1;
     const latchMultiplier =
       hasLatch ? this.config.ride.latchSpeedMultiplier : 1;
+    const eventMultiplier = this.activeEvent === 'slipperyRoad' ? 0.96 : 1;
+    const nitroBonus = nitroActive ? 1 + this.config.ride.nitroSpeedBonus : 1;
     const failureMultiplier =
       1 - failureSeverity * this.config.ride.failureSpeedPenalty;
 
     return clamp(
       segmentSpeedBias *
         driverMultiplier *
-        boostMultiplier *
-        brakeMultiplier *
+        lerp(1, boostMultiplier, pulseEffectiveness) *
+        lerp(1, brakeMultiplier, pulseEffectiveness) *
         latchMultiplier *
+        eventMultiplier *
+        nitroBonus *
         failureMultiplier *
         (0.96 + segmentVisibility * 0.04),
       0.44,
-      1.4,
+      nitroActive ? 1.5 : 1.4,
     );
   }
 
@@ -707,8 +753,13 @@ export class DriverSystem {
     this.laneFromIndex = this.targetLaneIndex;
     this.laneToIndex = clampedLane;
     this.targetLaneIndex = this.laneToIndex;
-    this.laneChangeTimer = duration;
-    this.laneChangeDurationCurrent = duration;
+    const slipperyMultiplier =
+      this.activeEvent === 'slipperyRoad'
+        ? this.config.pacing.events.slipperyLaneChangeMultiplier
+        : 1;
+    const nitroMultiplier = this.nitroActive ? this.config.ride.nitroLaneChangeMultiplier : 1;
+    this.laneChangeTimer = duration * slipperyMultiplier * nitroMultiplier;
+    this.laneChangeDurationCurrent = this.laneChangeTimer;
   }
 
   private createPrompt(
