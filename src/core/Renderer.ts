@@ -99,14 +99,14 @@ export class RendererSystem {
   }
 
   private addLighting(): void {
-    const skyLight = new HemisphereLight(0x2d4660, 0x050608, 0.16);
+    const skyLight = new HemisphereLight(0x35526d, 0x07080a, 0.19);
     this.scene.add(skyLight);
 
-    const moonLight = new DirectionalLight(0x8fb8ff, 0.12);
+    const moonLight = new DirectionalLight(0x97beff, 0.14);
     moonLight.position.set(-18, 24, -28);
     this.scene.add(moonLight);
 
-    const fillLight = new DirectionalLight(0x24364b, 0.08);
+    const fillLight = new DirectionalLight(0x2a3d55, 0.09);
     fillLight.position.set(12, 10, 14);
     this.scene.add(fillLight);
   }

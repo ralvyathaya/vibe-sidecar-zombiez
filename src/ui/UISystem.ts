@@ -98,6 +98,11 @@ export class UISystem {
   private readonly driveBrakeValue = document.createElement('span');
   private readonly driveBrakeTrack = document.createElement('div');
   private readonly driveBrakeFill = document.createElement('div');
+  private readonly driveFocusRow = document.createElement('div');
+  private readonly driveFocusLabel = document.createElement('span');
+  private readonly driveFocusValue = document.createElement('span');
+  private readonly driveFocusTrack = document.createElement('div');
+  private readonly driveFocusFill = document.createElement('div');
   private readonly driverPanel = document.createElement('div');
   private readonly driverPortraitFrame = document.createElement('div');
   private readonly driverPortrait = document.createElement('img');
@@ -240,7 +245,15 @@ export class UISystem {
     this.driveBrakeFill.className = 'drive-fill';
     this.driveBrakeTrack.append(this.driveBrakeFill);
     this.driveBrakeRow.append(this.driveBrakeLabel, this.driveBrakeValue, this.driveBrakeTrack);
-    this.drivePanel.append(this.driveBoostRow, this.driveBrakeRow);
+    this.driveFocusRow.className = 'drive-row';
+    this.driveFocusLabel.className = 'drive-label';
+    this.driveFocusLabel.textContent = 'F Lite';
+    this.driveFocusValue.className = 'drive-value';
+    this.driveFocusTrack.className = 'drive-track';
+    this.driveFocusFill.className = 'drive-fill';
+    this.driveFocusTrack.append(this.driveFocusFill);
+    this.driveFocusRow.append(this.driveFocusLabel, this.driveFocusValue, this.driveFocusTrack);
+    this.drivePanel.append(this.driveBoostRow, this.driveBrakeRow, this.driveFocusRow);
     this.driverPanel.className = 'driver-panel';
     this.driverPortraitFrame.className = 'driver-portrait-frame';
     this.driverPortrait.className = 'driver-portrait';
@@ -469,41 +482,65 @@ export class UISystem {
     this.controlHint.textContent =
       snapshot.ride?.prompt
         ? 'Q Cancel  |  E Approve'
-        : 'W Accelerate  |  S Brake';
+        : 'Hold W Accel  |  Hold S Brake  |  Hold F Focus';
     this.controlHint.dataset.alert = snapshot.ride?.prompt ? 'true' : 'false';
-    const boostState = this.resolveDrivePulseState(
-      snapshot.ride?.manualBoostActiveRatio ?? 0,
-      snapshot.ride?.manualBoostReadyRatio ?? 1,
+    const boostState = this.resolveDriveMeterState(
+      snapshot.ride?.manualBoostEngaged ?? false,
+      snapshot.ride?.manualBoostMeterRatio ?? 1,
     );
-    const boostRatio = this.resolveDrivePulseRatio(
-      snapshot.ride?.manualBoostActiveRatio ?? 0,
-      snapshot.ride?.manualBoostReadyRatio ?? 1,
+    const brakeState = this.resolveDriveMeterState(
+      snapshot.ride?.manualBrakeEngaged ?? false,
+      snapshot.ride?.manualBrakeMeterRatio ?? 1,
     );
-    const brakeState = this.resolveDrivePulseState(
-      snapshot.ride?.manualBrakeActiveRatio ?? 0,
-      snapshot.ride?.manualBrakeReadyRatio ?? 1,
+    const focusState = this.resolveFocusMeterState(
+      snapshot.ride?.focusBeamActive ?? false,
+      snapshot.ride?.focusBeamHeatRatio ?? 0,
+      snapshot.ride?.focusBeamOverheated ?? false,
     );
-    const brakeRatio = this.resolveDrivePulseRatio(
-      snapshot.ride?.manualBrakeActiveRatio ?? 0,
-      snapshot.ride?.manualBrakeReadyRatio ?? 1,
-    );
-    this.drivePanel.hidden = snapshot.gameState !== 'running';
+    const showDrivePanel =
+      snapshot.gameState === 'running' &&
+      (
+        (snapshot.ride?.manualBoostEngaged ?? false) ||
+        (snapshot.ride?.manualBrakeEngaged ?? false) ||
+        (snapshot.ride?.manualBoostMeterRatio ?? 1) < 0.995 ||
+        (snapshot.ride?.manualBrakeMeterRatio ?? 1) < 0.995 ||
+        (snapshot.ride?.focusBeamActive ?? false) ||
+        (snapshot.ride?.focusBeamHeatRatio ?? 0) > 0.02 ||
+        (snapshot.ride?.focusBeamOverheated ?? false)
+      );
+    this.drivePanel.hidden = !showDrivePanel;
     this.driveBoostRow.dataset.state = boostState;
     this.driveBrakeRow.dataset.state = brakeState;
-    this.driveBoostFill.style.transform = `scaleX(${boostRatio.toFixed(3)})`;
-    this.driveBrakeFill.style.transform = `scaleX(${brakeRatio.toFixed(3)})`;
+    this.driveFocusRow.dataset.state = focusState;
+    this.driveBoostFill.style.transform = `scaleY(${(
+      snapshot.ride?.manualBoostMeterRatio ?? 1
+    ).toFixed(3)})`;
+    this.driveBrakeFill.style.transform = `scaleY(${(
+      snapshot.ride?.manualBrakeMeterRatio ?? 1
+    ).toFixed(3)})`;
+    this.driveFocusFill.style.transform = `scaleY(${(
+      snapshot.ride?.focusBeamHeatRatio ?? 0
+    ).toFixed(3)})`;
     this.driveBoostValue.textContent =
       boostState === 'active'
-        ? 'PULSE'
+        ? 'HOLD'
         : boostState === 'cooldown'
-          ? 'REFILL'
+          ? 'COOL'
           : 'READY';
     this.driveBrakeValue.textContent =
       brakeState === 'active'
-        ? 'PULSE'
+        ? 'HOLD'
         : brakeState === 'cooldown'
-          ? 'REFILL'
+          ? 'COOL'
           : 'READY';
+    this.driveFocusValue.textContent =
+      focusState === 'active'
+        ? 'ON'
+        : focusState === 'cooldown'
+          ? 'COOL'
+          : focusState === 'overheated'
+            ? 'HOT'
+            : 'READY';
 
     const driverPresentation = this.resolveDriverPresentation(snapshot);
     if (snapshot.gameState !== 'running') {
@@ -843,19 +880,35 @@ export class UISystem {
     return '';
   }
 
-  private resolveDrivePulseRatio(activeRatio: number, readyRatio: number): number {
-    return activeRatio > 0 ? activeRatio : readyRatio;
-  }
-
-  private resolveDrivePulseState(
-    activeRatio: number,
-    readyRatio: number,
+  private resolveDriveMeterState(
+    engaged: boolean,
+    meterRatio: number,
   ): 'active' | 'cooldown' | 'ready' {
-    if (activeRatio > 0.001) {
+    if (engaged) {
       return 'active';
     }
 
-    if (readyRatio < 0.999) {
+    if (meterRatio < 0.999) {
+      return 'cooldown';
+    }
+
+    return 'ready';
+  }
+
+  private resolveFocusMeterState(
+    active: boolean,
+    heatRatio: number,
+    overheated: boolean,
+  ): 'active' | 'cooldown' | 'ready' | 'overheated' {
+    if (overheated) {
+      return 'overheated';
+    }
+
+    if (active) {
+      return 'active';
+    }
+
+    if (heatRatio > 0.02) {
       return 'cooldown';
     }
 

@@ -142,6 +142,9 @@ export class Game {
     if (this.state === 'running') {
       const simulationDelta = this.consumeSimulationDelta(deltaTime);
       this.handleContextActions();
+      const accelerateHeld = this.inputSystem.isAccelerateHeld();
+      const brakeHeld = this.inputSystem.isBrakeHeld();
+      const focusBeamHeld = this.inputSystem.isFocusBeamHeld();
       this.decayRoadFeedback(deltaTime);
 
       let loadout = this.weaponSystem.getLoadoutState();
@@ -164,6 +167,9 @@ export class Game {
         this.spawnSystem.getEventTimer(),
         this.spawnSystem.getEventDuration(),
         this.playerSystem.hasNitro(),
+        brakeHeld,
+        accelerateHeld,
+        focusBeamHeld,
       );
       const promptResolution = this.driverSystem.consumePromptResolution();
       if (promptResolution) {
@@ -303,6 +309,9 @@ export class Game {
           this.spawnSystem.getEventTimer(),
           this.spawnSystem.getEventDuration(),
           this.playerSystem.hasNitro(),
+          false,
+          false,
+          false,
         ),
       );
       this.rendererSystem.updateAtmosphere(deltaTime, 'dark', idleRide.activeEvent);
@@ -342,17 +351,8 @@ export class Game {
   }
 
   private handleContextActions(): void {
-    const pressedW = this.inputSystem.consumeActionW();
-    const pressedS = this.inputSystem.consumeActionS();
     const pressedQ = this.inputSystem.consumeActionQ();
     const pressedE = this.inputSystem.consumeActionE();
-    if (pressedS) {
-      this.driverSystem.triggerBrake();
-    }
-    if (pressedW) {
-      this.driverSystem.triggerBoost();
-    }
-
     if (this.driverSystem.hasActivePrompt()) {
       if (pressedQ) {
         this.driverSystem.resolvePrompt('cancel');

@@ -223,6 +223,12 @@ export interface GameConfig {
       headlightFillColor: number;
       headlightFillIntensity: number;
       headlightFillDistance: number;
+      focusHeadlightColor: number;
+      focusHeadlightIntensity: number;
+      focusHeadlightDistance: number;
+      focusHeadlightAngleDegrees: number;
+      focusHeadlightPenumbra: number;
+      focusHeadlightDecay: number;
     };
   };
   ride: {
@@ -245,12 +251,20 @@ export interface GameConfig {
     boostDuration: number;
     boostSpeedMultiplier: number;
     inputCooldown: number;
+    inputHoldResponse: number;
+    brakeMeterDrainRate: number;
+    brakeMeterRechargeRate: number;
+    boostMeterDrainRate: number;
+    boostMeterRechargeRate: number;
     adrenalineAimShakeMultiplier: number;
     adrenalineReloadMultiplier: number;
     adrenalineWiggleMultiplier: number;
     nitroBoostMultiplier: number;
     nitroSpeedBonus: number;
     nitroLaneChangeMultiplier: number;
+    focusBeamHeatRate: number;
+    focusBeamCoolRate: number;
+    focusBeamRecoveryThreshold: number;
   };
   driver: {
     promptIntervalMin: number;
@@ -739,12 +753,16 @@ export interface RideState {
   latchActive: boolean;
   latchWiggle: number;
   latchWiggleRatio: number;
-  manualBrakeActiveRatio: number;
-  manualBrakeReadyRatio: number;
-  manualBoostActiveRatio: number;
-  manualBoostReadyRatio: number;
+  manualBrakeEngaged: boolean;
+  manualBrakeMeterRatio: number;
+  manualBoostEngaged: boolean;
+  manualBoostMeterRatio: number;
   manualBrakeCooldown: number;
   manualBoostCooldown: number;
+  focusBeamActive: boolean;
+  focusBeamStrength: number;
+  focusBeamHeatRatio: number;
+  focusBeamOverheated: boolean;
   prompt: DriverPromptState | null;
   segment: RunSegment;
   segmentElapsed: number;

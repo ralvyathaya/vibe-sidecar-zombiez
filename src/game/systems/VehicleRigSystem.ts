@@ -24,6 +24,7 @@ export class VehicleRigSystem {
   private readonly headlightPivot = new Group();
   private readonly headlightTarget = new Group();
   private readonly headlight = new SpotLight(0xffffff, 1);
+  private readonly focusHeadlight = new SpotLight(0xffffff, 0);
   private readonly headlightFill = new PointLight(0xffffff, 0.4);
   private readonly baseRigOffset = new Vector3();
   private readonly baseModelPosition = new Vector3();
@@ -76,16 +77,25 @@ export class VehicleRigSystem {
     this.headlight.penumbra = rig.headlightPenumbra;
     this.headlight.decay = rig.headlightDecay;
     this.headlight.castShadow = false;
+    this.focusHeadlight.color.setHex(rig.focusHeadlightColor);
+    this.focusHeadlight.intensity = 0;
+    this.focusHeadlight.distance = rig.focusHeadlightDistance;
+    this.focusHeadlight.angle = MathUtils.degToRad(rig.focusHeadlightAngleDegrees);
+    this.focusHeadlight.penumbra = rig.focusHeadlightPenumbra;
+    this.focusHeadlight.decay = rig.focusHeadlightDecay;
+    this.focusHeadlight.castShadow = false;
     this.headlightFill.color.setHex(rig.headlightFillColor);
     this.headlightFill.intensity = rig.headlightFillIntensity;
     this.headlightFill.distance = rig.headlightFillDistance;
     this.headlightFill.decay = 1.8;
     this.headlight.target = this.headlightTarget;
+    this.focusHeadlight.target = this.headlightTarget;
     this.headlightPivot.position.copy(this.baseHeadlightPosition);
     this.headlight.position.set(0, 0, 0);
+    this.focusHeadlight.position.set(0, 0, -0.02);
     this.headlightFill.position.set(0, 0, -0.1);
     this.headlightTarget.position.copy(this.baseHeadlightTargetPosition);
-    this.headlightPivot.add(this.headlight, this.headlightFill);
+    this.headlightPivot.add(this.headlight, this.focusHeadlight, this.headlightFill);
 
     this.seatPivot.position.copy(this.baseSeatPivotPosition);
     this.cameraYaw.position.copy(this.baseCameraOffset);
@@ -148,6 +158,7 @@ export class VehicleRigSystem {
     this.headlightPivot.rotation.set(0, 0, 0);
     this.headlightTarget.position.copy(this.baseHeadlightTargetPosition);
     this.headlight.intensity = this.config.vehicle.stage1Rig.headlightIntensity;
+    this.focusHeadlight.intensity = 0;
     this.headlightFill.intensity = this.config.vehicle.stage1Rig.headlightFillIntensity;
     this.vehicleRig.visible = true;
   }
@@ -244,6 +255,12 @@ export class VehicleRigSystem {
     const headlightFailureDrop = 1 - Math.min(0.3, (ride?.failureSeverity ?? 0) * 0.16);
     this.headlight.intensity =
       rig.headlightIntensity * (running ? 1 : 0.86) * headlightFailureDrop;
+    this.focusHeadlight.intensity =
+      rig.focusHeadlightIntensity *
+      (ride?.focusBeamStrength ?? 0) *
+      (running ? 1 : 0.82) *
+      headlightFailureDrop *
+      (ride?.focusBeamOverheated ? 0 : 1);
     this.headlightFill.intensity =
       rig.headlightFillIntensity * (running ? 1 : 0.82) * headlightFailureDrop;
 

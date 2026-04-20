@@ -11,7 +11,7 @@ import type {
   RunEventType,
   RunSegment,
 } from '../../core/types';
-import { clamp, lerp, randomRange } from '../../core/utils';
+import { approach, clamp, lerp, randomRange } from '../../core/utils';
 
 export class DriverSystem {
   private laneIndex = 1;
@@ -26,6 +26,13 @@ export class DriverSystem {
   private promptLockout = 0;
   private manualBoostTimer = 0;
   private brakeTimer = 0;
+  private manualBrakeMeter = 1;
+  private manualBoostMeter = 1;
+  private manualBrakeStrength = 0;
+  private manualBoostStrength = 0;
+  private focusBeamHeat = 0;
+  private focusBeamStrength = 0;
+  private focusBeamOverheated = false;
   private scrapeTimer = 0;
   private shakeOffTimer = 0;
   private forceGapTimer = 0;
@@ -61,6 +68,13 @@ export class DriverSystem {
     this.promptLockout = 0;
     this.manualBoostTimer = 0;
     this.brakeTimer = 0;
+    this.manualBrakeMeter = 1;
+    this.manualBoostMeter = 1;
+    this.manualBrakeStrength = 0;
+    this.manualBoostStrength = 0;
+    this.focusBeamHeat = 0;
+    this.focusBeamStrength = 0;
+    this.focusBeamOverheated = false;
     this.scrapeTimer = 0;
     this.shakeOffTimer = 0;
     this.forceGapTimer = 0;
@@ -85,6 +99,9 @@ export class DriverSystem {
     eventTimer = 0,
     eventDuration = 0,
     nitroActive = false,
+    manualBrakeHeld = false,
+    manualBoostHeld = false,
+    focusBeamHeld = false,
   ): RideState {
     this.laneThreats = laneThreats.length > 0 ? laneThreats : this.createFallbackLaneThreats();
     this.activeEvent = activeEvent;
@@ -106,6 +123,8 @@ export class DriverSystem {
     this.manualBrakeCooldown = Math.max(0, this.manualBrakeCooldown - deltaTime);
     this.manualBoostCooldown = Math.max(0, this.manualBoostCooldown - deltaTime);
     this.nextOpportunityIn = Math.max(0, this.nextOpportunityIn - deltaTime);
+    this.updateManualDriveState(deltaTime, manualBrakeHeld, manualBoostHeld);
+    this.updateFocusBeamState(deltaTime, focusBeamHeld);
 
     if (!hasLatch) {
       this.shakeOffTimer = 0;
@@ -170,7 +189,7 @@ export class DriverSystem {
     const speedMultiplier = this.getSpeedMultiplier(failureSeverity, hasLatch, nitroActive);
     const handlingPenalty = clamp(
       failureSeverity * this.config.ride.failureHandlingPenalty +
-        (this.brakeTimer > 0 ? 0.05 : 0) +
+        this.manualBrakeStrength * 0.05 +
         (this.scrapeTimer > 0 ? this.config.driver.scrapeHandlingPenalty : 0) +
         (this.shakeOffTimer > 0 ? this.config.driver.shakeOffHandlingPenalty : 0) +
         (this.forceGapTimer > 0 ? this.config.driver.forceGapHandlingPenalty : 0) +
@@ -190,23 +209,6 @@ export class DriverSystem {
       (this.shakeOffTimer > 0 ? this.config.driver.shakeOffCameraShake : 0) +
       (this.forceGapTimer > 0 ? this.config.driver.forceGapCameraShake : 0) +
       failureSeverity * this.config.vehicle.stage1Rig.failureShakeAmplitude;
-    const manualBrakeActiveRatio =
-      this.config.ride.brakeDuration > 0
-        ? clamp(this.brakeTimer / this.config.ride.brakeDuration, 0, 1)
-        : 0;
-    const manualBoostActiveRatio =
-      this.config.ride.boostDuration > 0
-        ? clamp(this.manualBoostTimer / this.config.ride.boostDuration, 0, 1)
-        : 0;
-    const manualBrakeReadyRatio =
-      this.config.ride.inputCooldown > 0
-        ? 1 - clamp(this.manualBrakeCooldown / this.config.ride.inputCooldown, 0, 1)
-        : 1;
-    const manualBoostReadyRatio =
-      this.config.ride.inputCooldown > 0
-        ? 1 - clamp(this.manualBoostCooldown / this.config.ride.inputCooldown, 0, 1)
-        : 1;
-
     return {
       laneIndex: this.laneIndex,
       targetLaneIndex: this.laneToIndex,
@@ -221,12 +223,16 @@ export class DriverSystem {
       latchActive: hasLatch,
       latchWiggle: 0,
       latchWiggleRatio: 0,
-      manualBrakeActiveRatio,
-      manualBrakeReadyRatio,
-      manualBoostActiveRatio,
-      manualBoostReadyRatio,
+      manualBrakeEngaged: this.manualBrakeStrength > 0.04,
+      manualBrakeMeterRatio: this.manualBrakeMeter,
+      manualBoostEngaged: this.manualBoostStrength > 0.04,
+      manualBoostMeterRatio: this.manualBoostMeter,
       manualBrakeCooldown: this.manualBrakeCooldown,
       manualBoostCooldown: this.manualBoostCooldown,
+      focusBeamActive: this.focusBeamStrength > 0.04,
+      focusBeamStrength: this.focusBeamStrength,
+      focusBeamHeatRatio: this.focusBeamHeat,
+      focusBeamOverheated: this.focusBeamOverheated,
       prompt: this.prompt,
       segment: this.segment,
       segmentElapsed: this.segmentElapsed,
@@ -310,8 +316,8 @@ export class DriverSystem {
     if (currentPrompt.intent === 'scrapeWreck') {
       if (effectiveDecision === 'approve') {
         this.scrapeTimer = this.config.driver.scrapeDuration;
-        this.manualBoostTimer = 0;
-        this.brakeTimer = 0;
+        this.manualBoostStrength = 0;
+        this.manualBrakeStrength = 0;
         this.cautiousHoldTimer = 0;
       } else {
         this.cautiousHoldTimer = this.config.driver.cautiousHoldDuration;
@@ -322,8 +328,8 @@ export class DriverSystem {
     if (currentPrompt.intent === 'shakeItOff') {
       if (effectiveDecision === 'approve') {
         this.shakeOffTimer = this.config.driver.shakeOffDuration;
-        this.manualBoostTimer = 0;
-        this.brakeTimer = 0;
+        this.manualBoostStrength = 0;
+        this.manualBrakeStrength = 0;
         this.cautiousHoldTimer = 0;
       } else {
         this.cautiousHoldTimer = this.config.driver.cautiousHoldDuration * 0.6;
@@ -720,17 +726,21 @@ export class DriverSystem {
           : this.forceGapTimer > 0
             ? this.config.driver.forceGapSpeedMultiplier
             : 1;
-    const boostMultiplier =
-      this.manualBoostTimer > 0
-        ? this.config.ride.boostSpeedMultiplier *
-          (nitroActive ? this.config.ride.nitroBoostMultiplier : 1)
-        : 1;
-    const brakeMultiplier =
-      this.brakeTimer > 0 ? this.config.ride.brakeSpeedMultiplier : 1;
     const pulseEffectiveness =
       this.activeEvent === 'slipperyRoad'
         ? this.config.pacing.events.slipperyPulseEffectiveness
         : 1;
+    const boostMultiplier = lerp(
+      1,
+      this.config.ride.boostSpeedMultiplier *
+        (nitroActive ? this.config.ride.nitroBoostMultiplier : 1),
+      this.manualBoostStrength * pulseEffectiveness,
+    );
+    const brakeMultiplier = lerp(
+      1,
+      this.config.ride.brakeSpeedMultiplier,
+      this.manualBrakeStrength * pulseEffectiveness,
+    );
     const latchMultiplier =
       hasLatch ? this.config.ride.latchSpeedMultiplier : 1;
     const eventMultiplier = this.activeEvent === 'slipperyRoad' ? 0.96 : 1;
@@ -829,7 +839,7 @@ export class DriverSystem {
       return 0;
     }
 
-    return laneIndex === Math.max(0, this.laneIndex - 1)
+      return laneIndex === Math.max(0, this.laneIndex - 1)
       ? this.config.driver.cutLeftLaneBonus
       : 0;
   }
@@ -840,14 +850,115 @@ export class DriverSystem {
 
   private hasBlockingEffect(): boolean {
     return (
-      this.manualBoostTimer > 0 ||
-      this.brakeTimer > 0 ||
       this.scrapeTimer > 0 ||
       this.shakeOffTimer > 0 ||
       this.forceGapTimer > 0 ||
       this.cautiousHoldTimer > 0 ||
       this.laneChangeTimer > 0
     );
+  }
+
+  private updateManualDriveState(
+    deltaTime: number,
+    manualBrakeHeld: boolean,
+    manualBoostHeld: boolean,
+  ): void {
+    const exclusiveBrake = manualBrakeHeld && !manualBoostHeld;
+    const exclusiveBoost = manualBoostHeld && !manualBrakeHeld;
+    const response = this.config.ride.inputHoldResponse;
+
+    if (exclusiveBrake && this.manualBrakeMeter > 0.001) {
+      this.manualBrakeMeter = Math.max(
+        0,
+        this.manualBrakeMeter - deltaTime * this.config.ride.brakeMeterDrainRate,
+      );
+      this.manualBrakeStrength = approach(this.manualBrakeStrength, 1, deltaTime * response);
+    } else if (exclusiveBrake) {
+      this.manualBrakeStrength = 0;
+    } else {
+      this.manualBrakeStrength = approach(this.manualBrakeStrength, 0, deltaTime * response * 1.2);
+      this.manualBrakeMeter = Math.min(
+        1,
+        this.manualBrakeMeter + deltaTime * this.config.ride.brakeMeterRechargeRate,
+      );
+    }
+
+    if (exclusiveBoost && this.manualBoostMeter > 0.001) {
+      this.manualBoostMeter = Math.max(
+        0,
+        this.manualBoostMeter - deltaTime * this.config.ride.boostMeterDrainRate,
+      );
+      this.manualBoostStrength = approach(this.manualBoostStrength, 1, deltaTime * response);
+    } else if (exclusiveBoost) {
+      this.manualBoostStrength = 0;
+    } else {
+      this.manualBoostStrength = approach(this.manualBoostStrength, 0, deltaTime * response * 1.2);
+      this.manualBoostMeter = Math.min(
+        1,
+        this.manualBoostMeter + deltaTime * this.config.ride.boostMeterRechargeRate,
+      );
+    }
+
+    if (this.manualBrakeMeter <= 0.001) {
+      this.manualBrakeStrength = 0;
+    }
+    if (this.manualBoostMeter <= 0.001) {
+      this.manualBoostStrength = 0;
+    }
+
+    this.manualBrakeCooldown =
+      this.manualBrakeMeter >= 0.999
+        ? 0
+        : (1 - this.manualBrakeMeter) /
+          Math.max(this.config.ride.brakeMeterRechargeRate, 0.0001);
+    this.manualBoostCooldown =
+      this.manualBoostMeter >= 0.999
+        ? 0
+        : (1 - this.manualBoostMeter) /
+          Math.max(this.config.ride.boostMeterRechargeRate, 0.0001);
+  }
+
+  private updateFocusBeamState(deltaTime: number, focusBeamHeld: boolean): void {
+    if (focusBeamHeld && !this.focusBeamOverheated) {
+      this.focusBeamHeat = Math.min(
+        1,
+        this.focusBeamHeat + deltaTime * this.config.ride.focusBeamHeatRate,
+      );
+      this.focusBeamStrength = approach(
+        this.focusBeamStrength,
+        1,
+        deltaTime * this.config.ride.inputHoldResponse,
+      );
+
+      if (this.focusBeamHeat >= 0.999) {
+        this.focusBeamHeat = 1;
+        this.focusBeamStrength = 0;
+        this.focusBeamOverheated = true;
+      }
+      return;
+    }
+
+    if (focusBeamHeld && this.focusBeamOverheated) {
+      this.focusBeamStrength = 0;
+      return;
+    }
+
+    this.focusBeamStrength = approach(
+      this.focusBeamStrength,
+      0,
+      deltaTime * this.config.ride.inputHoldResponse * 1.25,
+    );
+    this.focusBeamHeat = Math.max(
+      0,
+      this.focusBeamHeat - deltaTime * this.config.ride.focusBeamCoolRate,
+    );
+
+    if (
+      this.focusBeamOverheated &&
+      this.focusBeamHeat <= this.config.ride.focusBeamRecoveryThreshold
+    ) {
+      this.focusBeamOverheated = false;
+    }
   }
 
   private createFallbackLaneThreats(): LaneThreatState[] {

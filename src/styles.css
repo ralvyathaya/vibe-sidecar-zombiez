@@ -903,35 +903,36 @@ body {
 }
 
 .drive-panel {
-  left: 50%;
-  top: 118px;
-  width: min(280px, calc(100vw - 28px));
-  padding: 10px 12px;
-  border-radius: 16px;
+  right: 18px;
+  top: 50%;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  width: auto;
+  padding: 9px 8px 10px;
+  border-radius: 14px;
   background: linear-gradient(180deg, rgba(16, 18, 20, 0.76), rgba(9, 10, 12, 0.58));
   border: 1px solid rgba(255, 240, 214, 0.1);
   backdrop-filter: blur(8px);
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.18);
-  transform: translateX(-50%);
+  transform: translateY(-50%);
 }
 
 .drive-row {
-  display: grid;
-  grid-template-columns: auto auto 1fr;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 10px;
-}
-
-.drive-row + .drive-row {
-  margin-top: 8px;
+  gap: 6px;
+  min-width: 34px;
 }
 
 .drive-label,
 .drive-value {
-  font-size: 0.58rem;
+  font-size: 0.5rem;
   font-weight: 900;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
+  writing-mode: horizontal-tb;
 }
 
 .drive-label {
@@ -939,14 +940,14 @@ body {
 }
 
 .drive-value {
-  min-width: 50px;
+  min-width: 0;
   color: #bfe9c7;
-  text-align: right;
+  text-align: center;
 }
 
 .drive-track {
-  width: 100%;
-  height: 9px;
+  width: 9px;
+  height: 74px;
   overflow: hidden;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.08);
@@ -956,13 +957,13 @@ body {
 .drive-fill {
   width: 100%;
   height: 100%;
-  transform-origin: left center;
-  background: linear-gradient(90deg, #7fe4a5 0%, #39b96f 100%);
+  transform-origin: center bottom;
+  background: linear-gradient(180deg, #7fe4a5 0%, #39b96f 100%);
   box-shadow: 0 0 14px rgba(79, 209, 123, 0.28);
 }
 
 .drive-row[data-state="active"] .drive-fill {
-  background: linear-gradient(90deg, #ffe39a 0%, #ff9c4d 100%);
+  background: linear-gradient(180deg, #ffe39a 0%, #ff9c4d 100%);
   box-shadow: 0 0 16px rgba(255, 162, 85, 0.34);
 }
 
@@ -971,12 +972,21 @@ body {
 }
 
 .drive-row[data-state="cooldown"] .drive-fill {
-  background: linear-gradient(90deg, #9bcfff 0%, #5191d2 100%);
+  background: linear-gradient(180deg, #9bcfff 0%, #5191d2 100%);
   box-shadow: 0 0 14px rgba(103, 168, 241, 0.28);
 }
 
 .drive-row[data-state="cooldown"] .drive-value {
   color: #c1ddff;
+}
+
+.drive-row[data-state="overheated"] .drive-fill {
+  background: linear-gradient(180deg, #ffb58b 0%, #ff5b42 100%);
+  box-shadow: 0 0 16px rgba(255, 98, 74, 0.36);
+}
+
+.drive-row[data-state="overheated"] .drive-value {
+  color: #ffb7ab;
 }
 
 .drive-row[data-state="ready"] .drive-value {
@@ -1125,7 +1135,7 @@ body {
 .latch-warning {
   left: 50%;
   transform: translateX(-50%);
-  top: 208px;
+  top: 132px;
   width: min(320px, calc(100vw - 32px));
   padding: 10px 12px 12px;
   border-radius: 14px;
@@ -1235,7 +1245,6 @@ body {
   }
 
   .control-hint,
-  .drive-panel,
   .driver-panel,
   .latch-warning {
     width: calc(100vw - 24px);
@@ -1246,7 +1255,11 @@ body {
   }
 
   .drive-panel {
-    top: 136px;
+    top: auto;
+    right: 12px;
+    bottom: 142px;
+    transform: none;
+    width: auto;
   }
 
   .driver-panel {
@@ -1262,6 +1275,6 @@ body {
   }
 
   .latch-warning {
-    top: 276px;
+    top: 156px;
   }
 }

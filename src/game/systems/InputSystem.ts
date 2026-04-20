@@ -8,8 +8,6 @@ export class InputSystem {
   private pointerLocked = false;
   private fireHeld = false;
   private reloadQueued = false;
-  private actionWQueued = false;
-  private actionSQueued = false;
   private actionQQueued = false;
   private actionEQueued = false;
   private wigglePulse = 0;
@@ -87,22 +85,22 @@ export class InputSystem {
     return wasQueued;
   }
 
-  consumeActionW(): boolean {
-    const wasQueued = this.actionWQueued;
-    this.actionWQueued = false;
-    return wasQueued;
-  }
-
-  consumeActionS(): boolean {
-    const wasQueued = this.actionSQueued;
-    this.actionSQueued = false;
-    return wasQueued;
-  }
-
   consumeActionE(): boolean {
     const wasQueued = this.actionEQueued;
     this.actionEQueued = false;
     return wasQueued;
+  }
+
+  isAccelerateHeld(): boolean {
+    return this.pressedKeys.has('KeyW');
+  }
+
+  isBrakeHeld(): boolean {
+    return this.pressedKeys.has('KeyS');
+  }
+
+  isFocusBeamHeld(): boolean {
+    return this.pressedKeys.has('KeyF');
   }
 
   consumeWigglePulse(): number {
@@ -114,8 +112,6 @@ export class InputSystem {
   clearTransientInput(): void {
     this.fireHeld = false;
     this.reloadQueued = false;
-    this.actionWQueued = false;
-    this.actionSQueued = false;
     this.actionQQueued = false;
     this.actionEQueued = false;
     this.wigglePulse = 0;
@@ -137,16 +133,6 @@ export class InputSystem {
 
     if (event.code === 'KeyE') {
       this.actionEQueued = true;
-      return;
-    }
-
-    if (event.code === 'KeyW') {
-      this.actionWQueued = true;
-      return;
-    }
-
-    if (event.code === 'KeyS') {
-      this.actionSQueued = true;
       return;
     }
 
@@ -200,8 +186,6 @@ export class InputSystem {
   private handleWindowBlur(): void {
     this.pressedKeys.clear();
     this.fireHeld = false;
-    this.actionWQueued = false;
-    this.actionSQueued = false;
     this.actionQQueued = false;
     this.actionEQueued = false;
     this.wigglePulse = 0;
