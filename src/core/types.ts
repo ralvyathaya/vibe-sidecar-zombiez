@@ -783,6 +783,9 @@ export interface RideState {
   laneChangeAlpha: number;
   laneCenterX: number;
   worldX: number;
+  laneRequestActive: boolean;
+  laneRequestDirection: -1 | 0 | 1;
+  laneRequestHoldRatio: number;
   forwardSpeed: number;
   speedMultiplier: number;
   handlingPenalty: number;
@@ -799,10 +802,6 @@ export interface RideState {
   manualBoostCooldown: number;
   driveBrakeStrength: number;
   driveBoostStrength: number;
-  focusBeamActive: boolean;
-  focusBeamStrength: number;
-  focusBeamHeatRatio: number;
-  focusBeamOverheated: boolean;
   prompt: DriverPromptState | null;
   supportCue: DriverPromptState | null;
   segment: RunSegment;

@@ -1,5 +1,11 @@
 import { Vector2 } from 'three';
 
+export interface LaneRequestInputState {
+  active: boolean;
+  direction: -1 | 0 | 1;
+  holdRatio: number;
+}
+
 export class InputSystem {
   onPointerLockChange?: (locked: boolean) => void;
 
@@ -102,45 +108,37 @@ export class InputSystem {
     return this.pressedKeys.has('KeyS');
   }
 
-  isFocusBeamHeld(): boolean {
-    return this.pressedKeys.has('KeyF');
-  }
-
   consumeWigglePulse(): number {
     const pulse = this.wigglePulse;
     this.wigglePulse = 0;
     return pulse;
   }
 
+  getLaneRequestState(
+    holdDurationSeconds: number,
+    blocked = false,
+  ): LaneRequestInputState {
+    const state = this.updateLaneRequestState(
+      holdDurationSeconds,
+      blocked,
+      performance.now(),
+      false,
+    );
+    return {
+      active: state.active,
+      direction: state.direction,
+      holdRatio: state.holdRatio,
+    };
+  }
+
   consumeLaneRequest(holdDurationSeconds: number, blocked = false): -1 | 0 | 1 {
-    if (blocked) {
-      this.resetLaneRequestState();
-      return 0;
-    }
-
-    const direction = this.getStrafeAxis();
-    if (direction !== -1 && direction !== 1) {
-      this.resetLaneRequestState();
-      return 0;
-    }
-
-    const now = performance.now();
-    if (this.laneRequestDirection !== direction) {
-      this.laneRequestDirection = direction;
-      this.laneRequestStartedAt = now;
-      this.laneRequestTriggered = false;
-      return 0;
-    }
-
-    if (
-      !this.laneRequestTriggered &&
-      now - this.laneRequestStartedAt >= holdDurationSeconds * 1000
-    ) {
-      this.laneRequestTriggered = true;
-      return direction;
-    }
-
-    return 0;
+    const state = this.updateLaneRequestState(
+      holdDurationSeconds,
+      blocked,
+      performance.now(),
+      true,
+    );
+    return state.triggered ? state.direction : 0;
   }
 
   clearTransientInput(): void {
@@ -243,5 +241,53 @@ export class InputSystem {
     this.laneRequestDirection = 0;
     this.laneRequestStartedAt = 0;
     this.laneRequestTriggered = false;
+  }
+
+  private updateLaneRequestState(
+    holdDurationSeconds: number,
+    blocked: boolean,
+    now: number,
+    commitTrigger: boolean,
+  ): LaneRequestInputState & { triggered: boolean } {
+    if (blocked) {
+      this.resetLaneRequestState();
+      return {
+        active: false,
+        direction: 0,
+        holdRatio: 0,
+        triggered: false,
+      };
+    }
+
+    const direction = this.getStrafeAxis();
+    if (direction !== -1 && direction !== 1) {
+      this.resetLaneRequestState();
+      return {
+        active: false,
+        direction: 0,
+        holdRatio: 0,
+        triggered: false,
+      };
+    }
+
+    if (this.laneRequestDirection !== direction || this.laneRequestStartedAt <= 0) {
+      this.laneRequestDirection = direction;
+      this.laneRequestStartedAt = now;
+      this.laneRequestTriggered = false;
+    }
+
+    const durationMs = Math.max(holdDurationSeconds * 1000, 1);
+    const elapsedMs = Math.max(0, now - this.laneRequestStartedAt);
+    const triggered = !this.laneRequestTriggered && elapsedMs >= durationMs;
+    if (triggered && commitTrigger) {
+      this.laneRequestTriggered = true;
+    }
+
+    return {
+      active: true,
+      direction,
+      holdRatio: Math.min(1, elapsedMs / durationMs),
+      triggered,
+    };
   }
 }

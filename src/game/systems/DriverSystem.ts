@@ -26,9 +26,6 @@ export class DriverSystem {
   private promptLockout = 0;
   private manualBrakeStrength = 0;
   private manualBoostStrength = 0;
-  private focusBeamHeat = 0;
-  private focusBeamStrength = 0;
-  private focusBeamOverheated = false;
   private floorItTimer = 0;
   private brakeTimer = 0;
   private engineTroubleTimer = 0;
@@ -64,9 +61,6 @@ export class DriverSystem {
     this.promptLockout = 0;
     this.manualBrakeStrength = 0;
     this.manualBoostStrength = 0;
-    this.focusBeamHeat = 0;
-    this.focusBeamStrength = 0;
-    this.focusBeamOverheated = false;
     this.floorItTimer = 0;
     this.brakeTimer = 0;
     this.engineTroubleTimer = 0;
@@ -94,7 +88,6 @@ export class DriverSystem {
     eventTimer = 0,
     eventDuration = 0,
     nitroActive = false,
-    focusBeamHeld = false,
   ): RideState {
     this.time += deltaTime;
     this.laneThreats = laneThreats.length > 0 ? laneThreats : this.createFallbackLaneThreats();
@@ -130,7 +123,6 @@ export class DriverSystem {
     }
 
     this.updateDriveState(deltaTime);
-    this.updateFocusBeamState(deltaTime, focusBeamHeld);
 
     if (this.supportCue) {
       this.supportCue.timer = Math.max(0, this.supportCue.timer - deltaTime);
@@ -210,6 +202,9 @@ export class DriverSystem {
       laneChangeAlpha: laneAlpha,
       laneCenterX,
       worldX: laneCenterX,
+      laneRequestActive: false,
+      laneRequestDirection: 0,
+      laneRequestHoldRatio: 0,
       forwardSpeed: this.config.player.forwardSpeed * speedMultiplier,
       speedMultiplier,
       handlingPenalty,
@@ -226,10 +221,6 @@ export class DriverSystem {
       manualBoostCooldown: 0,
       driveBrakeStrength: this.manualBrakeStrength,
       driveBoostStrength: this.manualBoostStrength,
-      focusBeamActive: this.focusBeamStrength > 0.04,
-      focusBeamStrength: this.focusBeamStrength,
-      focusBeamHeatRatio: this.focusBeamHeat,
-      focusBeamOverheated: this.focusBeamOverheated,
       prompt: null,
       supportCue: this.supportCue,
       segment: this.segment,
@@ -801,49 +792,6 @@ export class DriverSystem {
       'support',
       reason,
     );
-  }
-
-  private updateFocusBeamState(deltaTime: number, focusBeamHeld: boolean): void {
-    if (focusBeamHeld && !this.focusBeamOverheated) {
-      this.focusBeamHeat = Math.min(
-        1,
-        this.focusBeamHeat + deltaTime * this.config.ride.focusBeamHeatRate,
-      );
-      this.focusBeamStrength = approach(
-        this.focusBeamStrength,
-        1,
-        deltaTime * this.config.ride.inputHoldResponse,
-      );
-
-      if (this.focusBeamHeat >= 0.999) {
-        this.focusBeamHeat = 1;
-        this.focusBeamStrength = 0;
-        this.focusBeamOverheated = true;
-      }
-      return;
-    }
-
-    if (focusBeamHeld && this.focusBeamOverheated) {
-      this.focusBeamStrength = 0;
-      return;
-    }
-
-    this.focusBeamStrength = approach(
-      this.focusBeamStrength,
-      0,
-      deltaTime * this.config.ride.inputHoldResponse * 1.25,
-    );
-    this.focusBeamHeat = Math.max(
-      0,
-      this.focusBeamHeat - deltaTime * this.config.ride.focusBeamCoolRate,
-    );
-
-    if (
-      this.focusBeamOverheated &&
-      this.focusBeamHeat <= this.config.ride.focusBeamRecoveryThreshold
-    ) {
-      this.focusBeamOverheated = false;
-    }
   }
 
   private createFallbackLaneThreats(): LaneThreatState[] {

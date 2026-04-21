@@ -86,23 +86,15 @@ export class UISystem {
   private readonly buffPanel = document.createElement('div');
   private readonly adrenalineBuff = document.createElement('div');
   private readonly nitroBuff = document.createElement('div');
-  private readonly controlHint = document.createElement('div');
-  private readonly drivePanel = document.createElement('div');
-  private readonly driveBoostRow = document.createElement('div');
-  private readonly driveBoostLabel = document.createElement('span');
-  private readonly driveBoostValue = document.createElement('span');
-  private readonly driveBoostTrack = document.createElement('div');
-  private readonly driveBoostFill = document.createElement('div');
-  private readonly driveBrakeRow = document.createElement('div');
-  private readonly driveBrakeLabel = document.createElement('span');
-  private readonly driveBrakeValue = document.createElement('span');
-  private readonly driveBrakeTrack = document.createElement('div');
-  private readonly driveBrakeFill = document.createElement('div');
-  private readonly driveFocusRow = document.createElement('div');
-  private readonly driveFocusLabel = document.createElement('span');
-  private readonly driveFocusValue = document.createElement('span');
-  private readonly driveFocusTrack = document.createElement('div');
-  private readonly driveFocusFill = document.createElement('div');
+  private readonly laneRequestHud = document.createElement('div');
+  private readonly laneRequestLeft = document.createElement('div');
+  private readonly laneRequestLeftRing = document.createElement('div');
+  private readonly laneRequestLeftCore = document.createElement('div');
+  private readonly laneRequestLeftKey = document.createElement('span');
+  private readonly laneRequestRight = document.createElement('div');
+  private readonly laneRequestRightRing = document.createElement('div');
+  private readonly laneRequestRightCore = document.createElement('div');
+  private readonly laneRequestRightKey = document.createElement('span');
   private readonly driverPanel = document.createElement('div');
   private readonly driverPortraitFrame = document.createElement('div');
   private readonly driverPortrait = document.createElement('img');
@@ -230,33 +222,24 @@ export class UISystem {
     this.buffPanel.className = 'buff-panel';
     this.adrenalineBuff.className = 'buff-chip';
     this.nitroBuff.className = 'buff-chip';
-    this.controlHint.className = 'control-hint';
-    this.drivePanel.className = 'drive-panel';
-    this.driveBoostRow.className = 'drive-row';
-    this.driveBoostLabel.className = 'drive-label';
-    this.driveBoostLabel.textContent = 'W Accel';
-    this.driveBoostValue.className = 'drive-value';
-    this.driveBoostTrack.className = 'drive-track';
-    this.driveBoostFill.className = 'drive-fill';
-    this.driveBoostTrack.append(this.driveBoostFill);
-    this.driveBoostRow.append(this.driveBoostLabel, this.driveBoostValue, this.driveBoostTrack);
-    this.driveBrakeRow.className = 'drive-row';
-    this.driveBrakeLabel.className = 'drive-label';
-    this.driveBrakeLabel.textContent = 'S Brake';
-    this.driveBrakeValue.className = 'drive-value';
-    this.driveBrakeTrack.className = 'drive-track';
-    this.driveBrakeFill.className = 'drive-fill';
-    this.driveBrakeTrack.append(this.driveBrakeFill);
-    this.driveBrakeRow.append(this.driveBrakeLabel, this.driveBrakeValue, this.driveBrakeTrack);
-    this.driveFocusRow.className = 'drive-row';
-    this.driveFocusLabel.className = 'drive-label';
-    this.driveFocusLabel.textContent = 'F Lite';
-    this.driveFocusValue.className = 'drive-value';
-    this.driveFocusTrack.className = 'drive-track';
-    this.driveFocusFill.className = 'drive-fill';
-    this.driveFocusTrack.append(this.driveFocusFill);
-    this.driveFocusRow.append(this.driveFocusLabel, this.driveFocusValue, this.driveFocusTrack);
-    this.drivePanel.append(this.driveBoostRow, this.driveBrakeRow, this.driveFocusRow);
+    this.laneRequestHud.className = 'lane-request-hud';
+    this.laneRequestLeft.className = 'lane-request lane-request--left';
+    this.laneRequestLeftRing.className = 'lane-request-ring';
+    this.laneRequestLeftCore.className = 'lane-request-core';
+    this.laneRequestLeftKey.className = 'lane-request-key';
+    this.laneRequestLeftKey.textContent = 'A';
+    this.laneRequestLeftCore.append(this.laneRequestLeftKey);
+    this.laneRequestLeftRing.append(this.laneRequestLeftCore);
+    this.laneRequestLeft.append(this.laneRequestLeftRing);
+    this.laneRequestRight.className = 'lane-request lane-request--right';
+    this.laneRequestRightRing.className = 'lane-request-ring';
+    this.laneRequestRightCore.className = 'lane-request-core';
+    this.laneRequestRightKey.className = 'lane-request-key';
+    this.laneRequestRightKey.textContent = 'D';
+    this.laneRequestRightCore.append(this.laneRequestRightKey);
+    this.laneRequestRightRing.append(this.laneRequestRightCore);
+    this.laneRequestRight.append(this.laneRequestRightRing);
+    this.laneRequestHud.append(this.laneRequestLeft, this.laneRequestRight);
     this.driverPanel.className = 'driver-panel';
     this.driverPortraitFrame.className = 'driver-portrait-frame';
     this.driverPortrait.className = 'driver-portrait';
@@ -342,7 +325,7 @@ export class UISystem {
     );
     this.root.append(
       hud,
-      this.controlHint,
+      this.laneRequestHud,
       this.driverPanel,
       this.latchWarning,
       this.rewardCallout,
@@ -477,72 +460,25 @@ export class UISystem {
       snapshot.player.nitroTimer > 0
         ? `Auto Accel ${(snapshot.player.nitroTimer).toFixed(1)}s`
         : '';
-    this.controlHint.textContent =
-      snapshot.ride?.latchActive
-        ? 'Shoot Low  |  Tap A/D Wiggle  |  Hold F Focus'
-        : 'Hold A / D Ask Lane  |  Hold F Focus';
-    this.controlHint.dataset.alert = 'false';
-    const boostState = this.resolveDriveMeterState(
-      snapshot.ride?.manualBoostEngaged ?? false,
-      snapshot.ride?.manualBoostMeterRatio ?? 1,
+    const laneRequestActive =
+      snapshot.gameState === 'running' && Boolean(snapshot.ride?.laneRequestActive);
+    const laneRequestProgress = snapshot.ride?.laneRequestHoldRatio ?? 0;
+    const laneRequestDirection = snapshot.ride?.laneRequestDirection ?? 0;
+    this.laneRequestHud.hidden = !laneRequestActive;
+    this.laneRequestLeft.hidden = !laneRequestActive || laneRequestDirection !== -1;
+    this.laneRequestRight.hidden = !laneRequestActive || laneRequestDirection !== 1;
+    this.laneRequestLeft.style.setProperty(
+      '--lane-request-progress',
+      laneRequestProgress.toFixed(3),
     );
-    const brakeState = this.resolveDriveMeterState(
-      snapshot.ride?.manualBrakeEngaged ?? false,
-      snapshot.ride?.manualBrakeMeterRatio ?? 1,
+    this.laneRequestRight.style.setProperty(
+      '--lane-request-progress',
+      laneRequestProgress.toFixed(3),
     );
-    const focusState = this.resolveFocusMeterState(
-      snapshot.ride?.focusBeamActive ?? false,
-      snapshot.ride?.focusBeamHeatRatio ?? 0,
-      snapshot.ride?.focusBeamOverheated ?? false,
-    );
-    const showDrivePanel =
-      snapshot.gameState === 'running' &&
-      (
-        (snapshot.ride?.focusBeamActive ?? false) ||
-        (snapshot.ride?.focusBeamHeatRatio ?? 0) > 0.02 ||
-        (snapshot.ride?.focusBeamOverheated ?? false)
-      );
-    this.drivePanel.hidden = !showDrivePanel;
-    this.driveBoostRow.hidden = true;
-    this.driveBrakeRow.hidden = true;
-    this.driveFocusRow.hidden =
-      !(
-        (snapshot.ride?.focusBeamActive ?? false) ||
-        (snapshot.ride?.focusBeamHeatRatio ?? 0) > 0.02 ||
-        (snapshot.ride?.focusBeamOverheated ?? false)
-      );
-    this.driveBoostRow.dataset.state = boostState;
-    this.driveBrakeRow.dataset.state = brakeState;
-    this.driveFocusRow.dataset.state = focusState;
-    this.driveBoostFill.style.transform = `scaleY(${(
-      snapshot.ride?.manualBoostMeterRatio ?? 1
-    ).toFixed(3)})`;
-    this.driveBrakeFill.style.transform = `scaleY(${(
-      snapshot.ride?.manualBrakeMeterRatio ?? 1
-    ).toFixed(3)})`;
-    this.driveFocusFill.style.transform = `scaleY(${(
-      snapshot.ride?.focusBeamHeatRatio ?? 0
-    ).toFixed(3)})`;
-    this.driveBoostValue.textContent =
-      boostState === 'active'
-        ? 'HOLD'
-        : boostState === 'cooldown'
-          ? 'COOL'
-          : 'READY';
-    this.driveBrakeValue.textContent =
-      brakeState === 'active'
-        ? 'HOLD'
-        : brakeState === 'cooldown'
-          ? 'COOL'
-          : 'READY';
-    this.driveFocusValue.textContent =
-      focusState === 'active'
-        ? 'ON'
-        : focusState === 'cooldown'
-          ? 'COOL'
-          : focusState === 'overheated'
-            ? 'HOT'
-            : 'READY';
+    this.laneRequestLeft.dataset.complete =
+      laneRequestProgress >= 0.999 && laneRequestDirection === -1 ? 'true' : 'false';
+    this.laneRequestRight.dataset.complete =
+      laneRequestProgress >= 0.999 && laneRequestDirection === 1 ? 'true' : 'false';
 
     const driverPresentation = this.resolveDriverPresentation(snapshot);
     if (snapshot.gameState !== 'running') {
@@ -990,41 +926,6 @@ export class UISystem {
       return 'BLACKOUT';
     }
     return '';
-  }
-
-  private resolveDriveMeterState(
-    engaged: boolean,
-    meterRatio: number,
-  ): 'active' | 'cooldown' | 'ready' {
-    if (engaged) {
-      return 'active';
-    }
-
-    if (meterRatio < 0.999) {
-      return 'cooldown';
-    }
-
-    return 'ready';
-  }
-
-  private resolveFocusMeterState(
-    active: boolean,
-    heatRatio: number,
-    overheated: boolean,
-  ): 'active' | 'cooldown' | 'ready' | 'overheated' {
-    if (overheated) {
-      return 'overheated';
-    }
-
-    if (active) {
-      return 'active';
-    }
-
-    if (heatRatio > 0.02) {
-      return 'cooldown';
-    }
-
-    return 'ready';
   }
 
 }

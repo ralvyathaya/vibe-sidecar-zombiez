@@ -159,7 +159,6 @@ export class Game {
     if (this.state === 'running') {
       const simulationDelta = this.consumeSimulationDelta(deltaTime);
       this.handleContextActions();
-      const focusBeamHeld = this.inputSystem.isFocusBeamHeld();
       this.decayRoadFeedback(deltaTime);
 
       let loadout = this.weaponSystem.getLoadoutState();
@@ -174,9 +173,14 @@ export class Game {
         pickupHints,
       );
       const latchActive = this.enemySystem.hasLatchedRunner();
+      const laneRequestBlocked = latchActive || this.driverSystem.hasActivePrompt();
+      const laneRequestState = this.inputSystem.getLaneRequestState(
+        GAME_CONFIG.driver.laneRequestHoldDuration,
+        laneRequestBlocked,
+      );
       const laneRequestDirection = this.inputSystem.consumeLaneRequest(
         GAME_CONFIG.driver.laneRequestHoldDuration,
-        latchActive || this.driverSystem.hasActivePrompt(),
+        laneRequestBlocked,
       );
       if (laneRequestDirection !== 0) {
         this.driverSystem.requestLaneChange(
@@ -195,7 +199,6 @@ export class Game {
         this.spawnSystem.getEventTimer(),
         this.spawnSystem.getEventDuration(),
         this.playerSystem.hasNitro(),
-        focusBeamHeld,
       );
       const promptResolution = this.driverSystem.consumePromptResolution();
       if (promptResolution) {
@@ -211,7 +214,11 @@ export class Game {
           refreshedPickupHints,
         );
       }
-      const preWorldRide = this.composeRideState(baseRide, combinedLaneThreats);
+      const preWorldRide = this.composeRideState(
+        baseRide,
+        combinedLaneThreats,
+        laneRequestState,
+      );
       this.frameRideState = preWorldRide;
 
       this.playerSystem.updateRunning(simulationDelta, this.inputSystem, preWorldRide);
@@ -302,7 +309,11 @@ export class Game {
         this.enemySystem.getLaneThreats(),
         finalPickupHints,
       );
-      const finalRide = this.composeRideState(baseRide, finalLaneThreats);
+      const finalRide = this.composeRideState(
+        baseRide,
+        finalLaneThreats,
+        laneRequestState,
+      );
       this.frameRideState = finalRide;
       if (!this.lastRideState?.engineTroubleMode && finalRide.engineTroubleMode) {
         this.stallSound.play(
@@ -342,7 +353,6 @@ export class Game {
           this.spawnSystem.getEventTimer(),
           this.spawnSystem.getEventDuration(),
           this.playerSystem.hasNitro(),
-          false,
         ),
       );
       this.rendererSystem.updateAtmosphere(deltaTime, 'dark', idleRide.activeEvent);
@@ -492,11 +502,19 @@ export class Game {
   private composeRideState(
     baseRide: RideState,
     laneThreats: LaneThreatState[] = baseRide.laneThreats,
+    laneRequestState = {
+      active: false,
+      direction: 0 as -1 | 0 | 1,
+      holdRatio: 0,
+    },
   ): RideState {
     const latchActive = this.enemySystem.hasLatchedRunner();
     return {
       ...baseRide,
       worldX: this.playerSystem.state.strafeX || baseRide.worldX,
+      laneRequestActive: laneRequestState.active,
+      laneRequestDirection: laneRequestState.direction,
+      laneRequestHoldRatio: laneRequestState.holdRatio,
       handlingPenalty: clamp(
         baseRide.handlingPenalty + this.roadHandlingPenalty,
         0,
