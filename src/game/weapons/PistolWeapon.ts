@@ -608,19 +608,28 @@ export class PistolWeapon {
         Math.min(this.config.weapon.range, this.config.weapon.tracer.missLength),
       );
 
+    const hitLatched = enemies.raycastLatchedRunner(
+      this.camera,
+      this.crosshair,
+      this.config.weapon.range,
+    );
     const hitZombie = enemies.raycast(this.camera, this.crosshair, this.config.weapon.range);
     const hitBarrel = world.raycast(this.camera, this.crosshair, this.config.weapon.range);
+    const enemyHit =
+      hitLatched && (!hitZombie || hitLatched.distance <= hitZombie.distance)
+        ? hitLatched
+        : hitZombie;
     const hitEnemyFirst =
-      hitZombie &&
-      (!hitBarrel || hitZombie.distance <= hitBarrel.distance);
+      enemyHit &&
+      (!hitBarrel || enemyHit.distance <= hitBarrel.distance);
 
-    if (hitEnemyFirst && hitZombie) {
-      this.traceEnd.copy(hitZombie.point);
+    if (hitEnemyFirst && enemyHit) {
+      this.traceEnd.copy(enemyHit.point);
       this.spawnTracer(this.muzzleWorld, this.traceEnd);
       const kill = enemies.damage(
-        hitZombie.zombie,
+        enemyHit.zombie,
         this.config.weapon.damagePerShot,
-        hitZombie.point,
+        enemyHit.point,
       );
       this.hitConfirmTimer = 0.1;
       if (kill) {

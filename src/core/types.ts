@@ -117,6 +117,8 @@ export interface HumanoidEnemyModelConfig {
   roadSplatLifetime: number;
   roadSplatOpacity: number;
   latchPresentationPath?: string;
+  latchMountPosition?: Vec3Tuple;
+  latchMountRotationDegrees?: Vec3Tuple;
   latchPresentationPosition?: Vec3Tuple;
   latchPresentationRotationDegrees?: Vec3Tuple;
   latchPresentationScale?: number;

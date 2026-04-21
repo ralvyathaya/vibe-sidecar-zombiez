@@ -463,34 +463,26 @@ export class ShotgunWeapon {
     this.muzzleAnchor.getWorldPosition(this.muzzleWorld);
 
     const rewardEvents: RewardEvent[] = [];
-    const latchedKill = enemies.hasLatchedRunner()
-      ? enemies.damageLatchedRunner(
-          this.config.shotgun.damagePerPellet + this.config.ride.latchShotgunBonusDamage,
-        )
-      : null;
-    if (latchedKill) {
-      this.hitConfirmTimer = 0.14;
-      this.spawnImpactBurst(this.muzzleWorld);
-      rewardEvents.push({
-        baseScore: latchedKill.baseScore,
-        weaponType: 'shotgun',
-        zombieType: latchedKill.zombieType,
-        killCount: 1,
-        wasExplosive: false,
-        distanceToPlayer: player.getPosition(this.playerPosition).distanceTo(latchedKill.position),
-      });
-    }
 
     for (let pelletIndex = 0; pelletIndex < this.config.shotgun.pelletsPerShot; pelletIndex += 1) {
       this.samplePelletScreenPoint(pelletIndex, this.config.shotgun.pelletsPerShot);
       this.pelletRaycaster.setFromCamera(this.spreadCrosshair, this.camera);
       this.pelletDirection.copy(this.pelletRaycaster.ray.direction);
 
+      const hitLatched = enemies.raycastLatchedRunner(
+        this.camera,
+        this.spreadCrosshair,
+        this.config.shotgun.range,
+      );
       const hitZombie = enemies.raycast(this.camera, this.spreadCrosshair, this.config.shotgun.range);
       const hitBarrel = world.raycast(this.camera, this.spreadCrosshair, this.config.shotgun.range);
+      const enemyHit =
+        hitLatched && (!hitZombie || hitLatched.distance <= hitZombie.distance)
+          ? hitLatched
+          : hitZombie;
       const hitEnemyFirst =
-        hitZombie &&
-        (!hitBarrel || hitZombie.distance <= hitBarrel.distance);
+        enemyHit &&
+        (!hitBarrel || enemyHit.distance <= hitBarrel.distance);
 
       if (visualPelletIndices.has(pelletIndex)) {
         // The burst uses the same sampled screen-space spread as the actual pellet
@@ -504,14 +496,16 @@ export class ShotgunWeapon {
         this.spawnPelletStreak(this.muzzleWorld, this.pelletBurstDirection, visibleLength);
       }
 
-      if (hitEnemyFirst && hitZombie) {
+      if (hitEnemyFirst && enemyHit) {
         const kill = enemies.damage(
-          hitZombie.zombie,
-          this.config.shotgun.damagePerPellet,
-          hitZombie.point,
+          enemyHit.zombie,
+          hitLatched && enemyHit === hitLatched
+            ? this.config.shotgun.damagePerPellet + this.config.ride.latchShotgunBonusDamage
+            : this.config.shotgun.damagePerPellet,
+          enemyHit.point,
         );
         this.hitConfirmTimer = 0.12;
-        this.spawnImpactBurst(hitZombie.point);
+        this.spawnImpactBurst(enemyHit.point);
         if (kill) {
           rewardEvents.push({
             baseScore: kill.baseScore,

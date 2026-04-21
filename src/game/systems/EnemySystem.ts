@@ -14,6 +14,7 @@ import {
   MeshBasicMaterial,
   MeshStandardMaterial,
   Object3D,
+  Quaternion,
   Raycaster,
   Scene,
   Vector2,
@@ -103,6 +104,11 @@ export class EnemySystem {
   private readonly radarDirection = new Vector3();
   private readonly radarRight = new Vector3();
   private readonly latchWorldPosition = new Vector3();
+  private readonly latchMountOffset = new Vector3();
+  private readonly latchMountRotation = new Vector3();
+  private readonly latchAnchorQuaternion = new Quaternion();
+  private readonly latchMountQuaternion = new Quaternion();
+  private readonly latchOffsetWorld = new Vector3();
   private readonly normalDeathSound: SoundEffectPool;
   private readonly tankDeathSound: SoundEffectPool;
   private readonly approachSound: SoundEffectPool;
@@ -152,6 +158,12 @@ export class EnemySystem {
     const latchModel = this.config.enemies.runnerModel;
     this.latchPresentationRoot.name = 'RunnerLatchPresentation';
     this.latchPresentationRoot.visible = false;
+    this.latchMountOffset.set(...(latchModel.latchMountPosition ?? [0, 0, 0]));
+    this.latchMountRotation.set(
+      MathUtils.degToRad(latchModel.latchMountRotationDegrees?.[0] ?? 0),
+      MathUtils.degToRad(latchModel.latchMountRotationDegrees?.[1] ?? 0),
+      MathUtils.degToRad(latchModel.latchMountRotationDegrees?.[2] ?? 0),
+    );
     this.latchPresentationOffset.set(...(latchModel.latchPresentationPosition ?? [0, 0, 0]));
     this.latchPresentationRotation.set(
       MathUtils.degToRad(latchModel.latchPresentationRotationDegrees?.[0] ?? 0),
@@ -383,7 +395,12 @@ export class EnemySystem {
     this.raycaster.far = range;
 
     const activeRoots = this.pool
-      .filter((entry) => entry.active && entry.state === 'alive')
+      .filter(
+        (entry) =>
+          entry.active &&
+          entry.state === 'alive' &&
+          this.latchedRunner?.id !== entry.id,
+      )
       .map((entry) => entry.group);
 
     if (activeRoots.length === 0) {
@@ -405,6 +422,46 @@ export class EnemySystem {
           distance: hit.distance,
         };
       }
+    }
+
+    return null;
+  }
+
+  raycastLatchedRunner(
+    camera: Camera,
+    crosshair: Vector2,
+    range: number,
+  ): { zombie: ActiveZombie; point: Vector3; distance: number } | null {
+    const latchedRunner = this.latchedRunner;
+    if (!latchedRunner || !latchedRunner.active || latchedRunner.state !== 'alive') {
+      return null;
+    }
+
+    this.raycaster.setFromCamera(crosshair, camera);
+    this.raycaster.near = 0;
+    this.raycaster.far = range;
+
+    const hitRoots = this.getLatchedHitRoots(latchedRunner);
+    if (hitRoots.length === 0) {
+      return null;
+    }
+
+    const hits = this.raycaster.intersectObjects(hitRoots, true);
+    for (const hit of hits) {
+      if (hit.object === this.latchOccluder) {
+        continue;
+      }
+
+      const poolId = hit.object.userData.poolId as number | undefined;
+      if (poolId !== latchedRunner.poolId) {
+        continue;
+      }
+
+      return {
+        zombie: latchedRunner,
+        point: hit.point.clone(),
+        distance: hit.distance,
+      };
     }
 
     return null;
@@ -906,8 +963,17 @@ export class EnemySystem {
     }
 
     this.latchAnchor.getWorldPosition(this.latchWorldPosition);
-    zombie.group.position.copy(this.latchWorldPosition);
-    zombie.group.rotation.set(0.26, Math.PI * 0.62, -0.32);
+    this.latchAnchor.getWorldQuaternion(this.latchAnchorQuaternion);
+    this.latchOffsetWorld
+      .copy(this.latchMountOffset)
+      .applyQuaternion(this.latchAnchorQuaternion);
+    zombie.group.position.copy(this.latchWorldPosition).add(this.latchOffsetWorld);
+    this.latchMountQuaternion.setFromEuler(zombie.group.rotation.set(
+      this.latchMountRotation.x,
+      this.latchMountRotation.y,
+      this.latchMountRotation.z,
+    ));
+    zombie.group.quaternion.copy(this.latchAnchorQuaternion).multiply(this.latchMountQuaternion);
     if (this.latchPresentationLoaded) {
       this.attachLatchPresentation(zombie);
     }
@@ -1333,6 +1399,23 @@ export class EnemySystem {
     for (const material of zombie.flashMaterials) {
       material.emissiveIntensity = emissiveStrength;
     }
+  }
+
+  private getLatchedHitRoots(zombie: ActiveZombie): Object3D[] {
+    if (this.latchPresentationLoaded && this.latchPresentationRoot.visible) {
+      return [this.latchPresentationRoot];
+    }
+
+    const activeVariant = this.getActiveModelVariant(zombie);
+    if (activeVariant?.root.visible) {
+      return [activeVariant.root];
+    }
+
+    if (zombie.primitiveRoot.visible) {
+      return [zombie.primitiveRoot];
+    }
+
+    return [];
   }
 
   private resetFlashMaterials(materials: FlashMaterial[]): void {
