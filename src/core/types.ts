@@ -223,17 +223,26 @@ export interface GameConfig {
       headlightAngleDegrees: number;
       headlightPenumbra: number;
       headlightDecay: number;
+      headlightShadowMapSize: number;
+      headlightShadowBias: number;
+      headlightShadowNormalBias: number;
       headlightFillColor: number;
       headlightFillIntensity: number;
       headlightFillDistance: number;
       headlightFillAngleDegrees: number;
       headlightFillPenumbra: number;
+      headlightFillTargetPosition: Vec3Tuple;
+      nearFillPosition: Vec3Tuple;
+      nearFillColor: number;
+      nearFillIntensity: number;
+      nearFillDistance: number;
       focusHeadlightColor: number;
       focusHeadlightIntensity: number;
       focusHeadlightDistance: number;
       focusHeadlightAngleDegrees: number;
       focusHeadlightPenumbra: number;
       focusHeadlightDecay: number;
+      focusHeadlightTargetPosition: Vec3Tuple;
     };
   };
   ride: {
@@ -420,6 +429,8 @@ export interface GameConfig {
       spinDuration: number;
       spinTurns: number;
       muzzleOffset: Vec3Tuple;
+      muzzleFlashSpriteOffset: Vec3Tuple;
+      muzzleBlastOffset: Vec3Tuple;
       muzzleFlashSize: number;
       muzzleFlashDuration: number;
     };

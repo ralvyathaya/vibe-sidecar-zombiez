@@ -8,6 +8,7 @@ import {
   HemisphereLight,
   Mesh,
   MeshBasicMaterial,
+  PCFSoftShadowMap,
   PerspectiveCamera,
   Scene,
   SRGBColorSpace,
@@ -47,7 +48,14 @@ export class RendererSystem {
     this.renderer.outputColorSpace = SRGBColorSpace;
     this.renderer.toneMapping = ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = this.config.renderer.exposure;
-    this.renderer.shadowMap.enabled = false;
+    const maybePhysicalRenderer = this.renderer as WebGLRenderer & {
+      useLegacyLights?: boolean;
+    };
+    if (typeof maybePhysicalRenderer.useLegacyLights === 'boolean') {
+      maybePhysicalRenderer.useLegacyLights = false;
+    }
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = PCFSoftShadowMap;
     this.renderer.domElement.className = 'game-canvas';
     this.currentClearColor = this.config.renderer.clearColor;
     this.currentFogColor = this.config.renderer.fogColor;
@@ -99,14 +107,14 @@ export class RendererSystem {
   }
 
   private addLighting(): void {
-    const skyLight = new HemisphereLight(0x35526d, 0x07080a, 0.19);
+    const skyLight = new HemisphereLight(0xbfd7ff, 0x111111, 0.22);
     this.scene.add(skyLight);
 
-    const moonLight = new DirectionalLight(0x97beff, 0.14);
-    moonLight.position.set(-18, 24, -28);
+    const moonLight = new DirectionalLight(0x8aa0c8, 0.12);
+    moonLight.position.set(-8, 10, -4);
     this.scene.add(moonLight);
 
-    const fillLight = new DirectionalLight(0x2a3d55, 0.09);
+    const fillLight = new DirectionalLight(0x2e3c52, 0.05);
     fillLight.position.set(12, 10, 14);
     this.scene.add(fillLight);
   }

@@ -103,8 +103,8 @@ export class ShotgunWeapon {
   private readonly muzzleFlashSprite = new Sprite(this.muzzleFlashSpriteMaterial);
   private readonly muzzleBlastPetals: Mesh[] = [];
   private readonly muzzleLight = new PointLight(0xffb464, 0, 7.5, 2);
-  private readonly viewmodelKeyLight = new PointLight(0xffcd99, 0.14, 2.4, 2);
-  private readonly viewmodelFillLight = new PointLight(0xdccfbd, 0.02, 1.6, 2);
+  private readonly viewmodelKeyLight = new PointLight(0xffd4a8, 0.32, 2.7, 2);
+  private readonly viewmodelFillLight = new PointLight(0xe6edf8, 0.11, 2, 2);
   private readonly gunshotSound: SoundEffectPool;
   private readonly delaySound: SoundEffectPool;
   private readonly basePosition: Vector3;
@@ -161,7 +161,7 @@ export class ShotgunWeapon {
     this.muzzleFlashSprite.renderOrder = 15;
     this.muzzleFlashCore.position.x = -0.18;
     this.muzzleFlashStreak.position.x = -0.82;
-    this.muzzleFlashSprite.position.set(-0.12, 0, 0);
+    this.muzzleFlashSprite.position.set(...this.config.shotgun.viewmodel.muzzleFlashSpriteOffset);
     this.muzzleFlashSprite.center.set(0.12, 0.5);
     this.muzzleFlash.add(
       this.muzzleFlashSprite,
@@ -173,8 +173,8 @@ export class ShotgunWeapon {
     this.createPelletStreakPool();
     this.createImpactBurstPool();
     this.muzzleFlash.visible = false;
-    this.viewmodelKeyLight.position.set(0.2, 0.08, 0.28);
-    this.viewmodelFillLight.position.set(-0.08, 0.05, 0.18);
+    this.viewmodelKeyLight.position.set(0.26, 0.16, 0.34);
+    this.viewmodelFillLight.position.set(-0.1, 0.09, 0.2);
     // Keep the shotgun flash anchored to the real muzzle tip so the sprite,
     // the blast meshes, and the pellet feedback all originate from one place.
     this.muzzleAnchor.add(this.muzzleFlash);
@@ -421,15 +421,15 @@ export class ShotgunWeapon {
         }
 
         if (litMaterial.color instanceof Color) {
-          litMaterial.color.multiply(new Color(0.8, 0.77, 0.73));
+          litMaterial.color.multiply(new Color(0.93, 0.9, 0.87));
         }
 
         if (typeof litMaterial.roughness === 'number') {
-          litMaterial.roughness = Math.max(litMaterial.roughness, 0.94);
+          litMaterial.roughness = MathUtils.clamp(litMaterial.roughness, 0.38, 0.78);
         }
 
         if (typeof litMaterial.metalness === 'number') {
-          litMaterial.metalness = Math.min(litMaterial.metalness, 0.05);
+          litMaterial.metalness = Math.min(litMaterial.metalness, 0.14);
         }
       }
     });
@@ -1096,7 +1096,7 @@ export class ShotgunWeapon {
   private randomizeMuzzleFlash(): void {
     const flashSize = this.config.shotgun.viewmodel.muzzleFlashSize;
     const blastWidth = this.getCrosshairGap() * 0.014;
-    this.muzzleFlash.position.set(0, 0, 0);
+    this.muzzleFlash.position.set(...this.config.shotgun.viewmodel.muzzleBlastOffset);
     this.muzzleFlash.rotation.x = randomRange(-0.18, 0.18);
     this.muzzleFlash.rotation.y = randomRange(-0.1, 0.1);
     this.muzzleFlash.rotation.z = randomRange(-0.35, 0.35);

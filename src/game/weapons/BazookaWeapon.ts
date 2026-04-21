@@ -3,6 +3,7 @@ import {
   Box3,
   BoxGeometry,
   Camera,
+  Color,
   ConeGeometry,
   Group,
   IcosahedronGeometry,
@@ -99,6 +100,8 @@ export class BazookaWeapon {
     this.muzzleFlashStreakMaterial,
   );
   private readonly muzzleLight = new PointLight(0xffab58, 0, 8, 2);
+  private readonly viewmodelKeyLight = new PointLight(0xffd0a0, 0.3, 2.8, 2);
+  private readonly viewmodelFillLight = new PointLight(0xe3eaf3, 0.1, 2.15, 2);
   private readonly launchSound: SoundEffectPool;
   private readonly impactSound: SoundEffectPool;
 
@@ -141,9 +144,11 @@ export class BazookaWeapon {
     this.muzzleFlashStreak.position.x = -0.75;
     this.muzzleFlash.add(this.muzzleFlashCore, this.muzzleFlashStreak, this.muzzleLight);
     this.muzzleFlash.visible = false;
+    this.viewmodelKeyLight.position.set(0.26, 0.18, 0.34);
+    this.viewmodelFillLight.position.set(-0.12, 0.1, 0.2);
     this.muzzleAnchor.position.set(...this.config.bazooka.viewmodel.muzzleOffset);
     this.muzzleAnchor.add(this.muzzleFlash);
-    this.contentRoot.add(this.muzzleAnchor);
+    this.contentRoot.add(this.viewmodelKeyLight, this.viewmodelFillLight, this.muzzleAnchor);
     this.viewmodelRoot.add(this.contentRoot);
     this.camera.add(this.viewmodelRoot);
     this.camera.parent?.add(this.worldEffectsRoot);
@@ -327,11 +332,18 @@ export class BazookaWeapon {
         : [maybeMesh.material];
       for (const material of materials) {
         const standardMaterial = material as MeshStandardMaterial;
+        if ('color' in standardMaterial && standardMaterial.color instanceof Color) {
+          standardMaterial.color.multiply(new Color(0.94, 0.92, 0.9));
+        }
         if ('roughness' in standardMaterial) {
-          standardMaterial.roughness = Math.max(standardMaterial.roughness ?? 0.8, 0.94);
+          standardMaterial.roughness = MathUtils.clamp(
+            standardMaterial.roughness ?? 0.8,
+            0.4,
+            0.8,
+          );
         }
         if ('metalness' in standardMaterial) {
-          standardMaterial.metalness = Math.min(standardMaterial.metalness ?? 0.2, 0.08);
+          standardMaterial.metalness = Math.min(standardMaterial.metalness ?? 0.2, 0.14);
         }
       }
     });

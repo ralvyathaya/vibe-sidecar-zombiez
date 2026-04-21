@@ -31,19 +31,26 @@ export class VehicleRigSystem {
   private readonly sidecarLatchAnchor = new Group();
   private readonly headlightPivot = new Group();
   private readonly headlightTarget = new Group();
+  private readonly headlightFillTarget = new Group();
+  private readonly focusHeadlightTarget = new Group();
   private readonly headlight = new SpotLight(0xffffff, 1);
   private readonly focusHeadlight = new SpotLight(0xffffff, 0);
-  private readonly headlightFill = new PointLight(0xffffff, 0.4);
+  private readonly headlightFill = new SpotLight(0xffffff, 0.4);
+  private readonly nearFill = new PointLight(0xffffff, 0.4);
   private readonly headlightCone: Mesh;
   private readonly focusHeadlightCone: Mesh;
   private readonly headlightBeamSheet: Mesh;
   private readonly focusHeadlightBeamSheet: Mesh;
   private readonly headlightRoadSplash: Mesh;
   private readonly focusHeadlightRoadSplash: Mesh;
+  private readonly headlightHotspot: Mesh;
+  private readonly headlightSideSpillLeft: Mesh;
+  private readonly headlightSideSpillRight: Mesh;
   private readonly headlightGlow: Sprite;
   private readonly focusHeadlightGlow: Sprite;
   private readonly beamTexture: CanvasTexture;
   private readonly splashTexture: CanvasTexture;
+  private readonly hotspotTexture: CanvasTexture;
   private readonly glowTexture: CanvasTexture;
   private readonly baseRigOffset = new Vector3();
   private readonly baseModelPosition = new Vector3();
@@ -54,6 +61,8 @@ export class VehicleRigSystem {
   private readonly baseLatchPosition = new Vector3();
   private readonly baseHeadlightPosition = new Vector3();
   private readonly baseHeadlightTargetPosition = new Vector3();
+  private readonly baseHeadlightFillTargetPosition = new Vector3();
+  private readonly baseFocusHeadlightTargetPosition = new Vector3();
   private loadedScene: Object3D | null = null;
   private time = 0;
   private hitShake = 0;
@@ -74,13 +83,21 @@ export class VehicleRigSystem {
       1.2,
       Math.tan(MathUtils.degToRad(rig.focusHeadlightAngleDegrees)) * focusConeLength * 0.5,
     );
-    const baseSplashWidth = Math.max(4.6, baseConeRadius * 2.4);
-    const baseSplashLength = Math.max(7.2, baseConeLength * 0.72);
+    const baseSplashWidth = Math.max(
+      8.4,
+      Math.tan(MathUtils.degToRad(rig.headlightFillAngleDegrees)) * baseConeLength * 0.92,
+    );
+    const baseSplashLength = Math.max(8.8, baseConeLength * 0.82);
     const focusSplashWidth = Math.max(5.2, focusConeRadius * 2.8);
-    const focusSplashLength = Math.max(11.5, focusConeLength * 0.62);
+    const focusSplashLength = Math.max(11.2, focusConeLength * 0.62);
+    const hotspotWidth = Math.max(7.6, baseConeRadius * 1.8);
+    const hotspotLength = Math.max(7, baseConeLength * 0.44);
+    const sideSpillWidth = Math.max(5.6, baseSplashWidth * 0.56);
+    const sideSpillLength = Math.max(6.2, baseSplashLength * 0.84);
 
     this.beamTexture = this.createBeamTexture();
     this.splashTexture = this.createSplashTexture();
+    this.hotspotTexture = this.createHotspotTexture();
     this.glowTexture = this.createGlowTexture();
 
     this.vehicleRig.name = 'VehicleRig';
@@ -104,16 +121,26 @@ export class VehicleRigSystem {
     this.baseLatchPosition.set(...rig.sidecarLatchPosition);
     this.baseHeadlightPosition.set(...rig.headlightPosition);
     this.baseHeadlightTargetPosition.set(...rig.headlightTargetPosition);
+    this.baseHeadlightFillTargetPosition.set(...rig.headlightFillTargetPosition);
+    this.baseFocusHeadlightTargetPosition.set(...rig.focusHeadlightTargetPosition);
 
     this.headlightPivot.name = 'VehicleHeadlightPivot';
     this.headlightTarget.name = 'VehicleHeadlightTarget';
+    this.headlightFillTarget.name = 'VehicleHeadlightFillTarget';
+    this.focusHeadlightTarget.name = 'VehicleFocusHeadlightTarget';
     this.headlight.color.setHex(rig.headlightColor);
     this.headlight.intensity = rig.headlightIntensity;
     this.headlight.distance = rig.headlightDistance;
     this.headlight.angle = MathUtils.degToRad(rig.headlightAngleDegrees);
     this.headlight.penumbra = rig.headlightPenumbra;
     this.headlight.decay = rig.headlightDecay;
-    this.headlight.castShadow = false;
+    this.headlight.castShadow = true;
+    this.headlight.shadow.mapSize.set(rig.headlightShadowMapSize, rig.headlightShadowMapSize);
+    this.headlight.shadow.bias = rig.headlightShadowBias;
+    this.headlight.shadow.normalBias = rig.headlightShadowNormalBias;
+    this.headlight.shadow.radius = 2;
+    this.headlight.shadow.camera.near = 0.5;
+    this.headlight.shadow.camera.far = Math.max(12, rig.headlightDistance + 6);
     this.focusHeadlight.color.setHex(rig.focusHeadlightColor);
     this.focusHeadlight.intensity = 0;
     this.focusHeadlight.distance = rig.focusHeadlightDistance;
@@ -124,16 +151,25 @@ export class VehicleRigSystem {
     this.headlightFill.color.setHex(rig.headlightFillColor);
     this.headlightFill.intensity = rig.headlightFillIntensity;
     this.headlightFill.distance = rig.headlightFillDistance;
-    this.headlightFill.decay = 1.8;
+    this.headlightFill.angle = MathUtils.degToRad(rig.headlightFillAngleDegrees);
+    this.headlightFill.penumbra = rig.headlightFillPenumbra;
+    this.headlightFill.decay = Math.max(1, rig.headlightDecay - 0.08);
+    this.headlightFill.castShadow = false;
+    this.nearFill.color.setHex(rig.nearFillColor);
+    this.nearFill.intensity = rig.nearFillIntensity;
+    this.nearFill.distance = rig.nearFillDistance;
+    this.nearFill.decay = 2;
+    this.nearFill.castShadow = false;
     this.headlight.target = this.headlightTarget;
-    this.focusHeadlight.target = this.headlightTarget;
+    this.headlightFill.target = this.headlightFillTarget;
+    this.focusHeadlight.target = this.focusHeadlightTarget;
     this.headlightCone = new Mesh(
       new ConeGeometry(baseConeRadius, baseConeLength, 18, 1, true),
       new MeshBasicMaterial({
         color: rig.headlightColor,
         map: this.beamTexture,
         transparent: true,
-        opacity: 0.18,
+        opacity: 0.006,
         blending: AdditiveBlending,
         depthWrite: false,
         side: DoubleSide,
@@ -159,7 +195,7 @@ export class VehicleRigSystem {
         color: rig.headlightColor,
         map: this.beamTexture,
         transparent: true,
-        opacity: 0.42,
+        opacity: 0.008,
         blending: AdditiveBlending,
         depthWrite: false,
         side: DoubleSide,
@@ -185,7 +221,7 @@ export class VehicleRigSystem {
         color: rig.headlightColor,
         map: this.splashTexture,
         transparent: true,
-        opacity: 0.48,
+        opacity: 0.2,
         blending: AdditiveBlending,
         depthWrite: false,
         side: DoubleSide,
@@ -199,6 +235,45 @@ export class VehicleRigSystem {
         map: this.splashTexture,
         transparent: true,
         opacity: 0,
+        blending: AdditiveBlending,
+        depthWrite: false,
+        side: DoubleSide,
+        fog: false,
+      }),
+    );
+    this.headlightHotspot = new Mesh(
+      new PlaneGeometry(hotspotWidth, hotspotLength),
+      new MeshBasicMaterial({
+        color: rig.headlightColor,
+        map: this.hotspotTexture,
+        transparent: true,
+        opacity: 0.16,
+        blending: AdditiveBlending,
+        depthWrite: false,
+        side: DoubleSide,
+        fog: false,
+      }),
+    );
+    this.headlightSideSpillLeft = new Mesh(
+      new PlaneGeometry(sideSpillWidth, sideSpillLength),
+      new MeshBasicMaterial({
+        color: rig.headlightFillColor,
+        map: this.splashTexture,
+        transparent: true,
+        opacity: 0.08,
+        blending: AdditiveBlending,
+        depthWrite: false,
+        side: DoubleSide,
+        fog: false,
+      }),
+    );
+    this.headlightSideSpillRight = new Mesh(
+      new PlaneGeometry(sideSpillWidth, sideSpillLength),
+      new MeshBasicMaterial({
+        color: rig.headlightFillColor,
+        map: this.splashTexture,
+        transparent: true,
+        opacity: 0.08,
         blending: AdditiveBlending,
         depthWrite: false,
         side: DoubleSide,
@@ -233,29 +308,52 @@ export class VehicleRigSystem {
     this.focusHeadlightCone.position.z = -focusConeLength * 0.5;
     this.headlightBeamSheet.rotation.x = -Math.PI * 0.5;
     this.focusHeadlightBeamSheet.rotation.x = -Math.PI * 0.5;
-    this.headlightBeamSheet.position.set(0, -0.02, -baseConeLength * 0.48);
+    this.headlightBeamSheet.position.set(0, -0.08, -baseConeLength * 0.42);
     this.focusHeadlightBeamSheet.position.set(0, 0.03, -focusConeLength * 0.5);
     this.headlightRoadSplash.rotation.x = -Math.PI * 0.5;
     this.focusHeadlightRoadSplash.rotation.x = -Math.PI * 0.5;
-    this.headlightRoadSplash.position.set(0, -0.24, -baseSplashLength * 0.5);
-    this.focusHeadlightRoadSplash.position.set(0, -0.235, -focusSplashLength * 0.52);
-    this.headlightGlow.position.set(0, 0.01, -0.2);
+    this.headlightRoadSplash.position.set(0, -0.29, -baseSplashLength * 0.38);
+    this.focusHeadlightRoadSplash.position.set(0, -0.26, -focusSplashLength * 0.46);
+    this.headlightHotspot.rotation.x = -Math.PI * 0.5;
+    this.headlightHotspot.position.set(0, -0.3, -hotspotLength * 0.48);
+    this.headlightSideSpillLeft.rotation.x = -Math.PI * 0.5;
+    this.headlightSideSpillRight.rotation.x = -Math.PI * 0.5;
+    this.headlightSideSpillLeft.position.set(-baseSplashWidth * 0.36, -0.29, -sideSpillLength * 0.38);
+    this.headlightSideSpillRight.position.set(baseSplashWidth * 0.36, -0.29, -sideSpillLength * 0.38);
+    this.headlightSideSpillLeft.rotation.z = MathUtils.degToRad(6);
+    this.headlightSideSpillRight.rotation.z = MathUtils.degToRad(-6);
+    this.headlightCone.visible = false;
+    this.focusHeadlightCone.visible = false;
+    this.headlightBeamSheet.visible = false;
+    this.focusHeadlightBeamSheet.visible = false;
+    this.headlightRoadSplash.visible = false;
+    this.focusHeadlightRoadSplash.visible = false;
+    this.headlightHotspot.visible = false;
+    this.headlightSideSpillLeft.visible = false;
+    this.headlightSideSpillRight.visible = false;
+    this.headlightGlow.position.set(0, -0.01, -0.2);
     this.focusHeadlightGlow.position.set(0, 0.02, -0.22);
-    this.headlightGlow.scale.setScalar(0.8);
-    this.focusHeadlightGlow.scale.setScalar(1.2);
+    this.headlightGlow.scale.setScalar(0.72);
+    this.focusHeadlightGlow.scale.setScalar(0.98);
     this.headlightCone.renderOrder = 4;
     this.focusHeadlightCone.renderOrder = 4;
     this.headlightBeamSheet.renderOrder = 4;
     this.focusHeadlightBeamSheet.renderOrder = 4;
     this.headlightRoadSplash.renderOrder = 3;
     this.focusHeadlightRoadSplash.renderOrder = 3;
+    this.headlightHotspot.renderOrder = 3;
+    this.headlightSideSpillLeft.renderOrder = 2;
+    this.headlightSideSpillRight.renderOrder = 2;
     this.headlightGlow.renderOrder = 5;
     this.focusHeadlightGlow.renderOrder = 5;
     this.headlightPivot.position.copy(this.baseHeadlightPosition);
     this.headlight.position.set(0, 0, 0);
     this.focusHeadlight.position.set(0, 0, -0.02);
-    this.headlightFill.position.set(0, 0, -0.1);
+    this.headlightFill.position.set(0, -0.02, -0.06);
+    this.nearFill.position.set(...rig.nearFillPosition);
     this.headlightTarget.position.copy(this.baseHeadlightTargetPosition);
+    this.headlightFillTarget.position.copy(this.baseHeadlightFillTargetPosition);
+    this.focusHeadlightTarget.position.copy(this.baseFocusHeadlightTargetPosition);
     this.headlightPivot.add(
       this.headlightCone,
       this.focusHeadlightCone,
@@ -263,11 +361,15 @@ export class VehicleRigSystem {
       this.focusHeadlightBeamSheet,
       this.headlightRoadSplash,
       this.focusHeadlightRoadSplash,
+      this.headlightHotspot,
+      this.headlightSideSpillLeft,
+      this.headlightSideSpillRight,
       this.headlightGlow,
       this.focusHeadlightGlow,
       this.headlight,
       this.focusHeadlight,
       this.headlightFill,
+      this.nearFill,
     );
 
     this.seatPivot.position.copy(this.baseSeatPivotPosition);
@@ -280,6 +382,8 @@ export class VehicleRigSystem {
       this.sidecarLatchAnchor,
       this.headlightPivot,
       this.headlightTarget,
+      this.headlightFillTarget,
+      this.focusHeadlightTarget,
     );
     this.seatPivot.add(this.cameraYaw);
     this.cameraYaw.add(this.cameraPitch);
@@ -330,16 +434,22 @@ export class VehicleRigSystem {
     this.headlightPivot.position.copy(this.baseHeadlightPosition);
     this.headlightPivot.rotation.set(0, 0, 0);
     this.headlightTarget.position.copy(this.baseHeadlightTargetPosition);
+    this.headlightFillTarget.position.copy(this.baseHeadlightFillTargetPosition);
+    this.focusHeadlightTarget.position.copy(this.baseFocusHeadlightTargetPosition);
     this.headlight.intensity = this.config.vehicle.stage1Rig.headlightIntensity;
     this.focusHeadlight.intensity = 0;
     this.headlightFill.intensity = this.config.vehicle.stage1Rig.headlightFillIntensity;
-    (this.headlightCone.material as MeshBasicMaterial).opacity = 0.18;
+    this.nearFill.intensity = this.config.vehicle.stage1Rig.nearFillIntensity;
+    (this.headlightCone.material as MeshBasicMaterial).opacity = 0;
     (this.focusHeadlightCone.material as MeshBasicMaterial).opacity = 0;
-    (this.headlightBeamSheet.material as MeshBasicMaterial).opacity = 0.42;
+    (this.headlightBeamSheet.material as MeshBasicMaterial).opacity = 0;
     (this.focusHeadlightBeamSheet.material as MeshBasicMaterial).opacity = 0;
-    (this.headlightRoadSplash.material as MeshBasicMaterial).opacity = 0.48;
+    (this.headlightRoadSplash.material as MeshBasicMaterial).opacity = 0;
     (this.focusHeadlightRoadSplash.material as MeshBasicMaterial).opacity = 0;
-    (this.headlightGlow.material as SpriteMaterial).opacity = 0.78;
+    (this.headlightHotspot.material as MeshBasicMaterial).opacity = 0;
+    (this.headlightSideSpillLeft.material as MeshBasicMaterial).opacity = 0;
+    (this.headlightSideSpillRight.material as MeshBasicMaterial).opacity = 0;
+    (this.headlightGlow.material as SpriteMaterial).opacity = 0.54;
     (this.focusHeadlightGlow.material as SpriteMaterial).opacity = 0;
     this.vehicleRig.visible = true;
   }
@@ -429,9 +539,19 @@ export class VehicleRigSystem {
       slamRoll * 0.2,
     );
     this.headlightTarget.position.set(
-      this.baseHeadlightTargetPosition.x + laneShift * 0.34,
+      this.baseHeadlightTargetPosition.x + laneShift * 0.2,
       this.baseHeadlightTargetPosition.y,
       this.baseHeadlightTargetPosition.z,
+    );
+    this.headlightFillTarget.position.set(
+      this.baseHeadlightFillTargetPosition.x + laneShift * 0.28,
+      this.baseHeadlightFillTargetPosition.y - rideShake * 0.05,
+      this.baseHeadlightFillTargetPosition.z,
+    );
+    this.focusHeadlightTarget.position.set(
+      this.baseFocusHeadlightTargetPosition.x + laneShift * 0.34,
+      this.baseFocusHeadlightTargetPosition.y,
+      this.baseFocusHeadlightTargetPosition.z,
     );
     const headlightFailureDrop = 1 - Math.min(0.3, (ride?.failureSeverity ?? 0) * 0.16);
     const focusBeamAlpha =
@@ -444,25 +564,37 @@ export class VehicleRigSystem {
       (running ? 1 : 0.82) *
       headlightFailureDrop;
     this.headlightFill.intensity =
-      rig.headlightFillIntensity * (running ? 1 : 0.82) * headlightFailureDrop;
+      rig.headlightFillIntensity *
+      (running ? 1 : 0.88) *
+      headlightFailureDrop;
+    this.nearFill.intensity =
+      rig.nearFillIntensity *
+      (running ? 1 : 0.9) *
+      headlightFailureDrop;
     (this.headlightCone.material as MeshBasicMaterial).opacity =
-      (running ? 0.22 : 0.16) * headlightFailureDrop;
+      0;
     (this.focusHeadlightCone.material as MeshBasicMaterial).opacity =
-      0.34 * focusBeamAlpha * headlightFailureDrop;
+      0;
     (this.headlightBeamSheet.material as MeshBasicMaterial).opacity =
-      (running ? 0.56 : 0.4) * headlightFailureDrop;
+      0;
     (this.focusHeadlightBeamSheet.material as MeshBasicMaterial).opacity =
-      0.72 * focusBeamAlpha * headlightFailureDrop;
+      0;
     (this.headlightRoadSplash.material as MeshBasicMaterial).opacity =
-      (running ? 0.62 : 0.46) * headlightFailureDrop;
+      0;
     (this.focusHeadlightRoadSplash.material as MeshBasicMaterial).opacity =
-      0.78 * focusBeamAlpha * headlightFailureDrop;
+      0;
+    (this.headlightHotspot.material as MeshBasicMaterial).opacity =
+      0;
+    (this.headlightSideSpillLeft.material as MeshBasicMaterial).opacity =
+      0;
+    (this.headlightSideSpillRight.material as MeshBasicMaterial).opacity =
+      0;
     (this.headlightGlow.material as SpriteMaterial).opacity =
-      (running ? 0.88 : 0.68) * headlightFailureDrop;
+      (running ? 0.46 : 0.34) * headlightFailureDrop;
     (this.focusHeadlightGlow.material as SpriteMaterial).opacity =
-      0.86 * focusBeamAlpha * headlightFailureDrop;
-    this.headlightGlow.scale.setScalar(0.8 + rideShake * 3.2);
-    this.focusHeadlightGlow.scale.setScalar(1.1 + focusBeamAlpha * 0.75 + rideShake * 2.4);
+      0.18 * focusBeamAlpha * headlightFailureDrop;
+    this.headlightGlow.scale.setScalar(0.72 + rideShake * 1.6);
+    this.focusHeadlightGlow.scale.setScalar(0.98 + focusBeamAlpha * 0.42 + rideShake * 1.8);
 
     const shakeNoiseA = Math.sin(this.time * 42.0);
     const shakeNoiseB = Math.cos(this.time * 37.0);
@@ -539,15 +671,18 @@ export class VehicleRigSystem {
       }
 
       maybeMesh.renderOrder = 1;
-      maybeMesh.castShadow = false;
-      maybeMesh.receiveShadow = false;
+      maybeMesh.castShadow = true;
+      maybeMesh.receiveShadow = true;
       const materials = Array.isArray(maybeMesh.material)
         ? maybeMesh.material
         : [maybeMesh.material];
       for (const material of materials) {
         const litMaterial = material as Partial<MeshStandardMaterial>;
         if (typeof litMaterial.roughness === 'number') {
-          litMaterial.roughness = Math.max(litMaterial.roughness, 0.88);
+          litMaterial.roughness = MathUtils.clamp(litMaterial.roughness, 0.45, 0.76);
+        }
+        if (typeof litMaterial.metalness === 'number') {
+          litMaterial.metalness = Math.min(litMaterial.metalness, 0.12);
         }
       }
     });
@@ -587,30 +722,30 @@ export class VehicleRigSystem {
     context.globalCompositeOperation = 'source-over';
 
     const outerGradient = context.createLinearGradient(0, 0, 0, canvas.height);
-    outerGradient.addColorStop(0, 'rgba(255,255,255,0.9)');
-    outerGradient.addColorStop(0.2, 'rgba(255,255,255,0.42)');
-    outerGradient.addColorStop(0.58, 'rgba(255,255,255,0.14)');
+    outerGradient.addColorStop(0, 'rgba(255,255,255,0.44)');
+    outerGradient.addColorStop(0.18, 'rgba(255,255,255,0.2)');
+    outerGradient.addColorStop(0.52, 'rgba(255,255,255,0.06)');
     outerGradient.addColorStop(1, 'rgba(255,255,255,0)');
     context.fillStyle = outerGradient;
     context.beginPath();
-    context.moveTo(canvas.width * 0.44, 0);
-    context.quadraticCurveTo(canvas.width * 0.11, canvas.height * 0.26, canvas.width * 0.04, canvas.height);
-    context.lineTo(canvas.width * 0.96, canvas.height);
-    context.quadraticCurveTo(canvas.width * 0.89, canvas.height * 0.26, canvas.width * 0.56, 0);
+    context.moveTo(canvas.width * 0.42, 0);
+    context.quadraticCurveTo(canvas.width * 0.16, canvas.height * 0.22, canvas.width * 0.06, canvas.height);
+    context.lineTo(canvas.width * 0.94, canvas.height);
+    context.quadraticCurveTo(canvas.width * 0.84, canvas.height * 0.22, canvas.width * 0.58, 0);
     context.closePath();
     context.fill();
 
     const coreGradient = context.createLinearGradient(0, 0, 0, canvas.height);
-    coreGradient.addColorStop(0, 'rgba(255,255,255,1)');
-    coreGradient.addColorStop(0.12, 'rgba(255,255,255,0.92)');
-    coreGradient.addColorStop(0.4, 'rgba(255,255,255,0.26)');
+    coreGradient.addColorStop(0, 'rgba(255,255,255,0.56)');
+    coreGradient.addColorStop(0.1, 'rgba(255,255,255,0.36)');
+    coreGradient.addColorStop(0.34, 'rgba(255,255,255,0.12)');
     coreGradient.addColorStop(1, 'rgba(255,255,255,0)');
     context.fillStyle = coreGradient;
     context.beginPath();
-    context.moveTo(canvas.width * 0.485, 0);
-    context.quadraticCurveTo(canvas.width * 0.35, canvas.height * 0.18, canvas.width * 0.28, canvas.height);
-    context.lineTo(canvas.width * 0.72, canvas.height);
-    context.quadraticCurveTo(canvas.width * 0.65, canvas.height * 0.18, canvas.width * 0.515, 0);
+    context.moveTo(canvas.width * 0.47, 0);
+    context.quadraticCurveTo(canvas.width * 0.37, canvas.height * 0.16, canvas.width * 0.3, canvas.height);
+    context.lineTo(canvas.width * 0.7, canvas.height);
+    context.quadraticCurveTo(canvas.width * 0.63, canvas.height * 0.16, canvas.width * 0.53, 0);
     context.closePath();
     context.fill();
 
@@ -629,18 +764,60 @@ export class VehicleRigSystem {
     }
 
     context.clearRect(0, 0, canvas.width, canvas.height);
-    context.translate(canvas.width * 0.5, canvas.height * 0.42);
-    context.scale(1, 1.55);
-    const gradient = context.createRadialGradient(0, 0, 18, 0, 0, 188);
-    gradient.addColorStop(0, 'rgba(255,255,255,0.96)');
-    gradient.addColorStop(0.22, 'rgba(255,255,255,0.74)');
-    gradient.addColorStop(0.55, 'rgba(255,255,255,0.24)');
+    context.translate(canvas.width * 0.5, canvas.height * 0.46);
+    context.scale(1.2, 1.75);
+    const gradient = context.createRadialGradient(0, 0, 24, 0, 0, 196);
+    gradient.addColorStop(0, 'rgba(255,255,255,0.92)');
+    gradient.addColorStop(0.18, 'rgba(255,255,255,0.66)');
+    gradient.addColorStop(0.44, 'rgba(255,255,255,0.28)');
     gradient.addColorStop(1, 'rgba(255,255,255,0)');
     context.fillStyle = gradient;
     context.beginPath();
-    context.arc(0, 0, 188, 0, Math.PI * 2);
+    context.arc(0, 0, 196, 0, Math.PI * 2);
     context.fill();
     context.setTransform(1, 0, 0, 1, 0, 0);
+
+    const texture = new CanvasTexture(canvas);
+    texture.needsUpdate = true;
+    return texture;
+  }
+
+  private createHotspotTexture(): CanvasTexture {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 384;
+    const context = canvas.getContext('2d');
+    if (!context) {
+      throw new Error('Unable to create headlight hotspot texture.');
+    }
+
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.translate(canvas.width * 0.5, canvas.height * 0.54);
+    context.scale(1.55, 0.92);
+
+    const glowGradient = context.createRadialGradient(0, 0, 24, 0, 0, 120);
+    glowGradient.addColorStop(0, 'rgba(255,255,255,1)');
+    glowGradient.addColorStop(0.18, 'rgba(255,255,255,0.84)');
+    glowGradient.addColorStop(0.48, 'rgba(255,255,255,0.28)');
+    glowGradient.addColorStop(1, 'rgba(255,255,255,0)');
+    context.fillStyle = glowGradient;
+    context.beginPath();
+    context.arc(0, 0, 120, 0, Math.PI * 2);
+    context.fill();
+    context.setTransform(1, 0, 0, 1, 0, 0);
+
+    const spreadGradient = context.createLinearGradient(0, canvas.height * 0.15, 0, canvas.height);
+    spreadGradient.addColorStop(0, 'rgba(255,255,255,0.2)');
+    spreadGradient.addColorStop(0.42, 'rgba(255,255,255,0.38)');
+    spreadGradient.addColorStop(1, 'rgba(255,255,255,0)');
+    context.fillStyle = spreadGradient;
+    context.beginPath();
+    context.moveTo(canvas.width * 0.28, canvas.height * 0.24);
+    context.quadraticCurveTo(canvas.width * 0.1, canvas.height * 0.62, canvas.width * 0.18, canvas.height * 0.98);
+    context.lineTo(canvas.width * 0.82, canvas.height * 0.98);
+    context.quadraticCurveTo(canvas.width * 0.9, canvas.height * 0.62, canvas.width * 0.72, canvas.height * 0.24);
+    context.closePath();
+    context.fill();
 
     const texture = new CanvasTexture(canvas);
     texture.needsUpdate = true;

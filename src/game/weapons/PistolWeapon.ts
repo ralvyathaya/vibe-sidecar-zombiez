@@ -80,8 +80,8 @@ export class PistolWeapon {
     this.muzzleFlashStreakMaterial,
   );
   private readonly muzzleLight = new PointLight(0xffb060, 0, 5, 2);
-  private readonly viewmodelKeyLight = new PointLight(0xffd3a3, 0.18, 1.8, 2);
-  private readonly viewmodelFillLight = new PointLight(0xe8dfd3, 0.015, 1.45, 2);
+  private readonly viewmodelKeyLight = new PointLight(0xffd7ab, 0.34, 2.35, 2);
+  private readonly viewmodelFillLight = new PointLight(0xe7edf5, 0.1, 1.95, 2);
   private readonly gunshotSound: SoundEffectPool;
   private readonly emptySound: SoundEffectPool;
   private readonly reloadSound: SoundEffectPool;
@@ -144,8 +144,8 @@ export class PistolWeapon {
     this.muzzleFlashStreak.position.x = -0.55;
     this.muzzleFlash.add(this.muzzleFlashCore, this.muzzleFlashStreak, this.muzzleLight);
     this.muzzleFlash.visible = false;
-    this.viewmodelKeyLight.position.set(0.18, 0.08, 0.24);
-    this.viewmodelFillLight.position.set(-0.1, 0.03, 0.12);
+    this.viewmodelKeyLight.position.set(0.24, 0.14, 0.32);
+    this.viewmodelFillLight.position.set(-0.12, 0.08, 0.18);
     this.muzzleAnchor.add(this.muzzleFlash);
     this.contentRoot.add(
       this.viewmodelKeyLight,
@@ -372,19 +372,19 @@ export class PistolWeapon {
         }
 
         if (litMaterial.color instanceof Color) {
-          litMaterial.color.multiply(new Color(0.78, 0.75, 0.7));
+          litMaterial.color.multiply(new Color(0.92, 0.9, 0.87));
         }
 
         if (typeof litMaterial.roughness === 'number') {
-          litMaterial.roughness = Math.max(litMaterial.roughness, 1);
+          litMaterial.roughness = MathUtils.clamp(litMaterial.roughness, 0.34, 0.72);
         }
 
         if (typeof litMaterial.metalness === 'number') {
-          litMaterial.metalness = Math.min(litMaterial.metalness, 0.015);
+          litMaterial.metalness = Math.min(litMaterial.metalness, 0.16);
         }
 
         if (litMaterial.normalScale instanceof ThreeVector2) {
-          litMaterial.normalScale.setScalar(0.32);
+          litMaterial.normalScale.setScalar(0.5);
         }
       }
     });

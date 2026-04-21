@@ -492,23 +492,27 @@ export class WorldSystem {
       const road = new Mesh(
         ROAD_GEOMETRY,
         new MeshStandardMaterial({
-          color: 0x2d3035,
+          color: 0x34383e,
           flatShading: true,
-          roughness: 0.98,
+          roughness: 0.9,
+          metalness: 0,
         }),
       );
       road.position.y = -0.42;
+      road.receiveShadow = true;
       chunkGroup.add(road);
 
       const leftShoulder = new Mesh(
         SHOULDER_GEOMETRY,
         new MeshStandardMaterial({
-          color: 0x6b655f,
+          color: 0x706a63,
           flatShading: true,
-          roughness: 0.99,
+          roughness: 0.92,
+          metalness: 0,
         }),
       );
       leftShoulder.position.set(-12.5, -0.52, 0);
+      leftShoulder.receiveShadow = true;
       chunkGroup.add(leftShoulder);
 
       const rightShoulder = leftShoulder.clone();
@@ -518,12 +522,13 @@ export class WorldSystem {
       const leftTerrain = new Mesh(
         TERRAIN_GEOMETRY,
         new MeshStandardMaterial({
-          color: 0x7d8172,
+          color: 0x707867,
           flatShading: true,
-          roughness: 1,
+          roughness: 0.95,
         }),
       );
       leftTerrain.position.set(-20.4, -0.58, 0);
+      leftTerrain.receiveShadow = true;
       chunkGroup.add(leftTerrain);
 
       const rightTerrain = leftTerrain.clone();
@@ -535,12 +540,16 @@ export class WorldSystem {
           const dash = new Mesh(
             DASH_GEOMETRY,
             new MeshStandardMaterial({
-              color: 0xf2f0d7,
+              color: 0xd6d0bb,
+              emissive: 0x433d2d,
+              emissiveIntensity: 0.12,
               flatShading: true,
-              roughness: 0.82,
+              roughness: 0.68,
+              metalness: 0,
             }),
           );
           dash.position.set(x, -0.18, -18 + dashIndex * 4.1);
+          dash.receiveShadow = true;
           chunkGroup.add(dash);
         }
       }
@@ -556,7 +565,7 @@ export class WorldSystem {
           new MeshStandardMaterial({
             color: debrisIndex % 2 === 0 ? 0x5d5750 : 0x80756c,
             flatShading: true,
-            roughness: 1,
+            roughness: 0.88,
           }),
         );
         debris.position.set(
@@ -1416,9 +1425,19 @@ export class WorldSystem {
         ? maybeMesh.material
         : [maybeMesh.material];
 
+      maybeMesh.castShadow = true;
+      maybeMesh.receiveShadow = true;
       for (const material of materials) {
         if ('depthWrite' in material) {
           material.depthWrite = true;
+        }
+
+        const litMaterial = material as Partial<MeshStandardMaterial>;
+        if (typeof litMaterial.roughness === 'number') {
+          litMaterial.roughness = Math.min(Math.max(litMaterial.roughness, 0.48), 0.82);
+        }
+        if (typeof litMaterial.metalness === 'number') {
+          litMaterial.metalness = Math.min(litMaterial.metalness, 0.08);
         }
       }
     });
@@ -1439,6 +1458,7 @@ export class WorldSystem {
       : this.createFallbackBarricadeVisual();
     visual.scale.setScalar(this.config.world.barricade.scale);
     visual.position.y = this.config.world.barricade.yOffset;
+    this.setShadowFlags(visual, true, true);
     root.add(visual);
   }
 
@@ -1449,6 +1469,7 @@ export class WorldSystem {
       : this.createFallbackConcreteBlockVisual();
     visual.scale.setScalar(this.config.world.concreteBlock.scale);
     visual.position.y = this.config.world.concreteBlock.yOffset;
+    this.setShadowFlags(visual, true, true);
     root.add(visual);
   }
 
@@ -1459,6 +1480,7 @@ export class WorldSystem {
       : this.createFallbackCarVisual();
     visual.scale.setScalar(this.config.world.car.scale);
     visual.position.y = this.config.world.car.yOffset;
+    this.setShadowFlags(visual, true, true);
     root.add(visual);
   }
 
@@ -1473,6 +1495,7 @@ export class WorldSystem {
     visual.scale.setScalar(this.config.world.car.scale * 0.98);
     visual.position.set(0.1, this.config.world.car.yOffset - 0.12, 0);
     visual.rotation.set(0, Math.PI * 0.08, 0.11);
+    this.setShadowFlags(visual, true, true);
     root.add(visual);
   }
 
@@ -1483,7 +1506,20 @@ export class WorldSystem {
       : this.createFallbackBarrelVisual();
     visual.scale.setScalar(this.config.world.barrel.scale);
     visual.position.y = 0.08;
+    this.setShadowFlags(visual, true, true);
     root.add(visual);
+  }
+
+  private setShadowFlags(root: Object3D, castShadow: boolean, receiveShadow: boolean): void {
+    root.traverse((object) => {
+      const maybeMesh = object as Mesh;
+      if (!maybeMesh.isMesh) {
+        return;
+      }
+
+      maybeMesh.castShadow = castShadow;
+      maybeMesh.receiveShadow = receiveShadow;
+    });
   }
 
   private createFallbackBarricadeVisual(): Group {
