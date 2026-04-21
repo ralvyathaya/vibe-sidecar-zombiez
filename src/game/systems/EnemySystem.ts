@@ -29,6 +29,7 @@ import type {
   HumanoidZombieType,
   LaneThreatState,
   RadarContact,
+  RunEventType,
   ZombieModelVariant,
   ZombieType,
 } from '../../core/types';
@@ -43,6 +44,9 @@ const PARTICLE_SHARD_GEOMETRY = new BoxGeometry(0.12, 0.12, 0.12);
 const ROAD_SPLAT_GEOMETRY = new CircleGeometry(1, 10);
 const HIT_FLASH_COLOR = 0x5a1405;
 const NEAR_VISIBILITY_COLOR = 0x10161d;
+const BERSERK_AURA_COLOR = 0x280606;
+const BERSERK_SPEED_MULTIPLIER = 1.12;
+const BERSERK_AURA_INTENSITY = 0.09;
 
 type HumanoidAssets = {
   template: Group;
@@ -135,6 +139,7 @@ export class EnemySystem {
   private latchPresentationMixer: AnimationMixer | null = null;
   private latchPresentationAction: AnimationAction | null = null;
   private latchPresentationLoaded = false;
+  private activeEvent: RunEventType = 'none';
 
   constructor(
     private readonly scene: Scene,
@@ -221,6 +226,7 @@ export class EnemySystem {
 
   reset(): void {
     this.approachCueCooldown = 0;
+    this.activeEvent = 'none';
     this.detachLatchPresentation(this.latchedRunner);
     this.latchedRunner = null;
     this.normalDeathSound.stopAll();
@@ -308,8 +314,10 @@ export class EnemySystem {
     deltaTime: number,
     playerPosition: Vector3,
     worldScrollSpeed: number,
+    activeEvent: RunEventType,
     onPlayerContact: (zombie: ActiveZombie) => void,
   ): void {
+    this.activeEvent = activeEvent;
     this.approachCueCooldown = Math.max(0, this.approachCueCooldown - deltaTime);
     this.updateParticleBursts(this.hitBloodBursts, deltaTime, worldScrollSpeed);
     this.updateParticleBursts(this.bodySplatterBursts, deltaTime, worldScrollSpeed);
@@ -1310,11 +1318,19 @@ export class EnemySystem {
   }
 
   private getMoveSpeedMultiplier(zombie: ActiveZombie): number {
+    let multiplier = 1;
     if (!zombie.spawnPoseActive || !zombie.activeModelType) {
-      return 1;
+      multiplier = 1;
+    } else {
+      multiplier =
+        this.getHumanoidConfig(zombie.activeModelType).spawnPoseMoveSpeedMultiplier ?? 1;
     }
 
-    return this.getHumanoidConfig(zombie.activeModelType).spawnPoseMoveSpeedMultiplier ?? 1;
+    if (this.activeEvent === 'berserkWave' && zombie.state === 'alive') {
+      multiplier *= BERSERK_SPEED_MULTIPLIER;
+    }
+
+    return multiplier;
   }
 
   private resolveLaneIndex(worldX: number): number {
@@ -1385,11 +1401,17 @@ export class EnemySystem {
     const nearVisibility =
       MathUtils.clamp(1 - distanceToPlayer / 9, 0, 1) *
       (zombie.state === 'alive' ? 0.18 : 0.08);
+    const berserkAura =
+      this.activeEvent === 'berserkWave' && zombie.state === 'alive'
+        ? BERSERK_AURA_INTENSITY
+        : 0;
     const emissiveStrength =
-      zombie.hitFlash * (zombie.activeModelType ? 0.85 : 0.55) + nearVisibility;
+      zombie.hitFlash * (zombie.activeModelType ? 0.85 : 0.55) + nearVisibility + berserkAura;
 
     if (zombie.hitFlash > 0.01) {
       this.setFlashColor(zombie.flashMaterials, HIT_FLASH_COLOR);
+    } else if (berserkAura > 0.001) {
+      this.setFlashColor(zombie.flashMaterials, BERSERK_AURA_COLOR);
     } else if (nearVisibility > 0.001) {
       this.setFlashColor(zombie.flashMaterials, NEAR_VISIBILITY_COLOR);
     } else {

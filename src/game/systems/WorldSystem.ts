@@ -476,9 +476,9 @@ export class WorldSystem {
 
     return {
       damage: 0,
-      handlingPenalty: this.config.driver.scrapeHandlingPenalty * 0.6,
-      aimShake: this.config.driver.scrapeAimShake,
-      cameraShake: this.config.driver.scrapeCameraShake,
+      handlingPenalty: 0.08,
+      aimShake: 0.018,
+      cameraShake: this.config.driver.engineTroubleCameraShake * 0.55,
       reaction: 'scrape',
       freezeDuration: 0.05,
       laneThreats: this.getLaneThreats(),

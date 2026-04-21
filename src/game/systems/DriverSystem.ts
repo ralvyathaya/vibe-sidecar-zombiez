@@ -6,7 +6,6 @@ import type {
   DriverPromptState,
   GameConfig,
   LaneThreatState,
-  PickupType,
   RideState,
   RunEventType,
   RunSegment,
@@ -30,11 +29,11 @@ export class DriverSystem {
   private focusBeamHeat = 0;
   private focusBeamStrength = 0;
   private focusBeamOverheated = false;
-  private scrapeTimer = 0;
-  private shakeOffTimer = 0;
-  private forceGapTimer = 0;
+  private floorItTimer = 0;
+  private brakeTimer = 0;
+  private engineTroubleTimer = 0;
+  private engineTroubleRoughness = 0;
   private cautiousHoldTimer = 0;
-  private cutLeftBiasTimer = 0;
   private segmentIndex = 0;
   private segment: RunSegment = 'rest';
   private segmentElapsed = 0;
@@ -42,10 +41,9 @@ export class DriverSystem {
   private eventTimer = 0;
   private eventDuration = 0;
   private nitroActive = false;
-  private prompt: DriverPromptState | null = null;
   private supportCue: DriverPromptState | null = null;
-  private pendingResolution: DriverPromptResolution | null = null;
   private laneThreats: LaneThreatState[] = [];
+  private time = 0;
 
   constructor(private readonly config: GameConfig) {
     this.reset();
@@ -60,7 +58,7 @@ export class DriverSystem {
     this.laneChangeDurationCurrent = this.config.driver.laneChangeDuration;
     this.laneRescanTimer = 0;
     this.laneRequestLockout = 0;
-    this.nextPromptIn = this.rollPromptTimer();
+    this.nextPromptIn = 10;
     this.nextOpportunityIn = this.rollOpportunityTimer();
     this.promptLockout = 0;
     this.manualBrakeStrength = 0;
@@ -68,18 +66,21 @@ export class DriverSystem {
     this.focusBeamHeat = 0;
     this.focusBeamStrength = 0;
     this.focusBeamOverheated = false;
-    this.scrapeTimer = 0;
-    this.shakeOffTimer = 0;
-    this.forceGapTimer = 0;
+    this.floorItTimer = 0;
+    this.brakeTimer = 0;
+    this.engineTroubleTimer = 0;
+    this.engineTroubleRoughness = 0;
     this.cautiousHoldTimer = 0;
-    this.cutLeftBiasTimer = 0;
     this.segmentIndex = 0;
     this.segment = this.config.pacing.sequence[0] ?? 'rest';
     this.segmentElapsed = 0;
-    this.prompt = null;
+    this.activeEvent = 'none';
+    this.eventTimer = 0;
+    this.eventDuration = 0;
+    this.nitroActive = false;
     this.supportCue = null;
-    this.pendingResolution = null;
     this.laneThreats = this.createFallbackLaneThreats();
+    this.time = 0;
   }
 
   update(
@@ -93,6 +94,7 @@ export class DriverSystem {
     nitroActive = false,
     focusBeamHeld = false,
   ): RideState {
+    this.time += deltaTime;
     this.laneThreats = laneThreats.length > 0 ? laneThreats : this.createFallbackLaneThreats();
     this.activeEvent = activeEvent;
     this.eventTimer = eventTimer;
@@ -104,13 +106,17 @@ export class DriverSystem {
     this.laneRescanTimer = Math.max(0, this.laneRescanTimer - deltaTime);
     this.laneRequestLockout = Math.max(0, this.laneRequestLockout - deltaTime);
     this.promptLockout = Math.max(0, this.promptLockout - deltaTime);
-    this.scrapeTimer = Math.max(0, this.scrapeTimer - deltaTime);
-    this.shakeOffTimer = Math.max(0, this.shakeOffTimer - deltaTime);
-    this.forceGapTimer = Math.max(0, this.forceGapTimer - deltaTime);
+    this.floorItTimer = Math.max(0, this.floorItTimer - deltaTime);
+    this.brakeTimer = Math.max(0, this.brakeTimer - deltaTime);
+    this.engineTroubleTimer = Math.max(0, this.engineTroubleTimer - deltaTime);
     this.cautiousHoldTimer = Math.max(0, this.cautiousHoldTimer - deltaTime);
-    this.cutLeftBiasTimer = Math.max(0, this.cutLeftBiasTimer - deltaTime);
     this.nextOpportunityIn = Math.max(0, this.nextOpportunityIn - deltaTime);
-    this.updateDriveState(deltaTime, failureSeverity, hasLatch, nitroActive);
+
+    if (this.engineTroubleTimer <= 0) {
+      this.engineTroubleRoughness = 0;
+    }
+
+    this.updateDriveState(deltaTime);
     this.updateFocusBeamState(deltaTime, focusBeamHeld);
 
     if (this.supportCue) {
@@ -120,40 +126,14 @@ export class DriverSystem {
       }
     }
 
-    if (!hasLatch) {
-      this.shakeOffTimer = 0;
-      if (this.prompt?.intent === 'shakeItOff') {
-        this.prompt = null;
-        this.nextPromptIn = this.rollPromptTimer();
+    if (this.promptLockout <= 0 && !this.hasBlockingEffect() && !hasLatch) {
+      this.nextPromptIn -= deltaTime;
+      if (this.nextPromptIn <= 0) {
+        this.tryCreateDriverPrompt(failureSeverity, hasLatch);
       }
     }
 
-    if (this.prompt) {
-      this.prompt.timer = Math.max(0, this.prompt.timer - deltaTime);
-      if (this.prompt.timer <= 0) {
-        this.resolvePrompt('timeout');
-      }
-    } else if (this.promptLockout <= 0 && !this.hasBlockingEffect()) {
-      if (hasLatch) {
-        this.prompt = this.createPrompt(
-          'shakeItOff',
-          "I'll shake it off!",
-          'emergency',
-          'approve',
-          'latch',
-          'runner latched on the sidecar',
-        );
-      } else {
-        this.nextPromptIn -= deltaTime;
-        if (this.nextOpportunityIn <= 0 && this.tryCreatePickupPrompt(failureSeverity, hasLatch)) {
-          // Opportunity prompt created.
-        } else if (this.nextPromptIn <= 0) {
-          this.tryCreateEmergencyPrompt(failureSeverity, hasLatch);
-        }
-      }
-    }
-
-    if (!this.prompt && this.laneRescanTimer <= 0) {
+    if (this.laneRescanTimer <= 0) {
       this.laneRescanTimer = this.config.driver.laneRescanInterval;
       this.updateLaneChoice(failureSeverity, hasLatch);
     }
@@ -181,27 +161,34 @@ export class DriverSystem {
     const toCenter = this.resolveLaneCenter(this.laneToIndex);
     const laneCenterX = lerp(fromCenter, toCenter, laneAlpha);
     const speedMultiplier = this.getSpeedMultiplier(failureSeverity, hasLatch, nitroActive);
-    const handlingPenalty = clamp(
+    const slipperyTurnJitter =
+      this.activeEvent === 'slipperyRoad' && this.laneChangeTimer > 0 ? 0.012 : 0;
+    const baseHandlingPenalty =
       failureSeverity * this.config.ride.failureHandlingPenalty +
-        this.manualBrakeStrength * 0.05 +
-        (this.scrapeTimer > 0 ? this.config.driver.scrapeHandlingPenalty : 0) +
-        (this.shakeOffTimer > 0 ? this.config.driver.shakeOffHandlingPenalty : 0) +
-        (this.forceGapTimer > 0 ? this.config.driver.forceGapHandlingPenalty : 0) +
-        (this.activeEvent === 'slipperyRoad'
-          ? this.config.pacing.events.slipperyHandlingPenalty
-          : 0),
-      0,
-      0.92,
-    );
+      (this.floorItTimer > 0 ? 0.045 : 0) +
+      (this.engineTroubleTimer > 0 ? 0.18 + this.engineTroubleRoughness * 0.06 : 0) +
+      (this.activeEvent === 'slipperyRoad'
+        ? this.config.pacing.events.slipperyHandlingPenalty
+        : 0) -
+      (this.brakeTimer > 0 ? this.config.driver.brakeStabilityBonus : 0);
+    const handlingPenalty = clamp(Math.max(0, baseHandlingPenalty), 0, 0.92);
+    const floorItAlpha = this.floorItTimer > 0 ? clamp(this.manualBoostStrength, 0, 1) : 0;
+    const brakeAlpha = this.brakeTimer > 0 ? clamp(this.manualBrakeStrength, 0, 1) : 0;
+    const engineTroubleAlpha =
+      this.engineTroubleTimer > 0 ? this.getEngineTroublePulse() : 0;
     const aimShake =
-      (this.scrapeTimer > 0 ? this.config.driver.scrapeAimShake : 0) +
-      (this.shakeOffTimer > 0 ? this.config.driver.shakeOffAimShake : 0) +
-      (this.forceGapTimer > 0 ? this.config.driver.forceGapAimShake : 0) +
+      this.config.driver.floorItAimShake * floorItAlpha +
+      this.config.driver.brakeAimShake * brakeAlpha +
+      this.config.driver.engineTroubleAimShake *
+        (this.engineTroubleTimer > 0 ? 0.7 + engineTroubleAlpha * 0.65 : 0) +
+      slipperyTurnJitter +
       failureSeverity * this.config.player.failureAimShake;
     const cameraShake =
-      (this.scrapeTimer > 0 ? this.config.driver.scrapeCameraShake : 0) +
-      (this.shakeOffTimer > 0 ? this.config.driver.shakeOffCameraShake : 0) +
-      (this.forceGapTimer > 0 ? this.config.driver.forceGapCameraShake : 0) +
+      this.config.driver.floorItCameraShake * floorItAlpha +
+      this.config.driver.brakeCameraShake * brakeAlpha +
+      this.config.driver.engineTroubleCameraShake *
+        (this.engineTroubleTimer > 0 ? 0.72 + engineTroubleAlpha * 0.6 : 0) +
+      slipperyTurnJitter * 1.4 +
       failureSeverity * this.config.vehicle.stage1Rig.failureShakeAmplitude;
     return {
       laneIndex: this.laneIndex,
@@ -229,7 +216,7 @@ export class DriverSystem {
       focusBeamStrength: this.focusBeamStrength,
       focusBeamHeatRatio: this.focusBeamHeat,
       focusBeamOverheated: this.focusBeamOverheated,
-      prompt: this.prompt,
+      prompt: null,
       supportCue: this.supportCue,
       segment: this.segment,
       segmentElapsed: this.segmentElapsed,
@@ -237,10 +224,14 @@ export class DriverSystem {
       activeEvent: this.activeEvent,
       eventTimer: this.eventTimer,
       eventDuration: this.eventDuration,
-      scrapeMode: this.scrapeTimer > 0,
-      shakeOffMode: this.shakeOffTimer > 0,
-      forceGapMode: this.forceGapTimer > 0,
-      laneCutJolt: this.laneChangeTimer > 0 ? Math.sin(laneAlpha * Math.PI) : 0,
+      floorItMode: this.floorItTimer > 0,
+      brakeMode: this.brakeTimer > 0,
+      engineTroubleMode: this.engineTroubleTimer > 0,
+      engineTroubleWobble:
+        this.engineTroubleTimer > 0
+          ? (0.45 + engineTroubleAlpha * 0.55) * (1 + this.engineTroubleRoughness * 0.2)
+          : 0,
+      laneCutJolt: 0,
       potholeJolt: 0,
       barrelJolt: 0,
       failureSeverity,
@@ -255,7 +246,7 @@ export class DriverSystem {
     failureSeverity: number,
     hasLatch: boolean,
   ): void {
-    if (this.prompt || this.laneRequestLockout > 0 || this.hasBlockingEffect()) {
+    if (this.laneRequestLockout > 0 || this.hasBlockingEffect()) {
       return;
     }
 
@@ -269,7 +260,9 @@ export class DriverSystem {
     if (requestedLaneIndex === this.targetLaneIndex) {
       this.setSupportCue(
         'laneRequestDenied',
-        direction < 0 ? "No lane left. We're pinned there." : "No lane right. Hold steady.",
+        direction < 0
+          ? 'No miracle lane on the left. We live here.'
+          : 'No miracle lane on the right. We live here.',
         'requested edge lane',
       );
       this.laneRequestLockout = this.config.driver.laneRequestCooldown;
@@ -302,7 +295,9 @@ export class DriverSystem {
       this.startLaneChange(oppositeLaneIndex, this.config.driver.laneChangeCommitDuration);
       this.setSupportCue(
         'laneRequestWrong',
-        direction < 0 ? "Left? Sure. I'm going right." : "Right? Copy that. Cutting left.",
+        direction < 0
+          ? 'You asked left. Fate heard right.'
+          : 'You asked right. Fate heard left.',
         'driver misread lane request',
       );
       this.laneRequestLockout = this.config.driver.laneRequestCooldown;
@@ -313,7 +308,7 @@ export class DriverSystem {
       this.startLaneChange(requestedLaneIndex, this.config.driver.laneChangeCommitDuration);
       this.setSupportCue(
         'laneRequest',
-        direction < 0 ? 'Left it is. Moving now.' : 'Right side. On it.',
+        direction < 0 ? 'Left lane. Clean enough. We commit.' : 'Right lane. Clean enough. We commit.',
         'driver accepted lane request',
       );
       this.laneRequestLockout = this.config.driver.laneRequestCooldown;
@@ -324,7 +319,9 @@ export class DriverSystem {
       this.startLaneChange(oppositeLaneIndex, this.config.driver.laneChangeCommitDuration);
       this.setSupportCue(
         'laneRequestWrong',
-        direction < 0 ? "Left's filthy. Taking right instead." : "Right's dirty. Taking left.",
+        direction < 0
+          ? "Left lane's cursed. I'm stealing the right."
+          : "Right lane's cursed. I'm stealing the left.",
         'driver redirected lane request',
       );
       this.laneRequestLockout = this.config.driver.laneRequestCooldown;
@@ -333,107 +330,22 @@ export class DriverSystem {
 
     this.setSupportCue(
       'laneRequestDenied',
-      'No clean lane. Keep shooting.',
+      'No clean lane. Violence will have to solve this.',
       'no safe lane change available',
     );
     this.laneRequestLockout = this.config.driver.laneRequestCooldown;
   }
 
   resolvePrompt(decision: DriverPromptDecision): void {
-    if (!this.prompt) {
-      return;
-    }
-
-    const currentPrompt = this.prompt;
-    const effectiveDecision =
-      decision === 'timeout'
-        ? currentPrompt.fallbackDecision
-        : decision === 'approve'
-          ? 'approve'
-          : 'cancel';
-    this.prompt = null;
-    this.pendingResolution = {
-      intent: currentPrompt.intent,
-      decision,
-      effectiveDecision,
-      targetLaneIndex: currentPrompt.targetLaneIndex,
-      category: currentPrompt.category,
-      source: currentPrompt.source,
-      reason: currentPrompt.reason,
-    };
-    this.nextPromptIn = this.rollPromptTimer();
-    this.nextOpportunityIn = this.rollOpportunityTimer();
-    this.promptLockout =
-      currentPrompt.category === 'opportunity' ? 1.2 : this.config.driver.promptEffectLockout;
-
-    if (currentPrompt.intent === 'cutLeft') {
-      if (effectiveDecision === 'approve' && currentPrompt.targetLaneIndex !== null) {
-        this.startLaneChange(
-          currentPrompt.targetLaneIndex,
-          this.config.driver.laneChangeCommitDuration,
-        );
-        this.cutLeftBiasTimer = this.config.driver.cutLeftBiasDuration;
-        this.cautiousHoldTimer = 0;
-      } else {
-        this.cautiousHoldTimer = this.config.driver.cautiousHoldDuration;
-      }
-      return;
-    }
-
-    if (currentPrompt.intent === 'scrapeWreck') {
-      if (effectiveDecision === 'approve') {
-        this.scrapeTimer = this.config.driver.scrapeDuration;
-        this.manualBoostStrength = 0;
-        this.manualBrakeStrength = 0;
-        this.cautiousHoldTimer = 0;
-      } else {
-        this.cautiousHoldTimer = this.config.driver.cautiousHoldDuration;
-      }
-      return;
-    }
-
-    if (currentPrompt.intent === 'shakeItOff') {
-      if (effectiveDecision === 'approve') {
-        this.shakeOffTimer = this.config.driver.shakeOffDuration;
-        this.manualBoostStrength = 0;
-        this.manualBrakeStrength = 0;
-        this.cautiousHoldTimer = 0;
-      } else {
-        this.cautiousHoldTimer = this.config.driver.cautiousHoldDuration * 0.6;
-      }
-      return;
-    }
-
-    if (currentPrompt.intent === 'forceGap') {
-      if (effectiveDecision === 'approve') {
-        this.forceGapTimer = this.config.driver.forceGapDuration;
-        this.cautiousHoldTimer = 0;
-        if (currentPrompt.targetLaneIndex !== null) {
-          this.startLaneChange(
-            currentPrompt.targetLaneIndex,
-            this.config.driver.laneChangeCommitDuration,
-          );
-        }
-      } else {
-        this.cautiousHoldTimer = this.config.driver.cautiousHoldDuration;
-      }
-      return;
-    }
-
-    if (effectiveDecision === 'approve' && currentPrompt.targetLaneIndex !== null) {
-      this.startLaneChange(currentPrompt.targetLaneIndex, this.config.driver.laneChangeDuration);
-      this.cautiousHoldTimer = 0.35;
-    } else {
-      this.cautiousHoldTimer = this.config.driver.cautiousHoldDuration;
-    }
+    void decision;
   }
 
   hasActivePrompt(): boolean {
-    return this.prompt !== null;
+    return false;
   }
 
   getPrompt(): DriverPromptState | null {
-    return this.prompt;
+    return null;
   }
 
   getSegment(): RunSegment {
@@ -441,123 +353,72 @@ export class DriverSystem {
   }
 
   clearLatchAssist(): void {
-    this.shakeOffTimer = 0;
-    if (this.prompt?.intent === 'shakeItOff') {
-      this.prompt = null;
-      this.nextPromptIn = this.rollPromptTimer();
-    }
+    this.promptLockout = Math.max(0, this.promptLockout);
   }
 
   consumePromptResolution(): DriverPromptResolution | null {
-    const resolution = this.pendingResolution;
-    this.pendingResolution = null;
-    return resolution;
+    return null;
   }
 
-  private tryCreateEmergencyPrompt(failureSeverity: number, hasLatch: boolean): void {
-    const cutLeftCandidate = this.getCutLeftCandidate(failureSeverity, hasLatch);
-    if (cutLeftCandidate) {
-      this.prompt = this.createPrompt(
-        'cutLeft',
-        "Hang on, I'm cutting left!",
-        'emergency',
-        'approve',
-        'hazard',
-        'left lane looks cleaner',
-        cutLeftCandidate.laneIndex,
+  private tryCreateDriverPrompt(failureSeverity: number, hasLatch: boolean): void {
+    const brakeCandidate = this.getBrakeCandidate(failureSeverity, hasLatch);
+    if (brakeCandidate) {
+      this.brakeTimer = this.config.driver.brakeDuration;
+      this.floorItTimer = 0;
+      this.engineTroubleTimer = 0;
+      this.engineTroubleRoughness = 0;
+      this.setSupportCue(
+        'brake',
+        "Hold that thought. I'm shaving speed, not dying.",
+        'hazard pressure is tightening up',
       );
+      this.promptLockout = this.config.driver.promptEffectLockout;
+      this.nextPromptIn = this.rollPromptTimer();
       return;
     }
 
-    const scrapeCandidate = this.getScrapeCandidate();
-    if (scrapeCandidate) {
-      this.prompt = this.createPrompt(
-        'scrapeWreck',
-        "Duck, I'm scraping the wreck!",
-        'emergency',
-        'approve',
-        'hazard',
-        'wreck is pinching the lane',
-        scrapeCandidate.laneIndex,
+    const floorItCandidate = this.getFloorItCandidate(failureSeverity, hasLatch);
+    if (floorItCandidate) {
+      this.floorItTimer = this.config.driver.floorItDuration;
+      this.brakeTimer = 0;
+      this.engineTroubleTimer = 0;
+      this.engineTroubleRoughness = 0;
+      this.setSupportCue(
+        'floorIt',
+        'Terrible idea. Full throttle.',
+        'there is a clean sprint window ahead',
       );
+      this.promptLockout = this.config.driver.promptEffectLockout;
+      this.nextPromptIn = this.rollPromptTimer();
       return;
     }
 
-    const forceGapCandidate = this.getForceGapCandidate(failureSeverity);
-    if (forceGapCandidate) {
-      this.prompt = this.createPrompt(
-        'forceGap',
-        "There's a gap, I'm forcing through!",
-        'emergency',
-        'approve',
-        'hazard',
-        'pressure is stacking up ahead',
-        forceGapCandidate.laneIndex,
+    const engineTroubleCandidate = this.getEngineTroubleCandidate(failureSeverity, hasLatch);
+    if (engineTroubleCandidate) {
+      this.floorItTimer = 0;
+      this.brakeTimer = 0;
+      this.engineTroubleRoughness = 0;
+      this.engineTroubleTimer = this.config.driver.engineTroubleDuration;
+      this.setSupportCue(
+        'engineTrouble',
+        'The engine has developed a personality.',
+        'the bike is stumbling under stress',
       );
+      this.promptLockout = this.config.driver.promptEffectLockout;
+      this.nextPromptIn = this.rollPromptTimer();
       return;
     }
 
-    this.nextPromptIn = this.rollPromptTimer();
-  }
-
-  private tryCreatePickupPrompt(failureSeverity: number, hasLatch: boolean): boolean {
-    const currentLane = this.getLaneThreat(this.targetLaneIndex);
-    let bestCandidate: LaneThreatState | null = null;
-    let bestScore = Number.NEGATIVE_INFINITY;
-
-    for (const lane of this.laneThreats) {
-      if (
-        lane.laneIndex === this.targetLaneIndex ||
-        !lane.pickupKind ||
-        lane.pickupValue < this.config.driver.pickupPromptValueThreshold ||
-        lane.pickupDistance === null
-      ) {
-        continue;
-      }
-
-      if (this.canAutoPickupLane(lane, currentLane, failureSeverity, hasLatch)) {
-        continue;
-      }
-
-      if (this.isHardVeto(lane, failureSeverity, true, hasLatch)) {
-        continue;
-      }
-
-      const pickupCost =
-        Math.max(0, lane.score - currentLane.score) +
-        lane.pickupRisk +
-        (lane.brokenLane ? 0.7 : 0) +
-        (this.activeEvent === 'slipperyRoad' ? 0.3 : 0);
-      if (pickupCost > this.config.driver.pickupPromptMaxCost) {
-        continue;
-      }
-
-      const valueScore = lane.pickupValue - pickupCost * 0.55;
-      if (valueScore > bestScore) {
-        bestCandidate = lane;
-        bestScore = valueScore;
-      }
-    }
-
-    if (!bestCandidate) {
-      this.nextOpportunityIn = this.rollOpportunityTimer();
-      return false;
-    }
-
-    this.prompt = this.createPrompt(
-      'pickupOpportunity',
-      this.getPickupPromptLabel(bestCandidate.pickupKind),
-      'opportunity',
-      'cancel',
-      'pickup',
-      `opportunity for ${bestCandidate.pickupKind}`,
-      bestCandidate.laneIndex,
-    );
-    return true;
+    this.nextPromptIn = 2.5;
   }
 
   private updateLaneChoice(failureSeverity: number, hasLatch: boolean): void {
-    if (this.cautiousHoldTimer > 0 || this.forceGapTimer > 0 || this.shakeOffTimer > 0) {
+    if (
+      this.cautiousHoldTimer > 0 ||
+      this.floorItTimer > 0 ||
+      this.brakeTimer > 0 ||
+      this.engineTroubleTimer > 0
+    ) {
       return;
     }
 
@@ -573,7 +434,7 @@ export class DriverSystem {
       }
     }
 
-    if (!bestLane || bestLane.laneIndex === this.targetLaneIndex) {
+    if (bestLane.laneIndex === this.targetLaneIndex) {
       return;
     }
 
@@ -599,85 +460,80 @@ export class DriverSystem {
     this.startLaneChange(bestLane.laneIndex, this.config.driver.laneChangeDuration);
   }
 
-  private getCutLeftCandidate(
+  private getBrakeCandidate(
     failureSeverity: number,
     hasLatch: boolean,
   ): LaneThreatState | null {
-    if (this.targetLaneIndex <= 0) {
-      return null;
-    }
-
-    const leftLane = this.getLaneThreat(this.targetLaneIndex - 1);
-    const currentLane = this.getLaneThreat(this.targetLaneIndex);
-    if (this.isHardVeto(leftLane, failureSeverity, false, hasLatch)) {
-      return null;
-    }
-
-    const leftScore =
-      this.getLaneDriveScore(leftLane, currentLane, failureSeverity, hasLatch) -
-      this.config.driver.cutLeftLaneBonus;
-    const currentScore = this.getLaneDriveScore(currentLane, currentLane, failureSeverity, hasLatch);
-    if (leftScore + this.config.driver.scoreMarginToChange >= currentScore) {
-      return null;
-    }
-
-    return leftLane;
-  }
-
-  private getScrapeCandidate(): LaneThreatState | null {
-    const currentLane = this.getLaneThreat(this.targetLaneIndex);
-    const blockerDistance = currentLane.blockerDistance ?? Number.POSITIVE_INFINITY;
-    if (!currentLane.blocker || blockerDistance > 18) {
-      return null;
-    }
-
-    if (currentLane.blockerType !== 'car' && currentLane.blockerType !== 'wreck') {
-      return null;
-    }
-
-    return currentLane;
-  }
-
-  private getForceGapCandidate(failureSeverity: number): LaneThreatState | null {
-    if (failureSeverity >= 0.72) {
+    if (hasLatch || failureSeverity >= 0.92) {
       return null;
     }
 
     const currentLane = this.getLaneThreat(this.targetLaneIndex);
     const blockerDistance = currentLane.blockerDistance ?? Number.POSITIVE_INFINITY;
-    if (!currentLane.blocker || blockerDistance > 28) {
+    const shouldBrake =
+      (currentLane.blocker && blockerDistance <= this.config.driver.brakeHazardDistance) ||
+      currentLane.brokenLane ||
+      currentLane.smallCount >= 2 ||
+      (failureSeverity >= 0.5 && currentLane.score > 1.05) ||
+      (this.activeEvent === 'slipperyRoad' && currentLane.smallCount > 0);
+    return shouldBrake ? currentLane : null;
+  }
+
+  private getFloorItCandidate(
+    failureSeverity: number,
+    hasLatch: boolean,
+  ): LaneThreatState | null {
+    if (hasLatch || failureSeverity >= 0.68) {
       return null;
     }
 
-    let bestCandidate: LaneThreatState | null = null;
-    let bestScore = Number.POSITIVE_INFINITY;
-
-    for (const lane of this.laneThreats) {
-      if (lane.laneIndex === this.targetLaneIndex || this.isHardVeto(lane, failureSeverity, false, false)) {
-        continue;
-      }
-
-      const roughness =
-        (lane.brokenLane ? 1.15 : 0) +
-        (this.activeEvent === 'slipperyRoad' ? 0.5 : 0) +
-        lane.smallCount * 0.22;
-      if (roughness <= 0.35) {
-        continue;
-      }
-
-      const gapScore = lane.score + roughness * 0.35;
-      if (gapScore < bestScore) {
-        bestCandidate = lane;
-        bestScore = gapScore;
-      }
-    }
-
-    if (!bestCandidate) {
+    const currentLane = this.getLaneThreat(this.targetLaneIndex);
+    const blockerDistance = currentLane.blockerDistance ?? Number.POSITIVE_INFINITY;
+    const safeLane =
+      !currentLane.blocker &&
+      blockerDistance > 30 &&
+      !currentLane.brokenLane &&
+      currentLane.bruteCount === 0 &&
+      currentLane.smallCount <= 1;
+    if (!safeLane) {
       return null;
     }
 
-    const pressureDelta = currentLane.score - bestCandidate.score;
-    return pressureDelta >= 0.55 || currentLane.smallCount >= 2 ? bestCandidate : null;
+    const pickupSprint =
+      Boolean(currentLane.pickupKind) &&
+      currentLane.pickupDistance !== null &&
+      currentLane.pickupDistance <= this.config.driver.floorItPickupDistance;
+    const laneRelief = this.laneThreats.some(
+      (lane) => lane.laneIndex !== currentLane.laneIndex && lane.score > currentLane.score + 1.05,
+    );
+    const chaosWindow =
+      this.segment === 'chaos' && currentLane.score < 0.95 && this.activeEvent !== 'slipperyRoad';
+    const cleanStraight = currentLane.score < 0.72;
+
+    return pickupSprint || laneRelief || chaosWindow || cleanStraight ? currentLane : null;
+  }
+
+  private getEngineTroubleCandidate(
+    failureSeverity: number,
+    hasLatch: boolean,
+  ): LaneThreatState | null {
+    if (hasLatch) {
+      return null;
+    }
+
+    const currentLane = this.getLaneThreat(this.targetLaneIndex);
+    const blockerDistance = currentLane.blockerDistance ?? Number.POSITIVE_INFINITY;
+    const stressedEnough =
+      failureSeverity >= this.config.driver.engineTroubleFailureThreshold ||
+      (this.activeEvent === 'berserkWave' && failureSeverity >= 0.22) ||
+      (this.segment === 'chaos' && failureSeverity >= 0.28 && currentLane.score >= 1.1);
+    const fairWindow =
+      !currentLane.blocker &&
+      blockerDistance > 18 &&
+      !currentLane.brokenLane &&
+      currentLane.bruteCount === 0;
+
+    return stressedEnough && fairWindow ? currentLane : null;
   }
 
   private getLaneDriveScore(
@@ -692,13 +548,13 @@ export class DriverSystem {
 
     const hazardCost =
       (lane.brokenLane ? 0.85 : 0) +
-      (this.activeEvent === 'slipperyRoad' ? 0.28 : 0) +
+      (this.activeEvent === 'slipperyRoad' ? 0.08 : 0) +
       lane.smallCount * 0.08 +
       lane.bruteCount * 1.2;
     const pickupBonus = this.canAutoPickupLane(lane, currentLane, failureSeverity, hasLatch)
       ? lane.pickupValue * 0.85
       : 0;
-    return lane.score + hazardCost - pickupBonus - this.getLaneBias(lane.laneIndex);
+    return lane.score + hazardCost - pickupBonus;
   }
 
   private canAutoPickupLane(
@@ -723,7 +579,7 @@ export class DriverSystem {
       Math.max(0, lane.score - currentLane.score) +
       lane.pickupRisk +
       (lane.brokenLane ? 0.55 : 0) +
-      (this.activeEvent === 'slipperyRoad' ? 0.2 : 0);
+      (this.activeEvent === 'slipperyRoad' ? 0.08 : 0);
     return pickupCost <= this.config.driver.pickupAutoMaxCost;
   }
 
@@ -753,30 +609,6 @@ export class DriverSystem {
     return lane.brokenLane;
   }
 
-  private getPickupPromptLabel(kind: PickupType | null): string {
-    if (kind === 'shotgun') {
-      return 'Shotgun on the left, quick grab?';
-    }
-
-    if (kind === 'bazooka') {
-      return "Rocket tube there, I'm diving for it!";
-    }
-
-    if (kind === 'medkit') {
-      return 'Medkit there, want me to cut for it?';
-    }
-
-    if (kind === 'adrenaline') {
-      return 'Adrenaline shot ahead, take the edge off?';
-    }
-
-    if (kind === 'nitroCan') {
-      return "Nitro can up there. I'm making for it!";
-    }
-
-    return 'Ammo crate there, want it?';
-  }
-
   private getSpeedMultiplier(
     failureSeverity: number,
     hasLatch: boolean,
@@ -785,41 +617,26 @@ export class DriverSystem {
     const segmentVisibility = this.config.pacing.visibility[this.segment];
     const segmentSpeedBias =
       this.segment === 'chaos' ? 1.04 : this.segment === 'dark' ? 0.94 : 1;
+    const engineTroublePulse = this.engineTroubleTimer > 0 ? this.getEngineTroublePulse() : 0;
+    const troubleLow =
+      this.config.driver.engineTroubleSpeedMultiplier - this.engineTroubleRoughness * 0.08;
+    const troubleHigh = 0.96 - this.engineTroubleRoughness * 0.04;
     const driverMultiplier =
-      this.scrapeTimer > 0
-        ? this.config.driver.scrapeSpeedMultiplier
-        : this.shakeOffTimer > 0
-          ? this.config.driver.shakeOffSpeedMultiplier
-          : this.forceGapTimer > 0
-            ? this.config.driver.forceGapSpeedMultiplier
+      this.floorItTimer > 0
+        ? this.config.driver.floorItSpeedMultiplier
+        : this.brakeTimer > 0
+          ? this.config.driver.brakeSpeedMultiplier
+          : this.engineTroubleTimer > 0
+            ? lerp(troubleLow, troubleHigh, engineTroublePulse)
             : 1;
-    const pulseEffectiveness =
-      this.activeEvent === 'slipperyRoad'
-        ? this.config.pacing.events.slipperyPulseEffectiveness
-        : 1;
-    const boostMultiplier = lerp(
-      1,
-      this.config.ride.boostSpeedMultiplier *
-        (nitroActive ? this.config.ride.nitroBoostMultiplier : 1),
-      this.manualBoostStrength * pulseEffectiveness,
-    );
-    const brakeMultiplier = lerp(
-      1,
-      this.config.ride.brakeSpeedMultiplier,
-      this.manualBrakeStrength * pulseEffectiveness,
-    );
-    const latchMultiplier =
-      hasLatch ? this.config.ride.latchSpeedMultiplier : 1;
-    const eventMultiplier = this.activeEvent === 'slipperyRoad' ? 0.96 : 1;
+    const latchMultiplier = hasLatch ? this.config.ride.latchSpeedMultiplier : 1;
+    const eventMultiplier = this.activeEvent === 'slipperyRoad' ? 0.985 : 1;
     const nitroBonus = nitroActive ? 1 + this.config.ride.nitroSpeedBonus : 1;
-    const failureMultiplier =
-      1 - failureSeverity * this.config.ride.failureSpeedPenalty;
+    const failureMultiplier = 1 - failureSeverity * this.config.ride.failureSpeedPenalty;
 
     return clamp(
       segmentSpeedBias *
         driverMultiplier *
-        lerp(1, boostMultiplier, pulseEffectiveness) *
-        lerp(1, brakeMultiplier, pulseEffectiveness) *
         latchMultiplier *
         eventMultiplier *
         nitroBonus *
@@ -850,12 +667,8 @@ export class DriverSystem {
     this.laneFromIndex = this.targetLaneIndex;
     this.laneToIndex = clampedLane;
     this.targetLaneIndex = this.laneToIndex;
-    const slipperyMultiplier =
-      this.activeEvent === 'slipperyRoad'
-        ? this.config.pacing.events.slipperyLaneChangeMultiplier
-        : 1;
     const nitroMultiplier = this.nitroActive ? this.config.ride.nitroLaneChangeMultiplier : 1;
-    this.laneChangeTimer = duration * slipperyMultiplier * nitroMultiplier;
+    this.laneChangeTimer = duration * nitroMultiplier;
     this.laneChangeDurationCurrent = this.laneChangeTimer;
   }
 
@@ -905,64 +718,57 @@ export class DriverSystem {
     );
   }
 
-  private getLaneBias(laneIndex: number): number {
-    if (this.cutLeftBiasTimer <= 0) {
-      return 0;
-    }
-
-      return laneIndex === Math.max(0, this.laneIndex - 1)
-      ? this.config.driver.cutLeftLaneBonus
-      : 0;
-  }
-
   private resolveLaneCenter(laneIndex: number): number {
     return this.config.world.laneCenters[laneIndex] ?? 0;
   }
 
   private hasBlockingEffect(): boolean {
     return (
-      this.scrapeTimer > 0 ||
-      this.shakeOffTimer > 0 ||
-      this.forceGapTimer > 0 ||
+      this.floorItTimer > 0 ||
+      this.brakeTimer > 0 ||
+      this.engineTroubleTimer > 0 ||
       this.cautiousHoldTimer > 0 ||
       this.laneChangeTimer > 0
     );
   }
 
-  private updateDriveState(
-    deltaTime: number,
-    failureSeverity: number,
-    hasLatch: boolean,
-    nitroActive: boolean,
-  ): void {
-    const currentLane = this.getLaneThreat(this.targetLaneIndex);
-    const blockerDistance = currentLane.blockerDistance ?? Number.POSITIVE_INFINITY;
-    const shouldBrake =
-      this.scrapeTimer > 0 ||
-      this.shakeOffTimer > 0 ||
-      (currentLane.blocker && blockerDistance < 16) ||
-      (failureSeverity >= 0.72 && currentLane.smallCount >= 2);
-    const shouldBoost =
-      !shouldBrake &&
-      !hasLatch &&
-      (
-        this.forceGapTimer > 0 ||
-        (nitroActive && !currentLane.blocker) ||
-        (this.laneChangeTimer > 0 && blockerDistance > 18) ||
-        (this.cutLeftBiasTimer > 0 && currentLane.smallCount === 0 && !currentLane.blocker)
-      );
+  private updateDriveState(deltaTime: number): void {
     const response = this.config.ride.inputHoldResponse;
 
+    if (this.engineTroubleTimer > 0) {
+      const pulse = this.getEngineTroublePulse();
+      const accelPulse = pulse * (0.88 + this.engineTroubleRoughness * 0.12);
+      const brakePulse = (1 - pulse) * (0.64 + this.engineTroubleRoughness * 0.18);
+      this.manualBoostStrength = approach(
+        this.manualBoostStrength,
+        accelPulse,
+        deltaTime * response,
+      );
+      this.manualBrakeStrength = approach(
+        this.manualBrakeStrength,
+        brakePulse,
+        deltaTime * response,
+      );
+      return;
+    }
+
+    const targetBrake = this.brakeTimer > 0 ? 0.82 : 0;
+    const targetBoost = this.floorItTimer > 0 ? 1 : 0;
     this.manualBrakeStrength = approach(
       this.manualBrakeStrength,
-      shouldBrake ? 1 : 0,
-      deltaTime * response * (shouldBrake ? 1 : 1.2),
+      targetBrake,
+      deltaTime * response * (targetBrake > this.manualBrakeStrength ? 1 : 1.2),
     );
     this.manualBoostStrength = approach(
       this.manualBoostStrength,
-      shouldBoost ? 1 : 0,
-      deltaTime * response * (shouldBoost ? 1 : 1.2),
+      targetBoost,
+      deltaTime * response * (targetBoost > this.manualBoostStrength ? 1 : 1.2),
     );
+  }
+
+  private getEngineTroublePulse(): number {
+    const wobble = Math.sin(this.time * this.config.driver.engineTroubleWobbleFrequency);
+    return (wobble + 1) * 0.5;
   }
 
   private setSupportCue(

@@ -68,16 +68,14 @@ export class SpawnSystem {
         : 1);
     this.nextSpawnIn = spawnInterval;
 
-    const batchSize =
-      1 + (
-        Math.random() <
-        this.config.spawn.batchChance +
-          this.config.pacing.batchChanceBonus[segment] +
-          (this.activeEvent === 'berserkWave' ? this.config.pacing.events.berserkBatchBonus : 0) +
-          ramp * 0.18
-        ? 1
-        : 0
-      );
+    const batchBonusChance =
+      this.config.spawn.batchChance +
+      this.config.pacing.batchChanceBonus[segment] +
+      (this.activeEvent === 'berserkWave' ? this.config.pacing.events.berserkBatchBonus : 0) +
+      ramp * 0.18;
+    const berserkExtraSpawn =
+      this.activeEvent === 'berserkWave' && Math.random() < 0.42 ? 1 : 0;
+    const batchSize = 1 + (Math.random() < batchBonusChance ? 1 : 0) + berserkExtraSpawn;
     const availableLanes = [...this.config.world.laneCenters];
 
     for (let index = 0; index < batchSize; index += 1) {
@@ -111,9 +109,12 @@ export class SpawnSystem {
       }
     }
 
+    const laneGroupChance =
+      this.config.spawn.laneGroupChance +
+      (this.activeEvent === 'berserkWave' ? 0.18 : 0);
     if (
       (segment === 'chaos' || this.activeEvent === 'berserkWave') &&
-      Math.random() < this.config.spawn.laneGroupChance &&
+      Math.random() < laneGroupChance &&
       enemies.getActiveCount() < this.config.enemies.poolSize - 1
     ) {
       const laneIndex = randomInt(0, this.config.world.laneCenters.length - 1);

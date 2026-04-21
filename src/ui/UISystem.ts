@@ -130,7 +130,6 @@ export class UISystem {
   private lastElapsedSeconds = 0;
   private lastDriverPresentation: DriverPresentation | null = null;
   private lastWeaponType: WeaponStatus['weaponType'] | null = null;
-  private lastAdrenalineTimer = 0;
   private lastNitroTimer = 0;
   private tankWarningCooldown = 0;
 
@@ -368,7 +367,7 @@ export class UISystem {
         this.overlay.hidden = false;
         this.overlayTitle.textContent = 'Dead Rush Sidecar';
         this.overlayText.textContent =
-          'Ride shotgun in the apocalypse. Mouse aim, click to fire, hold A or D to ask for a lane shift, tap A/D to wiggle free from a latch, and answer driver prompts with Q/E.';
+          'Ride shotgun in the apocalypse. Mouse aim, click to fire, hold A or D to ask for a lane shift, tap A/D to wiggle free from a latch, and react when your driver suddenly does something reckless.';
         this.overlayButton.textContent = 'Click To Start';
         break;
       case 'paused':
@@ -470,25 +469,19 @@ export class UISystem {
     this.eventChip.hidden = !snapshot.ride || snapshot.ride.activeEvent === 'none';
     this.eventChip.textContent = this.getEventLabel(snapshot.ride?.activeEvent ?? 'none');
     this.eventChip.dataset.event = snapshot.ride?.activeEvent ?? 'none';
-    this.buffPanel.hidden =
-      snapshot.player.adrenalineTimer <= 0 && snapshot.player.nitroTimer <= 0;
-    this.adrenalineBuff.hidden = snapshot.player.adrenalineTimer <= 0;
+    this.buffPanel.hidden = snapshot.player.nitroTimer <= 0;
+    this.adrenalineBuff.hidden = true;
     this.nitroBuff.hidden = snapshot.player.nitroTimer <= 0;
-    this.adrenalineBuff.textContent =
-      snapshot.player.adrenalineTimer > 0
-        ? `Adrenaline ${(snapshot.player.adrenalineTimer).toFixed(1)}s`
-        : '';
+    this.adrenalineBuff.textContent = '';
     this.nitroBuff.textContent =
       snapshot.player.nitroTimer > 0
-        ? `Nitro ${(snapshot.player.nitroTimer).toFixed(1)}s`
+        ? `Auto Accel ${(snapshot.player.nitroTimer).toFixed(1)}s`
         : '';
     this.controlHint.textContent =
-      snapshot.ride?.prompt
-        ? 'Q Cancel  |  E Approve'
-        : snapshot.ride?.latchActive
-          ? 'Shoot Low  |  Tap A/D Wiggle  |  Hold F Focus'
-          : 'Hold A / D Ask Lane  |  Hold F Focus';
-    this.controlHint.dataset.alert = snapshot.ride?.prompt ? 'true' : 'false';
+      snapshot.ride?.latchActive
+        ? 'Shoot Low  |  Tap A/D Wiggle  |  Hold F Focus'
+        : 'Hold A / D Ask Lane  |  Hold F Focus';
+    this.controlHint.dataset.alert = 'false';
     const boostState = this.resolveDriveMeterState(
       snapshot.ride?.manualBoostEngaged ?? false,
       snapshot.ride?.manualBoostMeterRatio ?? 1,
@@ -505,25 +498,13 @@ export class UISystem {
     const showDrivePanel =
       snapshot.gameState === 'running' &&
       (
-        (snapshot.ride?.manualBoostEngaged ?? false) ||
-        (snapshot.ride?.manualBrakeEngaged ?? false) ||
-        (snapshot.ride?.manualBoostMeterRatio ?? 1) < 0.995 ||
-        (snapshot.ride?.manualBrakeMeterRatio ?? 1) < 0.995 ||
         (snapshot.ride?.focusBeamActive ?? false) ||
         (snapshot.ride?.focusBeamHeatRatio ?? 0) > 0.02 ||
         (snapshot.ride?.focusBeamOverheated ?? false)
       );
     this.drivePanel.hidden = !showDrivePanel;
-    this.driveBoostRow.hidden =
-      !(
-        (snapshot.ride?.manualBoostEngaged ?? false) ||
-        (snapshot.ride?.manualBoostMeterRatio ?? 1) < 0.995
-      );
-    this.driveBrakeRow.hidden =
-      !(
-        (snapshot.ride?.manualBrakeEngaged ?? false) ||
-        (snapshot.ride?.manualBrakeMeterRatio ?? 1) < 0.995
-      );
+    this.driveBoostRow.hidden = true;
+    this.driveBrakeRow.hidden = true;
     this.driveFocusRow.hidden =
       !(
         (snapshot.ride?.focusBeamActive ?? false) ||
@@ -668,7 +649,6 @@ export class UISystem {
           ? 'warning'
           : 'stable';
     this.lastWeaponType = snapshot.weapon.weaponType;
-    this.lastAdrenalineTimer = snapshot.player.adrenalineTimer;
     this.lastNitroTimer = snapshot.player.nitroTimer;
     this.updateOverlay(snapshot);
   }
@@ -708,9 +688,7 @@ export class UISystem {
       snapshot.ride?.latchActive ||
       (snapshot.ride?.failureSeverity ?? 0) >= 0.45 ||
       snapshot.ride?.activeEvent === 'berserkWave' ||
-      snapshot.ride?.prompt?.intent === 'scrapeWreck' ||
-      snapshot.ride?.prompt?.intent === 'shakeItOff' ||
-      snapshot.ride?.prompt?.intent === 'forceGap'
+      snapshot.ride?.prompt?.intent === 'engineTrouble'
     ) {
       return 'panic';
     }
@@ -718,7 +696,8 @@ export class UISystem {
     if (
       snapshot.ride?.segment === 'dark' ||
       snapshot.ride?.activeEvent === 'blackoutStretch' ||
-      snapshot.ride?.prompt?.intent === 'cutLeft' ||
+      snapshot.ride?.prompt?.intent === 'floorIt' ||
+      snapshot.ride?.prompt?.intent === 'brake' ||
       snapshot.radarContacts.length >= 4
     ) {
       return 'observing';
@@ -731,23 +710,31 @@ export class UISystem {
     const prompt = snapshot.ride?.prompt;
     if (prompt) {
       const mood =
-        prompt.intent === 'cutLeft'
+        prompt.intent === 'floorIt' || prompt.intent === 'brake'
           ? 'observing'
-          : prompt.intent === 'shakeItOff' ||
-              prompt.intent === 'scrapeWreck' ||
-              prompt.intent === 'forceGap'
+          : prompt.intent === 'engineTrouble'
             ? 'panic'
             : this.resolveDriverMood(snapshot);
+      const speaker =
+        prompt.intent === 'floorIt'
+          ? 'Driver  Grinning'
+          : prompt.intent === 'brake'
+            ? 'Driver  Measuring'
+            : prompt.intent === 'engineTrouble'
+              ? 'Driver  Wincing'
+              : mood === 'panic'
+                ? 'Driver  Losing It'
+                : 'Driver  Calling It';
       return {
         key: `prompt:${prompt.intent}:${prompt.label}`,
         mood,
         label: prompt.label,
-        speaker: mood === 'panic' ? 'Driver  Losing It' : 'Driver  Calling It',
+        speaker,
         intent: prompt.intent,
         showTimer: true,
         timerRatio: prompt.duration > 0 ? prompt.timer / prompt.duration : 0,
         showControls: true,
-        controlsLabel: 'Q cancel   E approve',
+        controlsLabel: '',
         persistSeconds: 0.12,
       };
     }
@@ -762,10 +749,10 @@ export class UISystem {
             : 'calm';
       const speaker =
         supportCue.intent === 'laneRequestWrong'
-          ? 'Driver  Improvising'
+          ? 'Driver  Misreading Destiny'
           : supportCue.intent === 'laneRequestDenied'
-            ? 'Driver  Holding'
-            : 'Driver  Answering';
+            ? 'Driver  Dryly Refusing'
+            : 'Driver  On Codec';
       return {
         key: `support:${supportCue.intent}:${supportCue.label}`,
         mood,
@@ -780,48 +767,48 @@ export class UISystem {
       };
     }
 
-    if (snapshot.ride?.shakeOffMode) {
+    if (snapshot.ride?.floorItMode) {
       return {
-        key: 'event:shake-off',
-        mood: 'panic',
-        label: "Hang on. I'm shaking it loose!",
-        speaker: 'Driver  Panicking',
-        intent: 'shakeItOff',
+        key: 'event:floor-it',
+        mood: 'observing',
+        label: 'Speed is now our legal defense. Shoot anything that objects.',
+        speaker: 'Driver  Recklessly Calm',
+        intent: 'floorIt',
         showTimer: false,
         timerRatio: 0,
         showControls: false,
         controlsLabel: '',
-        persistSeconds: 0.95,
+        persistSeconds: 0.8,
       };
     }
 
-    if (snapshot.ride?.scrapeMode) {
+    if (snapshot.ride?.brakeMode) {
       return {
-        key: 'event:scrape',
-        mood: 'panic',
-        label: "Keep low. I'm grinding the wreck!",
-        speaker: 'Driver  Committing',
-        intent: 'scrapeWreck',
+        key: 'event:brake',
+        mood: 'observing',
+        label: "I'm not stopping. I'm editing our speed downward.",
+        speaker: 'Driver  Technical Monologue',
+        intent: 'brake',
         showTimer: false,
         timerRatio: 0,
         showControls: false,
         controlsLabel: '',
-        persistSeconds: 0.95,
+        persistSeconds: 0.8,
       };
     }
 
-    if (snapshot.ride?.forceGapMode) {
+    if (snapshot.ride?.engineTroubleMode) {
       return {
-        key: 'event:force-gap',
+        key: 'event:engine-trouble',
         mood: 'panic',
-        label: "Tight squeeze. Keep shooting!",
-        speaker: 'Driver  Forcing It',
-        intent: 'forceGap',
+        label: 'The engine is making a statement. I reject its politics.',
+        speaker: 'Driver  Existentially Busy',
+        intent: 'engineTrouble',
         showTimer: false,
         timerRatio: 0,
         showControls: false,
         controlsLabel: '',
-        persistSeconds: 0.95,
+        persistSeconds: 0.85,
       };
     }
 
@@ -829,8 +816,8 @@ export class UISystem {
       return {
         key: 'event:latch',
         mood: 'panic',
-        label: "Shoot low. It's hanging off the sidecar!",
-        speaker: 'Driver  Alarmed',
+        label: 'Lower. Sidecar level. Return that idiot to the asphalt.',
+        speaker: 'Driver  Alarmingly Specific',
         intent: 'latch',
         showTimer: false,
         timerRatio: 0,
@@ -844,8 +831,8 @@ export class UISystem {
       return {
         key: 'event:berserk',
         mood: 'panic',
-        label: "They're all riled up. Keep them off me!",
-        speaker: 'Driver  Rattled',
+        label: "They've entered their dramatic phase. Thin the cast.",
+        speaker: 'Driver  Bad Feeling',
         intent: 'event',
         showTimer: false,
         timerRatio: 0,
@@ -859,8 +846,8 @@ export class UISystem {
       return {
         key: 'event:slippery',
         mood: 'observing',
-        label: "Road's slick. Don't throw the bike.",
-        speaker: 'Driver  Adjusting',
+        label: 'The road has betrayed us. Expect elegance to drop sharply.',
+        speaker: 'Driver  Unimpressed',
         intent: 'event',
         showTimer: false,
         timerRatio: 0,
@@ -874,8 +861,8 @@ export class UISystem {
       return {
         key: 'event:blackout',
         mood: 'observing',
-        label: "Can't see much. Watch the flanks.",
-        speaker: 'Driver  Squinting',
+        label: 'Night has become ambitious. Watch the edges.',
+        speaker: 'Driver  Squinting At Fate',
         intent: 'event',
         showTimer: false,
         timerRatio: 0,
@@ -890,8 +877,8 @@ export class UISystem {
       return {
         key: 'event:critical-failure',
         mood: 'panic',
-        label: "I'm losing the bike. Clear the lane!",
-        speaker: 'Driver  Breaking',
+        label: 'The bike is writing its will. Clear me a lane.',
+        speaker: 'Driver  Speaking To Machinery',
         intent: 'critical',
         showTimer: false,
         timerRatio: 0,
@@ -905,8 +892,8 @@ export class UISystem {
       return {
         key: 'event:warning-failure',
         mood: 'panic',
-        label: 'Brace. This ride is getting sloppy.',
-        speaker: 'Driver  Rattled',
+        label: 'We are one bad decision away from slapstick.',
+        speaker: 'Driver  Pretending Calm',
         intent: 'warning',
         showTimer: false,
         timerRatio: 0,
@@ -916,27 +903,12 @@ export class UISystem {
       };
     }
 
-    if (this.lastAdrenalineTimer <= 0.1 && snapshot.player.adrenalineTimer > 0.1) {
-      return {
-        key: 'pickup:adrenaline',
-        mood: 'observing',
-        label: 'Adrenaline steadies your aim and helps you shake a latch faster.',
-        speaker: 'Driver  Explaining',
-        intent: 'pickup',
-        showTimer: false,
-        timerRatio: 0,
-        showControls: false,
-        controlsLabel: '',
-        persistSeconds: 1.35,
-      };
-    }
-
     if (this.lastNitroTimer <= 0.1 && snapshot.player.nitroTimer > 0.1) {
       return {
         key: 'pickup:nitro',
         mood: 'observing',
-        label: 'Nitro makes your accel bite harder and helps me commit faster.',
-        speaker: 'Driver  Explaining',
+        label: 'Auto accelerator. It shoves us forward while I pretend this was planned.',
+        speaker: 'Driver  Explaining Badly',
         intent: 'pickup',
         showTimer: false,
         timerRatio: 0,
@@ -954,8 +926,8 @@ export class UISystem {
       return {
         key: 'pickup:shotgun',
         mood: 'calm',
-        label: 'Shotgun is your panic cleaner. Keep it for close messes and latch trouble.',
-        speaker: 'Driver  Explaining',
+        label: 'Shotgun. For intimate negotiations and sidecar emergencies.',
+        speaker: 'Driver  Quartermaster Theater',
         intent: 'pickup',
         showTimer: false,
         timerRatio: 0,
@@ -973,8 +945,8 @@ export class UISystem {
       return {
         key: 'pickup:bazooka',
         mood: 'observing',
-        label: 'Bazooka is your heavy answer. Save it for a brute or a real pileup.',
-        speaker: 'Driver  Explaining',
+        label: 'Bazooka. For when subtlety has failed the republic.',
+        speaker: 'Driver  Quartermaster Theater',
         intent: 'pickup',
         showTimer: false,
         timerRatio: 0,
@@ -993,8 +965,8 @@ export class UISystem {
       return {
         key: `warning:tank:${Math.floor(snapshot.elapsedSeconds)}`,
         mood: 'panic',
-        label: 'Brute on the road. Watch the tank zombie and save heavy damage for it.',
-        speaker: 'Driver  Warning',
+        label: 'Tank zombie ahead. That one does not respect optimism.',
+        speaker: 'Driver  Grim Forecast',
         intent: 'warning',
         showTimer: false,
         timerRatio: 0,

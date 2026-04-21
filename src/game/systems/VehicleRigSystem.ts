@@ -10,6 +10,7 @@ import {
   MeshBasicMaterial,
   MeshStandardMaterial,
   Object3D,
+  PerspectiveCamera,
   PlaneGeometry,
   PointLight,
   SpotLight,
@@ -63,7 +64,10 @@ export class VehicleRigSystem {
   private readonly baseHeadlightTargetPosition = new Vector3();
   private readonly baseHeadlightFillTargetPosition = new Vector3();
   private readonly baseFocusHeadlightTargetPosition = new Vector3();
+  private readonly perspectiveCamera: PerspectiveCamera | null;
+  private readonly baseFov: number;
   private loadedScene: Object3D | null = null;
+  private currentFov = 72;
   private time = 0;
   private hitShake = 0;
   private lastHitFlash = 0;
@@ -73,6 +77,9 @@ export class VehicleRigSystem {
     private readonly config: GameConfig,
   ) {
     const rig = this.config.vehicle.stage1Rig;
+    this.perspectiveCamera = this.camera instanceof PerspectiveCamera ? this.camera : null;
+    this.baseFov = this.perspectiveCamera?.fov ?? 72;
+    this.currentFov = this.baseFov;
     const baseConeLength = Math.max(6, rig.headlightDistance * 0.9);
     const baseConeRadius = Math.max(
       1.8,
@@ -285,7 +292,7 @@ export class VehicleRigSystem {
         color: rig.headlightColor,
         map: this.glowTexture,
         transparent: true,
-        opacity: 0.78,
+        opacity: 0.26,
         blending: AdditiveBlending,
         depthWrite: false,
         fog: false,
@@ -333,8 +340,8 @@ export class VehicleRigSystem {
     this.headlightSideSpillRight.visible = false;
     this.headlightGlow.position.set(0, -0.01, -0.2);
     this.focusHeadlightGlow.position.set(0, 0.02, -0.22);
-    this.headlightGlow.scale.setScalar(0.72);
-    this.focusHeadlightGlow.scale.setScalar(0.98);
+    this.headlightGlow.scale.set(0.58, 0.42, 1);
+    this.focusHeadlightGlow.scale.set(0.76, 0.56, 1);
     this.headlightCone.renderOrder = 4;
     this.focusHeadlightCone.renderOrder = 4;
     this.headlightBeamSheet.renderOrder = 4;
@@ -440,6 +447,11 @@ export class VehicleRigSystem {
     this.focusHeadlight.intensity = 0;
     this.headlightFill.intensity = this.config.vehicle.stage1Rig.headlightFillIntensity;
     this.nearFill.intensity = this.config.vehicle.stage1Rig.nearFillIntensity;
+    if (this.perspectiveCamera) {
+      this.currentFov = this.baseFov;
+      this.perspectiveCamera.fov = this.baseFov;
+      this.perspectiveCamera.updateProjectionMatrix();
+    }
     (this.headlightCone.material as MeshBasicMaterial).opacity = 0;
     (this.focusHeadlightCone.material as MeshBasicMaterial).opacity = 0;
     (this.headlightBeamSheet.material as MeshBasicMaterial).opacity = 0;
@@ -449,7 +461,7 @@ export class VehicleRigSystem {
     (this.headlightHotspot.material as MeshBasicMaterial).opacity = 0;
     (this.headlightSideSpillLeft.material as MeshBasicMaterial).opacity = 0;
     (this.headlightSideSpillRight.material as MeshBasicMaterial).opacity = 0;
-    (this.headlightGlow.material as SpriteMaterial).opacity = 0.54;
+    (this.headlightGlow.material as SpriteMaterial).opacity = 0.18;
     (this.focusHeadlightGlow.material as SpriteMaterial).opacity = 0;
     this.vehicleRig.visible = true;
   }
@@ -476,6 +488,12 @@ export class VehicleRigSystem {
     const laneCutJolt = ride?.laneCutJolt ?? 0;
     const potholeJolt = ride?.potholeJolt ?? 0;
     const barrelJolt = ride?.barrelJolt ?? 0;
+    const engineTroubleWobble = ride?.engineTroubleWobble ?? 0;
+    const engineTroubleWave = Math.sin(this.time * this.config.driver.engineTroubleWobbleFrequency);
+    const engineTroubleSide =
+      engineTroubleWobble * this.config.driver.engineTroubleWobbleAmplitude * engineTroubleWave;
+    const floorItPush = (ride?.floorItMode ? ride.driveBoostStrength : 0) * 0.012;
+    const brakeStability = 1 - (ride?.brakeMode ? ride.driveBrakeStrength * 0.24 : 0);
 
     this.vehicleRig.position.copy(playerPosition).add(this.baseRigOffset);
 
@@ -495,7 +513,7 @@ export class VehicleRigSystem {
     const swayZ =
       Math.sin(this.time * (rig.swayFrequency * 0.75)) * rig.swayAmplitude[2] * swayAlpha;
     const vibration =
-      Math.sin(this.time * rig.vibrationFrequency) * rig.vibrationAmplitude * swayAlpha;
+      Math.sin(this.time * rig.vibrationFrequency) * rig.vibrationAmplitude * swayAlpha * brakeStability;
     const turnShift = turnSign * turnAmount * rig.turnShift;
     const turnRoll = MathUtils.degToRad(rig.turnRollDegrees) * turnSign * turnAmount;
     const laneShift = laneDirection * laneTravel * rig.laneShift;
@@ -508,14 +526,14 @@ export class VehicleRigSystem {
     // feels seated/world-attached while the FPS weapon remains a separate child
     // of the camera itself.
     this.vehicleSpace.position.set(
-      swayX + turnShift + vibration * 0.65 + laneShift + cutOvershoot,
+      swayX + turnShift + vibration * 0.65 + laneShift + cutOvershoot + engineTroubleSide + floorItPush,
       swayY + vibration * 0.45 + rideShake * 0.3 + wheelHop,
       swayZ,
     );
     this.vehicleSpace.rotation.set(
       vibration * 0.06 + rideShake * 0.18 + wheelHop * 0.4,
-      -turnShift * 0.08 + laneShift * 0.18 + cutOvershoot * 0.45,
-      turnRoll + laneRoll + vibration * 0.12 + slamRoll,
+      -turnShift * 0.08 + laneShift * 0.18 + cutOvershoot * 0.45 + engineTroubleSide * 0.35,
+      turnRoll + laneRoll + vibration * 0.12 + slamRoll + engineTroubleSide * 0.72,
     );
 
     this.cameraYaw.position.set(
@@ -543,33 +561,51 @@ export class VehicleRigSystem {
       this.baseHeadlightTargetPosition.y,
       this.baseHeadlightTargetPosition.z,
     );
-    this.headlightFillTarget.position.set(
-      this.baseHeadlightFillTargetPosition.x + laneShift * 0.28,
-      this.baseHeadlightFillTargetPosition.y - rideShake * 0.05,
-      this.baseHeadlightFillTargetPosition.z,
-    );
-    this.focusHeadlightTarget.position.set(
-      this.baseFocusHeadlightTargetPosition.x + laneShift * 0.34,
-      this.baseFocusHeadlightTargetPosition.y,
-      this.baseFocusHeadlightTargetPosition.z,
-    );
     const headlightFailureDrop = 1 - Math.min(0.3, (ride?.failureSeverity ?? 0) * 0.16);
     const focusBeamAlpha =
       (ride?.focusBeamStrength ?? 0) * (ride?.focusBeamOverheated ? 0 : 1);
+    this.headlightFillTarget.position.set(
+      this.baseHeadlightFillTargetPosition.x + laneShift * 0.28,
+      this.baseHeadlightFillTargetPosition.y - rideShake * 0.05 - focusBeamAlpha * 0.04,
+      this.baseHeadlightFillTargetPosition.z - focusBeamAlpha * 5.5,
+    );
+    this.focusHeadlightTarget.position.set(
+      this.baseFocusHeadlightTargetPosition.x + laneShift * 0.34,
+      this.baseFocusHeadlightTargetPosition.y - focusBeamAlpha * 0.08,
+      this.baseFocusHeadlightTargetPosition.z - focusBeamAlpha * 14,
+    );
+    const focusBaseBoost = 1 + focusBeamAlpha * 0.18;
+    const focusFillBoost = 1 + focusBeamAlpha * 0.82;
+    const focusNearBoost = 1 + focusBeamAlpha * 0.58;
+    const focusSpotBoost = 1 + focusBeamAlpha * 0.52;
     this.headlight.intensity =
-      rig.headlightIntensity * (running ? 1 : 0.86) * headlightFailureDrop;
+      rig.headlightIntensity *
+      (running ? 1 : 0.86) *
+      headlightFailureDrop *
+      focusBaseBoost;
+    this.headlight.distance = rig.headlightDistance * (1 + focusBeamAlpha * 0.12);
+    this.focusHeadlight.angle = MathUtils.degToRad(
+      rig.focusHeadlightAngleDegrees + focusBeamAlpha * 2.8,
+    );
+    this.focusHeadlight.penumbra = Math.min(1, rig.focusHeadlightPenumbra + focusBeamAlpha * 0.08);
+    this.focusHeadlight.distance = rig.focusHeadlightDistance * (1 + focusBeamAlpha * 0.26);
     this.focusHeadlight.intensity =
       rig.focusHeadlightIntensity *
       focusBeamAlpha *
+      focusSpotBoost *
       (running ? 1 : 0.82) *
       headlightFailureDrop;
+    this.headlightFill.distance = rig.headlightFillDistance * (1 + focusBeamAlpha * 0.34);
     this.headlightFill.intensity =
       rig.headlightFillIntensity *
       (running ? 1 : 0.88) *
+      focusFillBoost *
       headlightFailureDrop;
+    this.nearFill.distance = rig.nearFillDistance * (1 + focusBeamAlpha * 0.18);
     this.nearFill.intensity =
       rig.nearFillIntensity *
       (running ? 1 : 0.9) *
+      focusNearBoost *
       headlightFailureDrop;
     (this.headlightCone.material as MeshBasicMaterial).opacity =
       0;
@@ -590,11 +626,19 @@ export class VehicleRigSystem {
     (this.headlightSideSpillRight.material as MeshBasicMaterial).opacity =
       0;
     (this.headlightGlow.material as SpriteMaterial).opacity =
-      (running ? 0.46 : 0.34) * headlightFailureDrop;
+      ((running ? 0.16 : 0.11) + focusBeamAlpha * 0.015) * headlightFailureDrop;
     (this.focusHeadlightGlow.material as SpriteMaterial).opacity =
-      0.18 * focusBeamAlpha * headlightFailureDrop;
-    this.headlightGlow.scale.setScalar(0.72 + rideShake * 1.6);
-    this.focusHeadlightGlow.scale.setScalar(0.98 + focusBeamAlpha * 0.42 + rideShake * 1.8);
+      0.075 * focusBeamAlpha * headlightFailureDrop;
+    this.headlightGlow.scale.set(
+      0.58 + rideShake * 0.95,
+      0.42 + rideShake * 0.72,
+      1,
+    );
+    this.focusHeadlightGlow.scale.set(
+      0.76 + focusBeamAlpha * 0.12 + rideShake * 1.05,
+      0.56 + focusBeamAlpha * 0.1 + rideShake * 0.84,
+      1,
+    );
 
     const shakeNoiseA = Math.sin(this.time * 42.0);
     const shakeNoiseB = Math.cos(this.time * 37.0);
@@ -616,6 +660,23 @@ export class VehicleRigSystem {
       shakeNoiseC * totalShake * 0.1,
       shakeNoiseA * totalShake * 0.2,
     );
+    if (this.perspectiveCamera) {
+      const throttleZoom = MathUtils.clamp(
+        Math.max(
+          ride?.floorItMode ? ride.driveBoostStrength : 0,
+          Math.max(0, ((ride?.speedMultiplier ?? 1) - 1) / 0.26),
+        ),
+        0,
+        1,
+      );
+      const brakeZoom = MathUtils.clamp(ride?.brakeMode ? ride.driveBrakeStrength : 0, 0, 1);
+      const targetFov = this.baseFov - throttleZoom * 2.35 + brakeZoom * 2.1;
+      this.currentFov = approach(this.currentFov, targetFov, deltaTime * 9.5);
+      if (Math.abs(this.perspectiveCamera.fov - this.currentFov) > 0.01) {
+        this.perspectiveCamera.fov = this.currentFov;
+        this.perspectiveCamera.updateProjectionMatrix();
+      }
+    }
   }
 
   destroy(): void {
@@ -834,22 +895,52 @@ export class VehicleRigSystem {
     }
 
     context.clearRect(0, 0, canvas.width, canvas.height);
-    const gradient = context.createRadialGradient(
-      canvas.width * 0.5,
-      canvas.height * 0.5,
-      6,
-      canvas.width * 0.5,
-      canvas.height * 0.5,
-      canvas.width * 0.5,
-    );
-    gradient.addColorStop(0, 'rgba(255,255,255,1)');
-    gradient.addColorStop(0.18, 'rgba(255,255,255,0.96)');
-    gradient.addColorStop(0.52, 'rgba(255,255,255,0.28)');
-    gradient.addColorStop(1, 'rgba(255,255,255,0)');
-    context.fillStyle = gradient;
+    context.save();
+    context.translate(canvas.width * 0.5, canvas.height * 0.54);
+    context.scale(1.18, 0.74);
+    const outerGlow = context.createRadialGradient(0, 0, 10, 0, 0, 88);
+    outerGlow.addColorStop(0, 'rgba(255,245,225,0.26)');
+    outerGlow.addColorStop(0.26, 'rgba(255,245,225,0.18)');
+    outerGlow.addColorStop(0.72, 'rgba(255,245,225,0.05)');
+    outerGlow.addColorStop(1, 'rgba(255,245,225,0)');
+    context.fillStyle = outerGlow;
     context.beginPath();
-    context.arc(canvas.width * 0.5, canvas.height * 0.5, canvas.width * 0.5, 0, Math.PI * 2);
+    context.arc(0, 0, 88, 0, Math.PI * 2);
     context.fill();
+    context.restore();
+
+    context.save();
+    context.translate(canvas.width * 0.5, canvas.height * 0.52);
+    context.scale(0.82, 0.46);
+    const coreGlow = context.createRadialGradient(0, 0, 0, 0, 0, 60);
+    coreGlow.addColorStop(0, 'rgba(255,255,255,0.38)');
+    coreGlow.addColorStop(0.22, 'rgba(255,249,236,0.24)');
+    coreGlow.addColorStop(0.6, 'rgba(255,249,236,0.06)');
+    coreGlow.addColorStop(1, 'rgba(255,249,236,0)');
+    context.fillStyle = coreGlow;
+    context.beginPath();
+    context.arc(0, 0, 60, 0, Math.PI * 2);
+    context.fill();
+    context.restore();
+
+    const streak = context.createLinearGradient(
+      canvas.width * 0.18,
+      canvas.height * 0.48,
+      canvas.width * 0.82,
+      canvas.height * 0.6,
+    );
+    streak.addColorStop(0, 'rgba(255,248,232,0)');
+    streak.addColorStop(0.22, 'rgba(255,248,232,0.035)');
+    streak.addColorStop(0.5, 'rgba(255,252,244,0.06)');
+    streak.addColorStop(0.78, 'rgba(255,248,232,0.035)');
+    streak.addColorStop(1, 'rgba(255,248,232,0)');
+    context.fillStyle = streak;
+    context.fillRect(
+      canvas.width * 0.12,
+      canvas.height * 0.42,
+      canvas.width * 0.76,
+      canvas.height * 0.22,
+    );
 
     const texture = new CanvasTexture(canvas);
     texture.needsUpdate = true;

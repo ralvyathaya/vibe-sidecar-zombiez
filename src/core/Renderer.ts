@@ -1,8 +1,10 @@
 import {
   AdditiveBlending,
   ACESFilmicToneMapping,
+  BufferGeometry,
   Color,
   DirectionalLight,
+  Float32BufferAttribute,
   Fog,
   Group,
   HemisphereLight,
@@ -10,12 +12,18 @@ import {
   MeshBasicMaterial,
   PCFSoftShadowMap,
   PerspectiveCamera,
+  Points,
+  PointsMaterial,
   Scene,
   SRGBColorSpace,
   SphereGeometry,
   WebGLRenderer,
 } from 'three';
-import type { GameConfig, RunEventType, RunSegment } from './types';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { SpeedShaderPass } from './post/SpeedShaderPass';
+import type { GameConfig, RideState, RunEventType, RunSegment } from './types';
 import { lerp } from './utils';
 
 export class RendererSystem {
@@ -30,6 +38,12 @@ export class RendererSystem {
   private currentFogNear = 0;
   private currentFogFar = 0;
   private currentExposure = 0;
+  private readonly composer: EffectComposer;
+  private readonly speedPass: SpeedShaderPass;
+  private readonly outputPass: OutputPass;
+  private speedEffectTime = 0;
+  private speedEffectSpeed = 0;
+  private speedEffectIntensity = 0;
 
   constructor(
     private readonly mount: HTMLElement,
@@ -66,14 +80,33 @@ export class RendererSystem {
     this.mount.appendChild(this.renderer.domElement);
     this.addLighting();
     this.addSun();
+    this.addStars();
     this.addClouds();
+    const renderPass = new RenderPass(this.scene, this.camera);
+    this.speedPass = new SpeedShaderPass({
+      // Edge-only streaks: center stays readable, corners carry most of the sprint punch.
+      edgeStart: 0.77,
+      edgeStrength: 0.78,
+      lineDensity: 132,
+      lineLength: 28,
+      lineSoftness: 0.2,
+    });
+    this.speedPass.setCenter(0.5, 0.5);
+    this.composer = new EffectComposer(this.renderer);
+    this.composer.addPass(renderPass);
+    this.composer.addPass(this.speedPass);
+    // Keep tone mapping and output color conversion active even when post-processing
+    // is in the chain, otherwise the night scene can look flatter/darker as soon as
+    // the sprint composer path is involved.
+    this.outputPass = new OutputPass();
+    this.composer.addPass(this.outputPass);
     this.resize = this.resize.bind(this);
     window.addEventListener('resize', this.resize);
     this.resize();
   }
 
   render(): void {
-    this.renderer.render(this.scene, this.camera);
+    this.composer.render();
   }
 
   destroy(): void {
@@ -106,15 +139,37 @@ export class RendererSystem {
     this.renderer.toneMappingExposure = this.currentExposure;
   }
 
+  updateSpeedEffect(deltaTime: number, ride: RideState | null): void {
+    this.speedEffectTime += deltaTime;
+    const targetSpeed = ride
+      ? Math.min(
+          1,
+          Math.max(
+            0,
+            (ride.speedMultiplier - 1) / 0.24,
+            (ride.floorItMode ? ride.driveBoostStrength * 0.9 : 0),
+          ),
+        )
+      : 0;
+    const targetIntensity = targetSpeed <= 0.02 ? 0 : Math.min(1, targetSpeed * 1.08);
+    const smoothing = Math.min(1, deltaTime * 7.5);
+    this.speedEffectSpeed = lerp(this.speedEffectSpeed, targetSpeed, smoothing);
+    this.speedEffectIntensity = lerp(this.speedEffectIntensity, targetIntensity, smoothing * 0.86);
+    this.speedPass.setTime(this.speedEffectTime);
+    this.speedPass.setSpeed(this.speedEffectSpeed);
+    this.speedPass.setIntensity(this.speedEffectIntensity);
+    this.speedPass.enabled = this.speedEffectIntensity > 0.008 || targetIntensity > 0.008;
+  }
+
   private addLighting(): void {
-    const skyLight = new HemisphereLight(0xbfd7ff, 0x111111, 0.22);
+    const skyLight = new HemisphereLight(0xc9ddff, 0x1a1d22, 0.28);
     this.scene.add(skyLight);
 
-    const moonLight = new DirectionalLight(0x8aa0c8, 0.12);
+    const moonLight = new DirectionalLight(0x97afd0, 0.16);
     moonLight.position.set(-8, 10, -4);
     this.scene.add(moonLight);
 
-    const fillLight = new DirectionalLight(0x2e3c52, 0.05);
+    const fillLight = new DirectionalLight(0x47566e, 0.08);
     fillLight.position.set(12, 10, 14);
     this.scene.add(fillLight);
   }
@@ -145,11 +200,43 @@ export class RendererSystem {
     this.scene.add(sunHalo, sunCore);
   }
 
+  private addStars(): void {
+    const starCount = 180;
+    const positions = new Float32Array(starCount * 3);
+
+    for (let index = 0; index < starCount; index += 1) {
+      const spreadX = (Math.random() - 0.5) * 220;
+      const spreadY = 22 + Math.random() * 34;
+      const spreadZ = -70 - Math.random() * 170;
+      positions[index * 3] = spreadX;
+      positions[index * 3 + 1] = spreadY;
+      positions[index * 3 + 2] = spreadZ;
+    }
+
+    const starGeometry = new BufferGeometry();
+    starGeometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
+
+    const stars = new Points(
+      starGeometry,
+      new PointsMaterial({
+        color: 0xe3ebff,
+        size: 0.72,
+        sizeAttenuation: true,
+        transparent: true,
+        opacity: 0.42,
+        depthWrite: false,
+        fog: false,
+      }),
+    );
+    stars.renderOrder = 1;
+    this.scene.add(stars);
+  }
+
   private addClouds(): void {
     const cloudMaterial = new MeshBasicMaterial({
-      color: 0x182330,
+      color: 0x243140,
       transparent: true,
-      opacity: 0.14,
+      opacity: 0.18,
       depthWrite: false,
       fog: false,
     });
@@ -190,6 +277,12 @@ export class RendererSystem {
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height, false);
+    this.composer.setPixelRatio(this.renderer.getPixelRatio());
+    this.composer.setSize(width, height);
+    this.speedPass.setResolution(
+      width * this.renderer.getPixelRatio(),
+      height * this.renderer.getPixelRatio(),
+    );
   }
 
   private lerpColor(startHex: number, endHex: number, t: number): number {

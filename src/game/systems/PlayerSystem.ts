@@ -52,11 +52,17 @@ export class PlayerSystem {
     const instabilityX =
       Math.sin(this.time * 37) * ride.aimShake +
       Math.cos(this.time * 18) * ride.cameraShake * 0.5 +
+      Math.sin(this.time * this.config.driver.engineTroubleWobbleFrequency * 0.9) *
+        ride.engineTroubleWobble *
+        0.024 +
       Math.sin(this.time * 26) * ride.potholeJolt * 0.03 +
       Math.cos(this.time * 22) * ride.barrelJolt * 0.02;
     const instabilityY =
       Math.cos(this.time * 31) * ride.aimShake * 0.82 +
       Math.sin(this.time * 15) * ride.cameraShake * 0.3 +
+      Math.cos(this.time * this.config.driver.engineTroubleWobbleFrequency * 0.74) *
+        ride.engineTroubleWobble *
+        0.014 +
       Math.sin(this.time * 36) * ride.potholeJolt * 0.026;
     const yawStep = (this.lookDelta.x + instabilityX * 420) * this.config.player.mouseSensitivity;
     const pitchStep = (this.lookDelta.y + instabilityY * 420) * this.config.player.mouseSensitivity;
@@ -178,10 +184,16 @@ export class PlayerSystem {
     const laneCutRoll = ride ? ride.laneCutJolt * 0.025 : 0;
     const potholeHop = ride ? Math.sin(this.time * 32) * ride.potholeJolt * 0.028 : 0;
     const barrelHop = ride ? Math.sin(this.time * 24) * ride.barrelJolt * 0.02 : 0;
+    const engineTroubleRoll = ride
+      ? Math.sin(this.time * this.config.driver.engineTroubleWobbleFrequency) *
+        ride.engineTroubleWobble *
+        0.018
+      : 0;
     const rideRoll = ride
       ? ride.handlingPenalty * 0.012 +
         ride.cameraShake * 0.55 +
         laneCutRoll +
+        engineTroubleRoll +
         ride.barrelJolt * 0.018
       : 0;
     const sway = leanAxis * 0.014 + rideRoll;

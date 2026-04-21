@@ -25,16 +25,13 @@ export type CrosshairStyle = 'pistol' | 'shotgun' | 'bazooka';
 export type RunSegment = 'rest' | 'chaos' | 'dark';
 export type RunEventType = 'none' | 'berserkWave' | 'slipperyRoad' | 'blackoutStretch';
 export type DriverIntentType =
-  | 'cutLeft'
-  | 'scrapeWreck'
-  | 'shakeItOff'
-  | 'forceGap'
+  | 'floorIt'
+  | 'brake'
+  | 'engineTrouble'
   | 'pickupOpportunity'
   | 'laneRequest'
   | 'laneRequestWrong'
   | 'laneRequestDenied'
-  | 'floorIt'
-  | 'brake'
   | 'lights';
 export type DriverPromptCategory = 'emergency' | 'opportunity' | 'support';
 export type DriverPromptDecision = 'approve' | 'cancel' | 'timeout';
@@ -192,6 +189,9 @@ export interface GameConfig {
     enginePlaybackRate: number;
     engineHighpassHz: number;
     engineLowpassHz: number;
+    stallAudioPath: string;
+    stallAudioVolume: number;
+    stallAudioPlaybackRate: number;
     turnVolume: number;
     turnPlaybackRate: number;
     turnLowpassHz: number;
@@ -305,24 +305,26 @@ export interface GameConfig {
     laneChangeCommitDuration: number;
     promptEffectLockout: number;
     scoreMarginToChange: number;
-    cutLeftBiasDuration: number;
-    cutLeftLaneBonus: number;
-    scrapeDuration: number;
-    scrapeSpeedMultiplier: number;
-    scrapeHandlingPenalty: number;
-    scrapeAimShake: number;
-    scrapeCameraShake: number;
-    shakeOffDuration: number;
-    shakeOffSpeedMultiplier: number;
-    shakeOffHandlingPenalty: number;
-    shakeOffAimShake: number;
-    shakeOffCameraShake: number;
-    shakeOffAssistRate: number;
-    forceGapDuration: number;
-    forceGapSpeedMultiplier: number;
-    forceGapHandlingPenalty: number;
-    forceGapAimShake: number;
-    forceGapCameraShake: number;
+    floorItDuration: number;
+    floorItSpeedMultiplier: number;
+    floorItAimShake: number;
+    floorItCameraShake: number;
+    floorItOpportunityBonus: number;
+    floorItPickupDistance: number;
+    brakeDuration: number;
+    brakeSpeedMultiplier: number;
+    brakeStabilityBonus: number;
+    brakeAimShake: number;
+    brakeCameraShake: number;
+    brakeHazardDistance: number;
+    engineTroubleDuration: number;
+    engineTroubleForcedDuration: number;
+    engineTroubleSpeedMultiplier: number;
+    engineTroubleAimShake: number;
+    engineTroubleCameraShake: number;
+    engineTroubleWobbleAmplitude: number;
+    engineTroubleWobbleFrequency: number;
+    engineTroubleFailureThreshold: number;
     cautiousHoldDuration: number;
     supportCueDuration: number;
     supportCueCooldown: number;
@@ -587,6 +589,7 @@ export interface GameConfig {
     };
   };
   pickups: {
+    supportUnlockTimeSeconds: number;
     unlockTimeSeconds: number;
     bazookaUnlockTimeSeconds: number;
     poolSize: number;
@@ -612,6 +615,7 @@ export interface GameConfig {
     supportPickupSpacingMin: number;
     supportPickupSpacingMax: number;
     supportPickupChance: number;
+    medkitEarliestSeconds: number;
     medkitHeal: number;
     medkitLowHealthBias: number;
     adrenalineDuration: number;
@@ -799,9 +803,10 @@ export interface RideState {
   activeEvent: RunEventType;
   eventTimer: number;
   eventDuration: number;
-  scrapeMode: boolean;
-  shakeOffMode: boolean;
-  forceGapMode: boolean;
+  floorItMode: boolean;
+  brakeMode: boolean;
+  engineTroubleMode: boolean;
+  engineTroubleWobble: number;
   laneCutJolt: number;
   potholeJolt: number;
   barrelJolt: number;

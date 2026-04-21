@@ -41,6 +41,7 @@ export class Game {
   private readonly uiSystem: UISystem;
   private readonly gameLoop: GameLoop;
   private readonly engineLoop: LoopingSound;
+  private readonly stallSound: SoundEffectPool;
   private readonly playerPosition = new Vector3();
   private readonly playerForward = new Vector3();
 
@@ -100,6 +101,12 @@ export class Game {
       driveEnterSmoothing: 0.08,
       driveReleaseSmoothing: 0.18,
     });
+    this.stallSound = new SoundEffectPool(GAME_CONFIG.vehicle.stallAudioPath, {
+      poolSize: 1,
+      volume: GAME_CONFIG.vehicle.stallAudioVolume,
+      playbackRate: GAME_CONFIG.vehicle.stallAudioPlaybackRate,
+    });
+    this.stallSound.prime();
     this.gameLoop = new GameLoop(
       (deltaTime) => this.update(deltaTime),
       () => this.rendererSystem.render(),
@@ -143,6 +150,7 @@ export class Game {
     this.worldSystem.destroy();
     this.pickupSystem.destroy();
     this.engineLoop.destroy();
+    this.stallSound.destroy();
     this.rendererSystem.destroy();
   }
 
@@ -216,6 +224,7 @@ export class Game {
         simulationDelta,
         this.playerSystem.getPosition(this.playerPosition),
         preWorldRide.forwardSpeed,
+        this.spawnSystem.activeEvent,
         (zombie) => this.handleEnemyContact(zombie),
       );
       this.updateLatchState(simulationDelta);
@@ -231,6 +240,9 @@ export class Game {
 
       if (this.latchWasActive && !this.enemySystem.hasLatchedRunner()) {
         this.spawnSystem.notifyLatchResolved();
+        this.roadAimShake = Math.min(this.roadAimShake, 0.01);
+        this.roadCameraShake = Math.min(this.roadCameraShake, 0.01);
+        this.roughRoadJolt = 0;
       }
       if (!this.enemySystem.hasLatchedRunner()) {
         this.driverSystem.clearLatchAssist();
@@ -273,11 +285,6 @@ export class Game {
           continue;
         }
 
-        if (pickupEvent.type === 'adrenaline') {
-          this.playerSystem.grantAdrenaline(GAME_CONFIG.pickups.adrenalineDuration);
-          continue;
-        }
-
         if (pickupEvent.type === 'nitroCan') {
           this.playerSystem.grantNitro(GAME_CONFIG.pickups.nitroDuration);
         }
@@ -296,12 +303,19 @@ export class Game {
       );
       const finalRide = this.composeRideState(baseRide, finalLaneThreats);
       this.frameRideState = finalRide;
+      if (!this.lastRideState?.engineTroubleMode && finalRide.engineTroubleMode) {
+        this.stallSound.play(
+          GAME_CONFIG.vehicle.stallAudioVolume,
+          GAME_CONFIG.vehicle.stallAudioPlaybackRate,
+        );
+      }
       this.lastRideState = finalRide;
       this.rendererSystem.updateAtmosphere(
         simulationDelta,
         'dark',
         finalRide.activeEvent,
       );
+      this.rendererSystem.updateSpeedEffect(simulationDelta, finalRide);
       this.vehicleRigSystem.update(
         simulationDelta,
         this.playerSystem.getPosition(this.playerPosition),
@@ -331,6 +345,7 @@ export class Game {
         ),
       );
       this.rendererSystem.updateAtmosphere(deltaTime, 'dark', idleRide.activeEvent);
+      this.rendererSystem.updateSpeedEffect(deltaTime, null);
       this.playerSystem.updateIdle(deltaTime);
       this.vehicleRigSystem.update(
         deltaTime,
@@ -382,14 +397,6 @@ export class Game {
   }
 
   private handleEnemyContact(zombie: ActiveZombie): void {
-    if (this.frameRideState?.scrapeMode && zombie.config.canBeRammed) {
-      const kill = this.enemySystem.damage(zombie, zombie.health, zombie.group.position.clone());
-      if (kill) {
-        this.playerSystem.state.score += kill.baseScore;
-      }
-      return;
-    }
-
     if (zombie.type === 'runner' && this.enemySystem.tryLatchRunner(zombie)) {
       this.latchEscapeProgress = 0;
       return;
@@ -409,9 +416,7 @@ export class Game {
     const wiggleMultiplier = this.playerSystem.hasAdrenaline()
       ? GAME_CONFIG.ride.adrenalineWiggleMultiplier
       : 1;
-    const wiggleGain =
-      this.inputSystem.consumeWigglePulse() * wiggleMultiplier +
-      (this.frameRideState?.shakeOffMode ? deltaTime * GAME_CONFIG.driver.shakeOffAssistRate : 0);
+    const wiggleGain = this.inputSystem.consumeWigglePulse() * wiggleMultiplier;
     this.latchEscapeProgress = clamp(
       this.latchEscapeProgress + wiggleGain,
       0,
@@ -459,32 +464,24 @@ export class Game {
 
   private applyDriverResolution(resolution: DriverPromptResolution): void {
     if (
-      resolution.intent === 'scrapeWreck' &&
+      resolution.intent === 'floorIt' &&
       resolution.effectiveDecision === 'approve'
     ) {
-      const impact = this.worldSystem.scrapeNearestObstacle(
-        resolution.targetLaneIndex ?? this.playerSystem.state.laneIndex,
-      );
-      if (impact) {
-        this.applyWorldImpact(impact);
-      }
+      this.laneCutJolt = Math.max(this.laneCutJolt, 0.45);
       return;
     }
 
     if (
-      resolution.intent === 'shakeItOff' &&
-      resolution.effectiveDecision === 'approve'
+      resolution.intent === 'engineTrouble' &&
+      resolution.effectiveDecision === 'cancel'
     ) {
-      this.latchEscapeProgress = Math.max(
-        this.latchEscapeProgress,
-        GAME_CONFIG.ride.latchWiggleRequired * 0.32,
-      );
-      this.roughRoadJolt = Math.max(this.roughRoadJolt, 0.7);
+      this.roadAimShake = Math.max(this.roadAimShake, 0.018);
+      this.roadCameraShake = Math.max(this.roadCameraShake, 0.024);
       return;
     }
 
     if (
-      (resolution.intent === 'cutLeft' || resolution.intent === 'pickupOpportunity') &&
+      resolution.intent === 'pickupOpportunity' &&
       resolution.effectiveDecision === 'approve'
     ) {
       this.laneCutJolt = Math.max(this.laneCutJolt, 1);

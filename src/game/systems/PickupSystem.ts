@@ -27,7 +27,6 @@ type PickupRecord = ActivePickup & {
   bazookaVariant: Group;
   ammoCrateVariant: Group;
   medkitVariant: Group;
-  adrenalineVariant: Group;
   nitroVariant: Group;
   glow: Mesh;
   beacon: Mesh;
@@ -79,6 +78,10 @@ export class PickupSystem {
   ): PickupEvent[] {
     const events: PickupEvent[] = [];
     const scrollDistance = forwardSpeed * deltaTime;
+    const devWeapons = this.config.debug.developmentWeapons;
+    const weaponUnlocked = devWeapons || elapsedSeconds >= this.config.pickups.unlockTimeSeconds;
+    const supportUnlocked =
+      devWeapons || elapsedSeconds >= this.config.pickups.supportUnlockTimeSeconds;
 
     for (const pickup of this.pickups) {
       if (!pickup.active) {
@@ -121,8 +124,7 @@ export class PickupSystem {
       }
     }
 
-    const devWeapons = this.config.debug.developmentWeapons;
-    if (!devWeapons && elapsedSeconds < this.config.pickups.unlockTimeSeconds) {
+    if (!weaponUnlocked && !supportUnlocked) {
       return events;
     }
 
@@ -131,7 +133,7 @@ export class PickupSystem {
     if (
       bazookaUnlocked &&
       !this.scriptedBazookaSpawned &&
-      elapsedSeconds >= 40 &&
+      elapsedSeconds >= this.config.pickups.bazookaUnlockTimeSeconds &&
       loadout.bazookaAmmo <= 0 &&
       !this.hasActiveKind('bazooka')
     ) {
@@ -141,9 +143,9 @@ export class PickupSystem {
         this.scriptedBazookaSpawned = true;
       }
     }
-    const desiredWeaponCount = bazookaUnlocked ? 3 : loadout.shotgunUnlocked ? 2 : 1;
-    const desiredSupportCount =
-      elapsedSeconds >= this.config.pickups.unlockTimeSeconds ? 2 : 0;
+    const desiredWeaponCount =
+      weaponUnlocked ? (bazookaUnlocked ? 3 : loadout.shotgunUnlocked ? 2 : 1) : 0;
+    const desiredSupportCount = supportUnlocked ? 2 : 0;
     const desiredActiveCount = desiredWeaponCount + desiredSupportCount;
     while (this.getActiveCount() < desiredActiveCount) {
       const slot = this.pickups.find((entry) => !entry.active);
@@ -226,7 +228,6 @@ export class PickupSystem {
       const bazookaVariant = new Group();
       const ammoCrateVariant = this.createAmmoCrateVariant();
       const medkitVariant = this.createMedkitVariant();
-      const adrenalineVariant = this.createAdrenalineVariant();
       const nitroVariant = this.createNitroVariant();
       const glow = new Mesh(
         new SphereGeometry(0.55, 10, 10),
@@ -257,7 +258,6 @@ export class PickupSystem {
         bazookaVariant,
         ammoCrateVariant,
         medkitVariant,
-        adrenalineVariant,
         nitroVariant,
       );
       this.root.add(mesh);
@@ -278,7 +278,6 @@ export class PickupSystem {
         bazookaVariant,
         ammoCrateVariant,
         medkitVariant,
-        adrenalineVariant,
         nitroVariant,
         glow,
         beacon,
@@ -304,27 +303,29 @@ export class PickupSystem {
     if (forcedKind) {
       kind = forcedKind;
     } else {
-    const canSpawnSupport =
-      elapsedSeconds >= this.config.pickups.unlockTimeSeconds &&
-      activeSupportCount < 2 &&
-      Math.random() < this.config.pickups.supportPickupChance;
-    if (canSpawnSupport) {
-      kind = this.pickSupportPickup(player, elapsedSeconds);
-    } else if (!loadout.shotgunUnlocked || elapsedSeconds < 28) {
-      kind = 'shotgun';
-    } else if (
-      bazookaUnlocked &&
-      elapsedSeconds >= 45 &&
-      elapsedSeconds <= 70 &&
-      loadout.bazookaAmmo <= 0 &&
-      Math.random() < this.config.pickups.bazookaSpawnChance * 1.2
-    ) {
-      kind = 'bazooka';
-    } else if (loadout.shotgunUnlocked && Math.random() < this.config.pickups.ammoCrateChance) {
-      kind = 'shotgunAmmo';
-    } else {
-      kind = 'shotgun';
-    }
+      const supportCandidates = this.buildSupportPickupCandidates(loadout, player, elapsedSeconds);
+      const canSpawnSupport =
+        elapsedSeconds >= this.config.pickups.supportUnlockTimeSeconds &&
+        activeSupportCount < 2 &&
+        Math.random() < this.config.pickups.supportPickupChance &&
+        supportCandidates.some((candidate) => candidate.weight > 0.001);
+      if (canSpawnSupport) {
+        kind = this.pickSupportPickup(loadout, player, elapsedSeconds, supportCandidates);
+      } else if (!loadout.shotgunUnlocked || elapsedSeconds < this.config.pickups.unlockTimeSeconds) {
+        kind = 'shotgun';
+      } else if (
+        bazookaUnlocked &&
+        elapsedSeconds >= this.config.pickups.bazookaUnlockTimeSeconds &&
+        elapsedSeconds <= 70 &&
+        loadout.bazookaAmmo <= 0 &&
+        Math.random() < this.config.pickups.bazookaSpawnChance * 1.2
+      ) {
+        kind = 'bazooka';
+      } else if (loadout.shotgunUnlocked && Math.random() < this.config.pickups.ammoCrateChance) {
+        kind = 'shotgunAmmo';
+      } else {
+        kind = 'shotgun';
+      }
     }
 
     pickup.active = true;
@@ -344,7 +345,6 @@ export class PickupSystem {
       pickup.bazookaVariant.visible = false;
       pickup.ammoCrateVariant.visible = false;
       pickup.medkitVariant.visible = false;
-      pickup.adrenalineVariant.visible = false;
       pickup.nitroVariant.visible = false;
       (pickup.glow.material as MeshBasicMaterial).color.setHex(0xffca6e);
       (pickup.beacon.material as MeshBasicMaterial).color.setHex(0xffca6e);
@@ -363,7 +363,6 @@ export class PickupSystem {
       pickup.bazookaVariant.visible = true;
       pickup.ammoCrateVariant.visible = false;
       pickup.medkitVariant.visible = false;
-      pickup.adrenalineVariant.visible = false;
       pickup.nitroVariant.visible = false;
       (pickup.glow.material as MeshBasicMaterial).color.setHex(0xff8d5b);
       (pickup.beacon.material as MeshBasicMaterial).color.setHex(0xff8d5b);
@@ -382,29 +381,9 @@ export class PickupSystem {
       pickup.bazookaVariant.visible = false;
       pickup.ammoCrateVariant.visible = false;
       pickup.medkitVariant.visible = true;
-      pickup.adrenalineVariant.visible = false;
       pickup.nitroVariant.visible = false;
       (pickup.glow.material as MeshBasicMaterial).color.setHex(0x8dffad);
       (pickup.beacon.material as MeshBasicMaterial).color.setHex(0x8dffad);
-      this.nextSpawnZ -= randomRange(
-        this.config.pickups.supportPickupSpacingMin,
-        this.config.pickups.supportPickupSpacingMax,
-      );
-      return;
-    }
-
-    if (kind === 'adrenaline') {
-      pickup.ammo = 0;
-      pickup.width = 1.35;
-      pickup.depth = 1.25;
-      pickup.shotgunVariant.visible = false;
-      pickup.bazookaVariant.visible = false;
-      pickup.ammoCrateVariant.visible = false;
-      pickup.medkitVariant.visible = false;
-      pickup.adrenalineVariant.visible = true;
-      pickup.nitroVariant.visible = false;
-      (pickup.glow.material as MeshBasicMaterial).color.setHex(0x89f8ff);
-      (pickup.beacon.material as MeshBasicMaterial).color.setHex(0x89f8ff);
       this.nextSpawnZ -= randomRange(
         this.config.pickups.supportPickupSpacingMin,
         this.config.pickups.supportPickupSpacingMax,
@@ -420,7 +399,6 @@ export class PickupSystem {
       pickup.bazookaVariant.visible = false;
       pickup.ammoCrateVariant.visible = false;
       pickup.medkitVariant.visible = false;
-      pickup.adrenalineVariant.visible = false;
       pickup.nitroVariant.visible = true;
       (pickup.glow.material as MeshBasicMaterial).color.setHex(0xffd67a);
       (pickup.beacon.material as MeshBasicMaterial).color.setHex(0xffd67a);
@@ -441,7 +419,6 @@ export class PickupSystem {
     pickup.bazookaVariant.visible = false;
     pickup.ammoCrateVariant.visible = true;
     pickup.medkitVariant.visible = false;
-    pickup.adrenalineVariant.visible = false;
     pickup.nitroVariant.visible = false;
     (pickup.glow.material as MeshBasicMaterial).color.setHex(0x9cff8d);
     (pickup.beacon.material as MeshBasicMaterial).color.setHex(0x9cff8d);
@@ -460,7 +437,6 @@ export class PickupSystem {
     pickup.bazookaVariant.visible = pickup.kind === 'bazooka';
     pickup.ammoCrateVariant.visible = pickup.kind === 'shotgunAmmo';
     pickup.medkitVariant.visible = pickup.kind === 'medkit';
-    pickup.adrenalineVariant.visible = pickup.kind === 'adrenaline';
     pickup.nitroVariant.visible = pickup.kind === 'nitroCan';
   }
 
@@ -473,7 +449,9 @@ export class PickupSystem {
       (count, pickup) =>
         count +
         (pickup.active &&
-        (pickup.kind === 'medkit' || pickup.kind === 'adrenaline' || pickup.kind === 'nitroCan')
+        (pickup.kind === 'medkit' ||
+          pickup.kind === 'shotgunAmmo' ||
+          pickup.kind === 'nitroCan')
           ? 1
           : 0),
       0,
@@ -555,35 +533,6 @@ export class PickupSystem {
     );
     cross.position.set(0, 0.32, 0);
     group.add(cross);
-
-    return group;
-  }
-
-  private createAdrenalineVariant(): Group {
-    const group = new Group();
-    group.visible = false;
-    group.scale.setScalar(this.config.pickups.supportPickupScale);
-
-    const vial = new Mesh(
-      new CylinderGeometry(0.12, 0.12, 0.82, 12),
-      new MeshStandardMaterial({ color: 0xb9f5ff, roughness: 0.18, metalness: 0.02 }),
-    );
-    vial.position.y = 0.42;
-    group.add(vial);
-
-    const cap = new Mesh(
-      new CylinderGeometry(0.15, 0.15, 0.12, 12),
-      new MeshStandardMaterial({ color: 0x2c3e49, roughness: 0.82, metalness: 0.08 }),
-    );
-    cap.position.y = 0.84;
-    group.add(cap);
-
-    const plunger = new Mesh(
-      new BoxGeometry(0.08, 0.52, 0.08),
-      new MeshStandardMaterial({ color: 0x7e8f96, roughness: 0.7, metalness: 0.18 }),
-    );
-    plunger.position.set(0, 1.08, 0);
-    group.add(plunger);
 
     return group;
   }
@@ -820,6 +769,9 @@ export class PickupSystem {
     }
 
     if (kind === 'medkit') {
+      if (elapsedSeconds < this.config.pickups.medkitEarliestSeconds) {
+        return 0.08;
+      }
       const healthRatio = player.health / Math.max(player.maxHealth, 1);
       if (healthRatio <= 0.3) {
         return 2.45;
@@ -828,10 +780,6 @@ export class PickupSystem {
         return 1.7;
       }
       return 0.55;
-    }
-
-    if (kind === 'adrenaline') {
-      return player.adrenalineTimer > 0 ? 0.35 : 1.45;
     }
 
     if (kind === 'nitroCan') {
@@ -859,25 +807,17 @@ export class PickupSystem {
     return 0.35;
   }
 
-  private pickSupportPickup(player: PlayerState, elapsedSeconds: number): PickupType {
-    const healthRatio = player.health / Math.max(player.maxHealth, 1);
-    const medkitBias =
-      healthRatio < 0.48 ? this.config.pickups.medkitLowHealthBias : 0;
-
-    const candidates: Array<{ type: PickupType; weight: number }> = [
-      { type: 'medkit', weight: 0.32 + medkitBias },
-      { type: 'adrenaline', weight: player.adrenalineTimer > 0 ? 0.08 : 0.38 },
-      {
-        type: 'nitroCan',
-        weight:
-          elapsedSeconds < this.config.pickups.nitroEarliestSeconds
-            ? 0
-            : player.nitroTimer > 0
-              ? 0.08
-              : 0.34,
-      },
-    ];
+  private pickSupportPickup(
+    loadout: LoadoutState,
+    player: PlayerState,
+    elapsedSeconds: number,
+    presetCandidates = this.buildSupportPickupCandidates(loadout, player, elapsedSeconds),
+  ): PickupType {
+    const candidates = presetCandidates;
     const totalWeight = candidates.reduce((sum, entry) => sum + entry.weight, 0);
+    if (totalWeight <= 0.001) {
+      return 'nitroCan';
+    }
     let roll = Math.random() * totalWeight;
 
     for (const entry of candidates) {
@@ -888,5 +828,47 @@ export class PickupSystem {
     }
 
     return 'medkit';
+  }
+
+  private buildSupportPickupCandidates(
+    loadout: LoadoutState,
+    player: PlayerState,
+    elapsedSeconds: number,
+  ): Array<{ type: PickupType; weight: number }> {
+    const healthRatio = player.health / Math.max(player.maxHealth, 1);
+    const medkitBias =
+      healthRatio < 0.48 ? this.config.pickups.medkitLowHealthBias : 0;
+    const medkitWeight =
+      elapsedSeconds < this.config.pickups.medkitEarliestSeconds
+        ? 0
+        : healthRatio <= 0.34
+          ? 0.34 + medkitBias
+          : healthRatio <= 0.58
+            ? 0.16 + medkitBias * 0.45
+            : 0.05;
+    const shotgunAmmoRatio = loadout.shotgunAmmo / Math.max(this.config.shotgun.maxAmmo, 1);
+    const ammoBias = !loadout.shotgunUnlocked
+      ? 0
+      : shotgunAmmoRatio <= 0.2
+        ? 0.72
+        : shotgunAmmoRatio <= 0.45
+          ? 0.42
+          : shotgunAmmoRatio <= 0.7
+            ? 0.2
+            : 0.05;
+
+    return [
+      { type: 'medkit', weight: medkitWeight },
+      { type: 'shotgunAmmo', weight: ammoBias },
+      {
+        type: 'nitroCan',
+        weight:
+          elapsedSeconds < this.config.pickups.nitroEarliestSeconds
+            ? 0
+            : player.nitroTimer > 0
+              ? 0.08
+              : 0.34,
+      },
+    ];
   }
 }
