@@ -330,11 +330,11 @@ export class VehicleRigSystem {
     this.headlightSideSpillLeft.rotation.z = MathUtils.degToRad(6);
     this.headlightSideSpillRight.rotation.z = MathUtils.degToRad(-6);
     this.headlightCone.visible = false;
-    this.focusHeadlightCone.visible = false;
+    this.focusHeadlightCone.visible = true;
     this.headlightBeamSheet.visible = false;
-    this.focusHeadlightBeamSheet.visible = false;
+    this.focusHeadlightBeamSheet.visible = true;
     this.headlightRoadSplash.visible = false;
-    this.focusHeadlightRoadSplash.visible = false;
+    this.focusHeadlightRoadSplash.visible = true;
     this.headlightHotspot.visible = false;
     this.headlightSideSpillLeft.visible = false;
     this.headlightSideSpillRight.visible = false;
@@ -461,7 +461,7 @@ export class VehicleRigSystem {
     (this.headlightHotspot.material as MeshBasicMaterial).opacity = 0;
     (this.headlightSideSpillLeft.material as MeshBasicMaterial).opacity = 0;
     (this.headlightSideSpillRight.material as MeshBasicMaterial).opacity = 0;
-    (this.headlightGlow.material as SpriteMaterial).opacity = 0.18;
+    (this.headlightGlow.material as SpriteMaterial).opacity = 0.05;
     (this.focusHeadlightGlow.material as SpriteMaterial).opacity = 0;
     this.vehicleRig.visible = true;
   }
@@ -562,46 +562,46 @@ export class VehicleRigSystem {
       this.baseHeadlightTargetPosition.z,
     );
     const headlightFailureDrop = 1 - Math.min(0.3, (ride?.failureSeverity ?? 0) * 0.16);
-    const focusBeamAlpha =
-      (ride?.focusBeamStrength ?? 0) * (ride?.focusBeamOverheated ? 0 : 1);
+    const focusBeamAlpha = 0;
+    const focusReachAlpha = 0;
     this.headlightFillTarget.position.set(
       this.baseHeadlightFillTargetPosition.x + laneShift * 0.28,
-      this.baseHeadlightFillTargetPosition.y - rideShake * 0.05 - focusBeamAlpha * 0.04,
-      this.baseHeadlightFillTargetPosition.z - focusBeamAlpha * 5.5,
+      this.baseHeadlightFillTargetPosition.y - rideShake * 0.02,
+      this.baseHeadlightFillTargetPosition.z - focusBeamAlpha * 0.8,
     );
     this.focusHeadlightTarget.position.set(
-      this.baseFocusHeadlightTargetPosition.x + laneShift * 0.34,
-      this.baseFocusHeadlightTargetPosition.y - focusBeamAlpha * 0.08,
-      this.baseFocusHeadlightTargetPosition.z - focusBeamAlpha * 14,
+      this.baseFocusHeadlightTargetPosition.x + laneShift * 0.24,
+      this.baseFocusHeadlightTargetPosition.y - focusBeamAlpha * 0.04,
+      this.baseFocusHeadlightTargetPosition.z - focusBeamAlpha * 10,
     );
-    const focusBaseBoost = 1 + focusBeamAlpha * 0.18;
-    const focusFillBoost = 1 + focusBeamAlpha * 0.82;
-    const focusNearBoost = 1 + focusBeamAlpha * 0.58;
-    const focusSpotBoost = 1 + focusBeamAlpha * 0.52;
+    const focusBaseBoost = 1 + focusBeamAlpha * 0.04;
+    const focusFillBoost = 1 + focusBeamAlpha * 0.04;
+    const focusNearBoost = 1 + focusBeamAlpha * 0.02;
+    const focusSpotBoost = 1 + focusBeamAlpha * 0.72;
     this.headlight.intensity =
       rig.headlightIntensity *
       (running ? 1 : 0.86) *
       headlightFailureDrop *
       focusBaseBoost;
-    this.headlight.distance = rig.headlightDistance * (1 + focusBeamAlpha * 0.12);
+    this.headlight.distance = rig.headlightDistance * (1 + focusBeamAlpha * 0.02);
     this.focusHeadlight.angle = MathUtils.degToRad(
-      rig.focusHeadlightAngleDegrees + focusBeamAlpha * 2.8,
+      rig.focusHeadlightAngleDegrees + focusBeamAlpha * 0.9,
     );
-    this.focusHeadlight.penumbra = Math.min(1, rig.focusHeadlightPenumbra + focusBeamAlpha * 0.08);
-    this.focusHeadlight.distance = rig.focusHeadlightDistance * (1 + focusBeamAlpha * 0.26);
+    this.focusHeadlight.penumbra = Math.min(1, rig.focusHeadlightPenumbra + focusBeamAlpha * 0.01);
+    this.focusHeadlight.distance = rig.focusHeadlightDistance * (1 + focusBeamAlpha * 0.18);
     this.focusHeadlight.intensity =
       rig.focusHeadlightIntensity *
       focusBeamAlpha *
       focusSpotBoost *
       (running ? 1 : 0.82) *
       headlightFailureDrop;
-    this.headlightFill.distance = rig.headlightFillDistance * (1 + focusBeamAlpha * 0.34);
+    this.headlightFill.distance = rig.headlightFillDistance * (1 + focusBeamAlpha * 0.02);
     this.headlightFill.intensity =
       rig.headlightFillIntensity *
       (running ? 1 : 0.88) *
       focusFillBoost *
       headlightFailureDrop;
-    this.nearFill.distance = rig.nearFillDistance * (1 + focusBeamAlpha * 0.18);
+    this.nearFill.distance = rig.nearFillDistance * (1 + focusBeamAlpha * 0.01);
     this.nearFill.intensity =
       rig.nearFillIntensity *
       (running ? 1 : 0.9) *
@@ -610,33 +610,48 @@ export class VehicleRigSystem {
     (this.headlightCone.material as MeshBasicMaterial).opacity =
       0;
     (this.focusHeadlightCone.material as MeshBasicMaterial).opacity =
-      0;
+      (0.003 + focusReachAlpha * 0.012) * headlightFailureDrop;
     (this.headlightBeamSheet.material as MeshBasicMaterial).opacity =
       0;
     (this.focusHeadlightBeamSheet.material as MeshBasicMaterial).opacity =
-      0;
+      (0.004 + focusReachAlpha * 0.016) * headlightFailureDrop;
     (this.headlightRoadSplash.material as MeshBasicMaterial).opacity =
       0;
     (this.focusHeadlightRoadSplash.material as MeshBasicMaterial).opacity =
-      0;
+      (0.008 + focusReachAlpha * 0.045) * headlightFailureDrop;
     (this.headlightHotspot.material as MeshBasicMaterial).opacity =
-      0;
+      (running ? 0.03 : 0.018) * headlightFailureDrop;
     (this.headlightSideSpillLeft.material as MeshBasicMaterial).opacity =
-      0;
+      (running ? 0.018 : 0.012) * headlightFailureDrop;
     (this.headlightSideSpillRight.material as MeshBasicMaterial).opacity =
-      0;
+      (running ? 0.018 : 0.012) * headlightFailureDrop;
     (this.headlightGlow.material as SpriteMaterial).opacity =
-      ((running ? 0.16 : 0.11) + focusBeamAlpha * 0.015) * headlightFailureDrop;
+      ((running ? 0.045 : 0.03) + focusBeamAlpha * 0.005) * headlightFailureDrop;
     (this.focusHeadlightGlow.material as SpriteMaterial).opacity =
-      0.075 * focusBeamAlpha * headlightFailureDrop;
+      0.03 * focusBeamAlpha * headlightFailureDrop;
+    this.focusHeadlightRoadSplash.position.set(
+      0,
+      -0.12,
+      -22 - focusReachAlpha * 20,
+    );
+    this.focusHeadlightRoadSplash.scale.set(
+      0.58 + focusReachAlpha * 0.14,
+      0.68 + focusReachAlpha * 0.18,
+      1,
+    );
+    this.headlightHotspot.scale.set(
+      0.72,
+      0.64,
+      1,
+    );
     this.headlightGlow.scale.set(
-      0.58 + rideShake * 0.95,
-      0.42 + rideShake * 0.72,
+      0.36 + rideShake * 0.45,
+      0.26 + rideShake * 0.34,
       1,
     );
     this.focusHeadlightGlow.scale.set(
-      0.76 + focusBeamAlpha * 0.12 + rideShake * 1.05,
-      0.56 + focusBeamAlpha * 0.1 + rideShake * 0.84,
+      0.44 + focusBeamAlpha * 0.08 + rideShake * 0.38,
+      0.32 + focusBeamAlpha * 0.08 + rideShake * 0.28,
       1,
     );
 
