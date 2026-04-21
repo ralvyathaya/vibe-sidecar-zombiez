@@ -41,6 +41,7 @@ const LEG_GEOMETRY = new BoxGeometry(0.22, 0.9, 0.22);
 const PARTICLE_SHARD_GEOMETRY = new BoxGeometry(0.12, 0.12, 0.12);
 const ROAD_SPLAT_GEOMETRY = new CircleGeometry(1, 10);
 const HIT_FLASH_COLOR = 0x5a1405;
+const NEAR_VISIBILITY_COLOR = 0x10161d;
 
 type HumanoidAssets = {
   template: Group;
@@ -325,7 +326,7 @@ export class EnemySystem {
             this.animatePrimitiveZombie(zombie);
           }
         }
-        this.updateHitFlash(zombie, deltaTime);
+        this.updateHitFlash(zombie, deltaTime, playerPosition);
         continue;
       }
 
@@ -359,7 +360,7 @@ export class EnemySystem {
         this.animatePrimitiveZombie(zombie);
       }
 
-      this.updateHitFlash(zombie, deltaTime);
+      this.updateHitFlash(zombie, deltaTime, playerPosition);
 
       if (zombie.state === 'dying' && zombie.deathTimer <= 0) {
         this.deactivate(zombie);
@@ -754,12 +755,12 @@ export class EnemySystem {
     const rootMaterial = new MeshStandardMaterial({
       color: 0x7ea55a,
       flatShading: true,
-      roughness: 0.95,
+      roughness: 0.8,
     });
     const accentMaterial = new MeshStandardMaterial({
       color: 0x2d352f,
       flatShading: true,
-      roughness: 0.95,
+      roughness: 0.84,
     });
 
     const torso = new Mesh(TORSO_GEOMETRY, rootMaterial);
@@ -776,6 +777,15 @@ export class EnemySystem {
     const rightLegPivot = this.createLimbPivot(0.22, 0.92, 0, accentMaterial, LEG_GEOMETRY);
 
     primitiveRoot.add(leftArmPivot, rightArmPivot, leftLegPivot, rightLegPivot);
+    primitiveRoot.traverse((object) => {
+      const maybeMesh = object as Mesh;
+      if (!maybeMesh.isMesh) {
+        return;
+      }
+
+      maybeMesh.castShadow = false;
+      maybeMesh.receiveShadow = true;
+    });
     group.add(primitiveRoot);
     group.visible = false;
     group.position.z = 999;
@@ -1303,9 +1313,22 @@ export class EnemySystem {
     zombie.rightLegPivot.rotation.x = stride;
   }
 
-  private updateHitFlash(zombie: ActiveZombie, deltaTime: number): void {
+  private updateHitFlash(zombie: ActiveZombie, deltaTime: number, playerPosition: Vector3): void {
     zombie.hitFlash = Math.max(0, zombie.hitFlash - deltaTime * 6);
-    const emissiveStrength = zombie.hitFlash * (zombie.activeModelType ? 0.85 : 0.55);
+    const distanceToPlayer = zombie.group.position.distanceTo(playerPosition);
+    const nearVisibility =
+      MathUtils.clamp(1 - distanceToPlayer / 9, 0, 1) *
+      (zombie.state === 'alive' ? 0.18 : 0.08);
+    const emissiveStrength =
+      zombie.hitFlash * (zombie.activeModelType ? 0.85 : 0.55) + nearVisibility;
+
+    if (zombie.hitFlash > 0.01) {
+      this.setFlashColor(zombie.flashMaterials, HIT_FLASH_COLOR);
+    } else if (nearVisibility > 0.001) {
+      this.setFlashColor(zombie.flashMaterials, NEAR_VISIBILITY_COLOR);
+    } else {
+      this.setFlashColor(zombie.flashMaterials, 0x000000);
+    }
 
     for (const material of zombie.flashMaterials) {
       material.emissiveIntensity = emissiveStrength;
@@ -1940,13 +1963,18 @@ export class EnemySystem {
       }
 
       object.renderOrder = 6;
+      object.castShadow = false;
+      object.receiveShadow = true;
       const materials = Array.isArray(object.material)
         ? object.material
         : [object.material];
       for (const material of materials) {
         const litMaterial = material as Partial<MeshStandardMaterial>;
         if (typeof litMaterial.roughness === 'number') {
-          litMaterial.roughness = Math.max(litMaterial.roughness, 0.9);
+          litMaterial.roughness = MathUtils.clamp(litMaterial.roughness, 0.5, 0.84);
+        }
+        if (typeof litMaterial.metalness === 'number') {
+          litMaterial.metalness = Math.min(litMaterial.metalness, 0.08);
         }
       }
     });
@@ -2105,6 +2133,8 @@ export class EnemySystem {
       }
 
       object.frustumCulled = false;
+      object.castShadow = false;
+      object.receiveShadow = true;
 
       const templateMaterial =
         textureMaterials[meshIndex] ?? null;
@@ -2116,9 +2146,23 @@ export class EnemySystem {
 
       if (Array.isArray(object.material)) {
         for (const material of object.material) {
+          const litMaterial = material as Partial<MeshStandardMaterial>;
+          if (typeof litMaterial.roughness === 'number') {
+            litMaterial.roughness = MathUtils.clamp(litMaterial.roughness, 0.52, 0.84);
+          }
+          if (typeof litMaterial.metalness === 'number') {
+            litMaterial.metalness = Math.min(litMaterial.metalness, 0.06);
+          }
           this.registerFlashMaterial(material, flashMaterials);
         }
       } else {
+        const litMaterial = object.material as Partial<MeshStandardMaterial>;
+        if (typeof litMaterial.roughness === 'number') {
+          litMaterial.roughness = MathUtils.clamp(litMaterial.roughness, 0.52, 0.84);
+        }
+        if (typeof litMaterial.metalness === 'number') {
+          litMaterial.metalness = Math.min(litMaterial.metalness, 0.06);
+        }
         this.registerFlashMaterial(object.material, flashMaterials);
       }
     });
