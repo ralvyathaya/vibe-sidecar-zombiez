@@ -21,13 +21,10 @@ export class DriverSystem {
   private laneChangeTimer = 0;
   private laneChangeDurationCurrent = 0;
   private laneRescanTimer = 0;
+  private laneRequestLockout = 0;
   private nextPromptIn = 0;
   private nextOpportunityIn = 0;
   private promptLockout = 0;
-  private manualBoostTimer = 0;
-  private brakeTimer = 0;
-  private manualBrakeMeter = 1;
-  private manualBoostMeter = 1;
   private manualBrakeStrength = 0;
   private manualBoostStrength = 0;
   private focusBeamHeat = 0;
@@ -38,8 +35,6 @@ export class DriverSystem {
   private forceGapTimer = 0;
   private cautiousHoldTimer = 0;
   private cutLeftBiasTimer = 0;
-  private manualBrakeCooldown = 0;
-  private manualBoostCooldown = 0;
   private segmentIndex = 0;
   private segment: RunSegment = 'rest';
   private segmentElapsed = 0;
@@ -48,6 +43,7 @@ export class DriverSystem {
   private eventDuration = 0;
   private nitroActive = false;
   private prompt: DriverPromptState | null = null;
+  private supportCue: DriverPromptState | null = null;
   private pendingResolution: DriverPromptResolution | null = null;
   private laneThreats: LaneThreatState[] = [];
 
@@ -63,13 +59,10 @@ export class DriverSystem {
     this.laneChangeTimer = 0;
     this.laneChangeDurationCurrent = this.config.driver.laneChangeDuration;
     this.laneRescanTimer = 0;
+    this.laneRequestLockout = 0;
     this.nextPromptIn = this.rollPromptTimer();
     this.nextOpportunityIn = this.rollOpportunityTimer();
     this.promptLockout = 0;
-    this.manualBoostTimer = 0;
-    this.brakeTimer = 0;
-    this.manualBrakeMeter = 1;
-    this.manualBoostMeter = 1;
     this.manualBrakeStrength = 0;
     this.manualBoostStrength = 0;
     this.focusBeamHeat = 0;
@@ -80,12 +73,11 @@ export class DriverSystem {
     this.forceGapTimer = 0;
     this.cautiousHoldTimer = 0;
     this.cutLeftBiasTimer = 0;
-    this.manualBrakeCooldown = 0;
-    this.manualBoostCooldown = 0;
     this.segmentIndex = 0;
     this.segment = this.config.pacing.sequence[0] ?? 'rest';
     this.segmentElapsed = 0;
     this.prompt = null;
+    this.supportCue = null;
     this.pendingResolution = null;
     this.laneThreats = this.createFallbackLaneThreats();
   }
@@ -99,8 +91,6 @@ export class DriverSystem {
     eventTimer = 0,
     eventDuration = 0,
     nitroActive = false,
-    manualBrakeHeld = false,
-    manualBoostHeld = false,
     focusBeamHeld = false,
   ): RideState {
     this.laneThreats = laneThreats.length > 0 ? laneThreats : this.createFallbackLaneThreats();
@@ -112,19 +102,23 @@ export class DriverSystem {
     this.advanceSegmentIfNeeded();
 
     this.laneRescanTimer = Math.max(0, this.laneRescanTimer - deltaTime);
+    this.laneRequestLockout = Math.max(0, this.laneRequestLockout - deltaTime);
     this.promptLockout = Math.max(0, this.promptLockout - deltaTime);
-    this.manualBoostTimer = Math.max(0, this.manualBoostTimer - deltaTime);
-    this.brakeTimer = Math.max(0, this.brakeTimer - deltaTime);
     this.scrapeTimer = Math.max(0, this.scrapeTimer - deltaTime);
     this.shakeOffTimer = Math.max(0, this.shakeOffTimer - deltaTime);
     this.forceGapTimer = Math.max(0, this.forceGapTimer - deltaTime);
     this.cautiousHoldTimer = Math.max(0, this.cautiousHoldTimer - deltaTime);
     this.cutLeftBiasTimer = Math.max(0, this.cutLeftBiasTimer - deltaTime);
-    this.manualBrakeCooldown = Math.max(0, this.manualBrakeCooldown - deltaTime);
-    this.manualBoostCooldown = Math.max(0, this.manualBoostCooldown - deltaTime);
     this.nextOpportunityIn = Math.max(0, this.nextOpportunityIn - deltaTime);
-    this.updateManualDriveState(deltaTime, manualBrakeHeld, manualBoostHeld);
+    this.updateDriveState(deltaTime, failureSeverity, hasLatch, nitroActive);
     this.updateFocusBeamState(deltaTime, focusBeamHeld);
+
+    if (this.supportCue) {
+      this.supportCue.timer = Math.max(0, this.supportCue.timer - deltaTime);
+      if (this.supportCue.timer <= 0) {
+        this.supportCue = null;
+      }
+    }
 
     if (!hasLatch) {
       this.shakeOffTimer = 0;
@@ -224,16 +218,19 @@ export class DriverSystem {
       latchWiggle: 0,
       latchWiggleRatio: 0,
       manualBrakeEngaged: this.manualBrakeStrength > 0.04,
-      manualBrakeMeterRatio: this.manualBrakeMeter,
+      manualBrakeMeterRatio: this.manualBrakeStrength,
       manualBoostEngaged: this.manualBoostStrength > 0.04,
-      manualBoostMeterRatio: this.manualBoostMeter,
-      manualBrakeCooldown: this.manualBrakeCooldown,
-      manualBoostCooldown: this.manualBoostCooldown,
+      manualBoostMeterRatio: this.manualBoostStrength,
+      manualBrakeCooldown: 0,
+      manualBoostCooldown: 0,
+      driveBrakeStrength: this.manualBrakeStrength,
+      driveBoostStrength: this.manualBoostStrength,
       focusBeamActive: this.focusBeamStrength > 0.04,
       focusBeamStrength: this.focusBeamStrength,
       focusBeamHeatRatio: this.focusBeamHeat,
       focusBeamOverheated: this.focusBeamOverheated,
       prompt: this.prompt,
+      supportCue: this.supportCue,
       segment: this.segment,
       segmentElapsed: this.segmentElapsed,
       segmentDuration: this.config.pacing.durations[this.segment],
@@ -252,24 +249,94 @@ export class DriverSystem {
     };
   }
 
-  triggerBrake(): void {
-    if (this.prompt || this.manualBrakeCooldown > 0) {
+  requestLaneChange(
+    direction: -1 | 1,
+    laneThreats: LaneThreatState[],
+    failureSeverity: number,
+    hasLatch: boolean,
+  ): void {
+    if (this.prompt || this.laneRequestLockout > 0 || this.hasBlockingEffect()) {
       return;
     }
 
-    this.brakeTimer = this.config.ride.brakeDuration;
-    this.manualBoostTimer = 0;
-    this.manualBrakeCooldown = this.config.ride.inputCooldown;
-  }
+    this.laneThreats = laneThreats.length > 0 ? laneThreats : this.createFallbackLaneThreats();
+    const requestedLaneIndex = clamp(
+      this.targetLaneIndex + direction,
+      0,
+      this.config.world.laneCenters.length - 1,
+    );
 
-  triggerBoost(): void {
-    if (this.prompt || this.manualBoostCooldown > 0) {
+    if (requestedLaneIndex === this.targetLaneIndex) {
+      this.setSupportCue(
+        'laneRequestDenied',
+        direction < 0 ? "No lane left. We're pinned there." : "No lane right. Hold steady.",
+        'requested edge lane',
+      );
+      this.laneRequestLockout = this.config.driver.laneRequestCooldown;
       return;
     }
 
-    this.manualBoostTimer = this.config.ride.boostDuration;
-    this.brakeTimer = 0;
-    this.manualBoostCooldown = this.config.ride.inputCooldown;
+    const requestedLane = this.getLaneThreat(requestedLaneIndex);
+    const oppositeLaneIndex = clamp(
+      this.targetLaneIndex - direction,
+      0,
+      this.config.world.laneCenters.length - 1,
+    );
+    const oppositeLane =
+      oppositeLaneIndex !== this.targetLaneIndex
+        ? this.getLaneThreat(oppositeLaneIndex)
+        : null;
+    const requestedSafe =
+      !requestedLane.brokenLane &&
+      !this.isHardVeto(requestedLane, failureSeverity, false, hasLatch);
+    const oppositeSafe =
+      oppositeLane !== null &&
+      !oppositeLane.brokenLane &&
+      !this.isHardVeto(oppositeLane, failureSeverity, false, hasLatch);
+    const shouldMisread =
+      requestedSafe &&
+      oppositeSafe &&
+      Math.random() < this.config.driver.laneRequestMisreadChance;
+
+    if (shouldMisread && oppositeLane) {
+      this.startLaneChange(oppositeLaneIndex, this.config.driver.laneChangeCommitDuration);
+      this.setSupportCue(
+        'laneRequestWrong',
+        direction < 0 ? "Left? Sure. I'm going right." : "Right? Copy that. Cutting left.",
+        'driver misread lane request',
+      );
+      this.laneRequestLockout = this.config.driver.laneRequestCooldown;
+      return;
+    }
+
+    if (requestedSafe) {
+      this.startLaneChange(requestedLaneIndex, this.config.driver.laneChangeCommitDuration);
+      this.setSupportCue(
+        'laneRequest',
+        direction < 0 ? 'Left it is. Moving now.' : 'Right side. On it.',
+        'driver accepted lane request',
+      );
+      this.laneRequestLockout = this.config.driver.laneRequestCooldown;
+      return;
+    }
+
+    if (oppositeSafe) {
+      this.startLaneChange(oppositeLaneIndex, this.config.driver.laneChangeCommitDuration);
+      this.setSupportCue(
+        'laneRequestWrong',
+        direction < 0 ? "Left's filthy. Taking right instead." : "Right's dirty. Taking left.",
+        'driver redirected lane request',
+      );
+      this.laneRequestLockout = this.config.driver.laneRequestCooldown;
+      return;
+    }
+
+    this.setSupportCue(
+      'laneRequestDenied',
+      'No clean lane. Keep shooting.',
+      'no safe lane change available',
+    );
+    this.laneRequestLockout = this.config.driver.laneRequestCooldown;
   }
 
   resolvePrompt(decision: DriverPromptDecision): void {
@@ -797,16 +864,20 @@ export class DriverSystem {
     label: string,
     category: DriverPromptCategory,
     fallbackDecision: Extract<DriverPromptDecision, 'approve' | 'cancel'>,
-    source: 'hazard' | 'pickup' | 'latch',
+    source: 'hazard' | 'pickup' | 'latch' | 'support',
     reason: string,
     targetLaneIndex: number | null = null,
   ): DriverPromptState {
+    const duration =
+      category === 'support'
+        ? this.config.driver.supportCueDuration
+        : this.config.driver.promptDuration;
     return {
       intent,
       category,
       label,
-      timer: this.config.driver.promptDuration,
-      duration: this.config.driver.promptDuration,
+      timer: duration,
+      duration,
       targetLaneIndex,
       fallbackDecision,
       source,
@@ -858,64 +929,55 @@ export class DriverSystem {
     );
   }
 
-  private updateManualDriveState(
+  private updateDriveState(
     deltaTime: number,
-    manualBrakeHeld: boolean,
-    manualBoostHeld: boolean,
+    failureSeverity: number,
+    hasLatch: boolean,
+    nitroActive: boolean,
   ): void {
-    const exclusiveBrake = manualBrakeHeld && !manualBoostHeld;
-    const exclusiveBoost = manualBoostHeld && !manualBrakeHeld;
+    const currentLane = this.getLaneThreat(this.targetLaneIndex);
+    const blockerDistance = currentLane.blockerDistance ?? Number.POSITIVE_INFINITY;
+    const shouldBrake =
+      this.scrapeTimer > 0 ||
+      this.shakeOffTimer > 0 ||
+      (currentLane.blocker && blockerDistance < 16) ||
+      (failureSeverity >= 0.72 && currentLane.smallCount >= 2);
+    const shouldBoost =
+      !shouldBrake &&
+      !hasLatch &&
+      (
+        this.forceGapTimer > 0 ||
+        (nitroActive && !currentLane.blocker) ||
+        (this.laneChangeTimer > 0 && blockerDistance > 18) ||
+        (this.cutLeftBiasTimer > 0 && currentLane.smallCount === 0 && !currentLane.blocker)
+      );
     const response = this.config.ride.inputHoldResponse;
 
-    if (exclusiveBrake && this.manualBrakeMeter > 0.001) {
-      this.manualBrakeMeter = Math.max(
-        0,
-        this.manualBrakeMeter - deltaTime * this.config.ride.brakeMeterDrainRate,
-      );
-      this.manualBrakeStrength = approach(this.manualBrakeStrength, 1, deltaTime * response);
-    } else if (exclusiveBrake) {
-      this.manualBrakeStrength = 0;
-    } else {
-      this.manualBrakeStrength = approach(this.manualBrakeStrength, 0, deltaTime * response * 1.2);
-      this.manualBrakeMeter = Math.min(
-        1,
-        this.manualBrakeMeter + deltaTime * this.config.ride.brakeMeterRechargeRate,
-      );
-    }
+    this.manualBrakeStrength = approach(
+      this.manualBrakeStrength,
+      shouldBrake ? 1 : 0,
+      deltaTime * response * (shouldBrake ? 1 : 1.2),
+    );
+    this.manualBoostStrength = approach(
+      this.manualBoostStrength,
+      shouldBoost ? 1 : 0,
+      deltaTime * response * (shouldBoost ? 1 : 1.2),
+    );
+  }
 
-    if (exclusiveBoost && this.manualBoostMeter > 0.001) {
-      this.manualBoostMeter = Math.max(
-        0,
-        this.manualBoostMeter - deltaTime * this.config.ride.boostMeterDrainRate,
-      );
-      this.manualBoostStrength = approach(this.manualBoostStrength, 1, deltaTime * response);
-    } else if (exclusiveBoost) {
-      this.manualBoostStrength = 0;
-    } else {
-      this.manualBoostStrength = approach(this.manualBoostStrength, 0, deltaTime * response * 1.2);
-      this.manualBoostMeter = Math.min(
-        1,
-        this.manualBoostMeter + deltaTime * this.config.ride.boostMeterRechargeRate,
-      );
-    }
-
-    if (this.manualBrakeMeter <= 0.001) {
-      this.manualBrakeStrength = 0;
-    }
-    if (this.manualBoostMeter <= 0.001) {
-      this.manualBoostStrength = 0;
-    }
-
-    this.manualBrakeCooldown =
-      this.manualBrakeMeter >= 0.999
-        ? 0
-        : (1 - this.manualBrakeMeter) /
-          Math.max(this.config.ride.brakeMeterRechargeRate, 0.0001);
-    this.manualBoostCooldown =
-      this.manualBoostMeter >= 0.999
-        ? 0
-        : (1 - this.manualBoostMeter) /
-          Math.max(this.config.ride.boostMeterRechargeRate, 0.0001);
+  private setSupportCue(
+    intent: DriverIntentType,
+    label: string,
+    reason: string,
+  ): void {
+    this.supportCue = this.createPrompt(
+      intent,
+      label,
+      'support',
+      'cancel',
+      'support',
+      reason,
+    );
   }
 
   private updateFocusBeamState(deltaTime: number, focusBeamHeld: boolean): void {

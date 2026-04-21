@@ -30,6 +30,9 @@ export type DriverIntentType =
   | 'shakeItOff'
   | 'forceGap'
   | 'pickupOpportunity'
+  | 'laneRequest'
+  | 'laneRequestWrong'
+  | 'laneRequestDenied'
   | 'floorIt'
   | 'brake'
   | 'lights';
@@ -284,6 +287,9 @@ export interface GameConfig {
     promptIntervalMin: number;
     promptIntervalMax: number;
     promptDuration: number;
+    laneRequestHoldDuration: number;
+    laneRequestCooldown: number;
+    laneRequestMisreadChance: number;
     opportunityPromptCooldown: number;
     blockerVetoDistance: number;
     criticalFailureVetoSeverity: number;
@@ -777,11 +783,14 @@ export interface RideState {
   manualBoostMeterRatio: number;
   manualBrakeCooldown: number;
   manualBoostCooldown: number;
+  driveBrakeStrength: number;
+  driveBoostStrength: number;
   focusBeamActive: boolean;
   focusBeamStrength: number;
   focusBeamHeatRatio: number;
   focusBeamOverheated: boolean;
   prompt: DriverPromptState | null;
+  supportCue: DriverPromptState | null;
   segment: RunSegment;
   segmentElapsed: number;
   segmentDuration: number;

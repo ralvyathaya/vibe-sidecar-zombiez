@@ -91,6 +91,14 @@ export class Game {
       turnLowpassHz: GAME_CONFIG.vehicle.turnLowpassHz,
       turnEnterSmoothing: GAME_CONFIG.vehicle.turnEnterSmoothing,
       turnReleaseSmoothing: GAME_CONFIG.vehicle.turnReleaseSmoothing,
+      driveAccelVolume: GAME_CONFIG.vehicle.engineVolume * 1.2,
+      driveAccelPlaybackRate: GAME_CONFIG.vehicle.enginePlaybackRate * 1.08,
+      driveAccelLowpassHz: GAME_CONFIG.vehicle.engineLowpassHz * 1.12,
+      driveBrakeVolume: GAME_CONFIG.vehicle.engineVolume * 0.88,
+      driveBrakePlaybackRate: GAME_CONFIG.vehicle.enginePlaybackRate * 0.9,
+      driveBrakeLowpassHz: GAME_CONFIG.vehicle.engineLowpassHz * 0.72,
+      driveEnterSmoothing: 0.08,
+      driveReleaseSmoothing: 0.18,
     });
     this.gameLoop = new GameLoop(
       (deltaTime) => this.update(deltaTime),
@@ -142,8 +150,6 @@ export class Game {
     if (this.state === 'running') {
       const simulationDelta = this.consumeSimulationDelta(deltaTime);
       this.handleContextActions();
-      const accelerateHeld = this.inputSystem.isAccelerateHeld();
-      const brakeHeld = this.inputSystem.isBrakeHeld();
       const focusBeamHeld = this.inputSystem.isFocusBeamHeld();
       this.decayRoadFeedback(deltaTime);
 
@@ -158,17 +164,28 @@ export class Game {
         this.enemySystem.getLaneThreats(),
         pickupHints,
       );
+      const latchActive = this.enemySystem.hasLatchedRunner();
+      const laneRequestDirection = this.inputSystem.consumeLaneRequest(
+        GAME_CONFIG.driver.laneRequestHoldDuration,
+        latchActive || this.driverSystem.hasActivePrompt(),
+      );
+      if (laneRequestDirection !== 0) {
+        this.driverSystem.requestLaneChange(
+          laneRequestDirection,
+          combinedLaneThreats,
+          this.playerSystem.state.failureSeverity,
+          latchActive,
+        );
+      }
       const baseRide = this.driverSystem.update(
         simulationDelta,
         combinedLaneThreats,
-        this.enemySystem.hasLatchedRunner(),
+        latchActive,
         this.playerSystem.state.failureSeverity,
         this.spawnSystem.activeEvent,
         this.spawnSystem.getEventTimer(),
         this.spawnSystem.getEventDuration(),
         this.playerSystem.hasNitro(),
-        brakeHeld,
-        accelerateHeld,
         focusBeamHeld,
       );
       const promptResolution = this.driverSystem.consumePromptResolution();
@@ -293,6 +310,7 @@ export class Game {
         this.state,
         finalRide,
       );
+      this.engineLoop.setDriveState(finalRide.driveBoostStrength, finalRide.driveBrakeStrength);
       this.engineLoop.setTurnAmount(this.playerSystem.getEngineTurnAmount());
 
       if (!this.playerSystem.state.alive) {
@@ -310,8 +328,6 @@ export class Game {
           this.spawnSystem.getEventDuration(),
           this.playerSystem.hasNitro(),
           false,
-          false,
-          false,
         ),
       );
       this.rendererSystem.updateAtmosphere(deltaTime, 'dark', idleRide.activeEvent);
@@ -324,6 +340,7 @@ export class Game {
         this.state,
         idleRide,
       );
+      this.engineLoop.setDriveState(0, 0);
       this.engineLoop.setTurnAmount(0);
       this.weaponSystem.updateIdle(deltaTime);
       this.frameRideState = idleRide;
@@ -608,6 +625,7 @@ export class Game {
         GAME_CONFIG.vehicle.enginePlaybackRate,
       );
     } else {
+      this.engineLoop.setDriveState(0, 0);
       this.engineLoop.setTurnAmount(0);
       this.engineLoop.pause();
     }

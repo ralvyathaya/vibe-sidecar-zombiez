@@ -13,6 +13,9 @@ export class InputSystem {
   private wigglePulse = 0;
   private lastLeanTapCode = '';
   private lastLeanTapTime = 0;
+  private laneRequestDirection: -1 | 0 | 1 = 0;
+  private laneRequestStartedAt = 0;
+  private laneRequestTriggered = false;
 
   constructor(private readonly domElement: HTMLElement) {
     this.handleKeyDown = this.handleKeyDown.bind(this);
@@ -60,7 +63,7 @@ export class InputSystem {
   }
 
   getLeanAxis(): number {
-    return this.getStrafeAxis();
+    return 0;
   }
 
   isFireHeld(): boolean {
@@ -109,6 +112,37 @@ export class InputSystem {
     return pulse;
   }
 
+  consumeLaneRequest(holdDurationSeconds: number, blocked = false): -1 | 0 | 1 {
+    if (blocked) {
+      this.resetLaneRequestState();
+      return 0;
+    }
+
+    const direction = this.getStrafeAxis();
+    if (direction !== -1 && direction !== 1) {
+      this.resetLaneRequestState();
+      return 0;
+    }
+
+    const now = performance.now();
+    if (this.laneRequestDirection !== direction) {
+      this.laneRequestDirection = direction;
+      this.laneRequestStartedAt = now;
+      this.laneRequestTriggered = false;
+      return 0;
+    }
+
+    if (
+      !this.laneRequestTriggered &&
+      now - this.laneRequestStartedAt >= holdDurationSeconds * 1000
+    ) {
+      this.laneRequestTriggered = true;
+      return direction;
+    }
+
+    return 0;
+  }
+
   clearTransientInput(): void {
     this.fireHeld = false;
     this.reloadQueued = false;
@@ -116,6 +150,7 @@ export class InputSystem {
     this.actionEQueued = false;
     this.wigglePulse = 0;
     this.lookDelta.set(0, 0);
+    this.resetLaneRequestState();
   }
 
   private handleKeyDown(event: KeyboardEvent): void {
@@ -155,6 +190,12 @@ export class InputSystem {
 
   private handleKeyUp(event: KeyboardEvent): void {
     this.pressedKeys.delete(event.code);
+    if (event.code === 'KeyA' || event.code === 'KeyD') {
+      const direction = this.getStrafeAxis();
+      if (direction !== -1 && direction !== 1) {
+        this.resetLaneRequestState();
+      }
+    }
   }
 
   private handleMouseMove(event: MouseEvent): void {
@@ -189,11 +230,18 @@ export class InputSystem {
     this.actionQQueued = false;
     this.actionEQueued = false;
     this.wigglePulse = 0;
+    this.resetLaneRequestState();
   }
 
   private handleContextMenu(event: MouseEvent): void {
     if (this.pointerLocked) {
       event.preventDefault();
     }
+  }
+
+  private resetLaneRequestState(): void {
+    this.laneRequestDirection = 0;
+    this.laneRequestStartedAt = 0;
+    this.laneRequestTriggered = false;
   }
 }

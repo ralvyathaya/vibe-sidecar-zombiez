@@ -47,9 +47,6 @@ export class PlayerSystem {
   updateRunning(deltaTime: number, input: InputSystem, ride: RideState): void {
     this.time += deltaTime;
     this.updateBuffTimers(deltaTime);
-    const leanAxis = input.getLeanAxis();
-    const handlingScale = Math.max(0.45, 1 - ride.handlingPenalty);
-    const leanTarget = leanAxis * this.config.player.leanRange * handlingScale;
     this.lookDelta.copy(input.consumeLookDelta(this.lookDelta));
 
     const instabilityX =
@@ -77,7 +74,7 @@ export class PlayerSystem {
 
     this.state.leanOffset = approach(
       this.state.leanOffset,
-      leanTarget,
+      0,
       deltaTime * this.config.player.leanResponsiveness,
     );
     this.state.laneIndex = ride.laneIndex;
@@ -94,12 +91,8 @@ export class PlayerSystem {
 
     const laneVelocity = Math.abs(this.state.strafeX - this.lastWorldX) / Math.max(deltaTime, 1 / 120);
     this.lastWorldX = this.state.strafeX;
-    this.engineTurnAmount = clamp(
-      Math.max(Math.abs(leanAxis) * 0.35, laneVelocity / 18),
-      0,
-      1,
-    );
-    this.applyCameraTransform(leanAxis, ride);
+    this.engineTurnAmount = clamp(laneVelocity / 18, 0, 1);
+    this.applyCameraTransform(0, ride);
   }
 
   updateIdle(deltaTime: number): void {

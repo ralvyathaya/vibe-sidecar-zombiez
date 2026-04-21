@@ -8,6 +8,14 @@ type LoopingSoundOptions = {
   turnLowpassHz?: number;
   turnEnterSmoothing?: number;
   turnReleaseSmoothing?: number;
+  driveAccelVolume?: number;
+  driveAccelPlaybackRate?: number;
+  driveAccelLowpassHz?: number;
+  driveBrakeVolume?: number;
+  driveBrakePlaybackRate?: number;
+  driveBrakeLowpassHz?: number;
+  driveEnterSmoothing?: number;
+  driveReleaseSmoothing?: number;
 };
 
 type LoopWindow = {
@@ -25,6 +33,14 @@ export class LoopingSound {
   private readonly turnLowpassHz: number;
   private readonly turnEnterSmoothing: number;
   private readonly turnReleaseSmoothing: number;
+  private readonly driveAccelVolume: number;
+  private readonly driveAccelPlaybackRate: number;
+  private readonly driveAccelLowpassHz: number;
+  private readonly driveBrakeVolume: number;
+  private readonly driveBrakePlaybackRate: number;
+  private readonly driveBrakeLowpassHz: number;
+  private readonly driveEnterSmoothing: number;
+  private readonly driveReleaseSmoothing: number;
 
   private context: AudioContext | null = null;
   private gainNode: GainNode | null = null;
@@ -38,7 +54,10 @@ export class LoopingSound {
   private basePlaybackRate: number;
   private currentVolume: number;
   private currentPlaybackRate: number;
+  private currentLowpassTarget: number;
   private currentTurnAmount = 0;
+  private currentDriveAccel = 0;
+  private currentDriveBrake = 0;
 
   constructor(
     private readonly source: string,
@@ -53,10 +72,21 @@ export class LoopingSound {
     this.turnLowpassHz = options.turnLowpassHz ?? this.lowpassHz;
     this.turnEnterSmoothing = options.turnEnterSmoothing ?? 0.12;
     this.turnReleaseSmoothing = options.turnReleaseSmoothing ?? 0.18;
+    this.driveAccelVolume = options.driveAccelVolume ?? this.defaultVolume * 1.18;
+    this.driveAccelPlaybackRate =
+      options.driveAccelPlaybackRate ?? this.defaultPlaybackRate * 1.08;
+    this.driveAccelLowpassHz = options.driveAccelLowpassHz ?? this.lowpassHz;
+    this.driveBrakeVolume = options.driveBrakeVolume ?? this.defaultVolume * 0.9;
+    this.driveBrakePlaybackRate =
+      options.driveBrakePlaybackRate ?? this.defaultPlaybackRate * 0.9;
+    this.driveBrakeLowpassHz = options.driveBrakeLowpassHz ?? this.lowpassHz;
+    this.driveEnterSmoothing = options.driveEnterSmoothing ?? 0.1;
+    this.driveReleaseSmoothing = options.driveReleaseSmoothing ?? 0.16;
     this.baseVolume = this.defaultVolume;
     this.basePlaybackRate = this.defaultPlaybackRate;
     this.currentVolume = this.defaultVolume;
     this.currentPlaybackRate = this.defaultPlaybackRate;
+    this.currentLowpassTarget = this.lowpassHz;
   }
 
   play(
@@ -66,12 +96,7 @@ export class LoopingSound {
     this.desiredPlaying = true;
     this.baseVolume = volume;
     this.basePlaybackRate = playbackRate;
-    this.currentVolume = this.lerp(this.baseVolume, this.turnVolume, this.currentTurnAmount);
-    this.currentPlaybackRate = this.lerp(
-      this.basePlaybackRate,
-      this.turnPlaybackRate,
-      this.currentTurnAmount,
-    );
+    this.recomputeTargets();
     void this.ensurePlaying();
   }
 
@@ -83,12 +108,28 @@ export class LoopingSound {
         : this.turnReleaseSmoothing;
 
     this.currentTurnAmount = clampedTurnAmount;
-    this.currentVolume = this.lerp(this.baseVolume, this.turnVolume, clampedTurnAmount);
-    this.currentPlaybackRate = this.lerp(
-      this.basePlaybackRate,
-      this.turnPlaybackRate,
-      clampedTurnAmount,
-    );
+    this.recomputeTargets();
+
+    if (!this.context) {
+      return;
+    }
+
+    this.applyTargets(smoothing);
+  }
+
+  setDriveState(accelAmount: number, brakeAmount: number): void {
+    const clampedAccelAmount = Math.max(0, Math.min(1, accelAmount));
+    const clampedBrakeAmount = Math.max(0, Math.min(1, brakeAmount));
+    const nextInfluence = Math.max(clampedAccelAmount, clampedBrakeAmount);
+    const currentInfluence = Math.max(this.currentDriveAccel, this.currentDriveBrake);
+    const smoothing =
+      nextInfluence > currentInfluence
+        ? this.driveEnterSmoothing
+        : this.driveReleaseSmoothing;
+
+    this.currentDriveAccel = clampedAccelAmount;
+    this.currentDriveBrake = clampedBrakeAmount;
+    this.recomputeTargets();
 
     if (!this.context) {
       return;
@@ -100,8 +141,9 @@ export class LoopingSound {
   pause(): void {
     this.desiredPlaying = false;
     this.currentTurnAmount = 0;
-    this.currentVolume = this.baseVolume;
-    this.currentPlaybackRate = this.basePlaybackRate;
+    this.currentDriveAccel = 0;
+    this.currentDriveBrake = 0;
+    this.recomputeTargets();
     if (!this.context) {
       return;
     }
@@ -283,14 +325,37 @@ export class LoopingSound {
     this.sourceNode?.playbackRate.setTargetAtTime(this.currentPlaybackRate, now, smoothing);
 
     if (this.lowpassNode) {
-      const lowpassTarget = this.lerp(
-        this.lowpassHz,
-        this.turnLowpassHz,
-        this.currentTurnAmount,
-      );
       this.lowpassNode.frequency.cancelScheduledValues(now);
-      this.lowpassNode.frequency.setTargetAtTime(lowpassTarget, now, smoothing);
+      this.lowpassNode.frequency.setTargetAtTime(this.currentLowpassTarget, now, smoothing);
     }
+  }
+
+  private recomputeTargets(): void {
+    this.currentVolume = Math.max(
+      0,
+      this.baseVolume +
+        (this.turnVolume - this.baseVolume) * this.currentTurnAmount +
+        (this.driveAccelVolume - this.baseVolume) * this.currentDriveAccel +
+        (this.driveBrakeVolume - this.baseVolume) * this.currentDriveBrake,
+    );
+    this.currentPlaybackRate = Math.max(
+      0.01,
+      this.basePlaybackRate +
+        (this.turnPlaybackRate - this.basePlaybackRate) * this.currentTurnAmount +
+        (this.driveAccelPlaybackRate - this.basePlaybackRate) * this.currentDriveAccel +
+        (this.driveBrakePlaybackRate - this.basePlaybackRate) * this.currentDriveBrake,
+    );
+
+    if (this.lowpassHz <= 0) {
+      this.currentLowpassTarget = 0;
+      return;
+    }
+
+    let lowpassTarget = this.lowpassHz;
+    lowpassTarget = this.lerp(lowpassTarget, this.turnLowpassHz, this.currentTurnAmount);
+    lowpassTarget = this.lerp(lowpassTarget, this.driveAccelLowpassHz, this.currentDriveAccel);
+    lowpassTarget = this.lerp(lowpassTarget, this.driveBrakeLowpassHz, this.currentDriveBrake);
+    this.currentLowpassTarget = lowpassTarget;
   }
 
   private lerp(start: number, end: number, amount: number): number {

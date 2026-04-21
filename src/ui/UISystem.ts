@@ -344,7 +344,6 @@ export class UISystem {
     this.root.append(
       hud,
       this.controlHint,
-      this.drivePanel,
       this.driverPanel,
       this.latchWarning,
       this.rewardCallout,
@@ -369,7 +368,7 @@ export class UISystem {
         this.overlay.hidden = false;
         this.overlayTitle.textContent = 'Dead Rush Sidecar';
         this.overlayText.textContent =
-          'Ride shotgun in the apocalypse. Mouse aim, click to fire, A/D to lean or wiggle free, W/S for short accel-brake, Q/E to answer your reckless driver.';
+          'Ride shotgun in the apocalypse. Mouse aim, click to fire, hold A or D to ask for a lane shift, tap A/D to wiggle free from a latch, and answer driver prompts with Q/E.';
         this.overlayButton.textContent = 'Click To Start';
         break;
       case 'paused':
@@ -486,7 +485,9 @@ export class UISystem {
     this.controlHint.textContent =
       snapshot.ride?.prompt
         ? 'Q Cancel  |  E Approve'
-        : 'Hold W Accel  |  Hold S Brake  |  Hold F Focus';
+        : snapshot.ride?.latchActive
+          ? 'Shoot Low  |  Tap A/D Wiggle  |  Hold F Focus'
+          : 'Hold A / D Ask Lane  |  Hold F Focus';
     this.controlHint.dataset.alert = snapshot.ride?.prompt ? 'true' : 'false';
     const boostState = this.resolveDriveMeterState(
       snapshot.ride?.manualBoostEngaged ?? false,
@@ -747,6 +748,34 @@ export class UISystem {
         timerRatio: prompt.duration > 0 ? prompt.timer / prompt.duration : 0,
         showControls: true,
         controlsLabel: 'Q cancel   E approve',
+        persistSeconds: 0.12,
+      };
+    }
+
+    const supportCue = snapshot.ride?.supportCue;
+    if (supportCue) {
+      const mood =
+        supportCue.intent === 'laneRequestWrong'
+          ? 'panic'
+          : supportCue.intent === 'laneRequestDenied'
+            ? 'observing'
+            : 'calm';
+      const speaker =
+        supportCue.intent === 'laneRequestWrong'
+          ? 'Driver  Improvising'
+          : supportCue.intent === 'laneRequestDenied'
+            ? 'Driver  Holding'
+            : 'Driver  Answering';
+      return {
+        key: `support:${supportCue.intent}:${supportCue.label}`,
+        mood,
+        label: supportCue.label,
+        speaker,
+        intent: supportCue.intent,
+        showTimer: false,
+        timerRatio: supportCue.duration > 0 ? supportCue.timer / supportCue.duration : 0,
+        showControls: false,
+        controlsLabel: '',
         persistSeconds: 0.12,
       };
     }
