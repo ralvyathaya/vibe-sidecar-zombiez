@@ -1,4 +1,6 @@
 import type { GameConfig, RewardEvent, RewardState } from '../../core/types';
+import { randomRange } from '../../core/utils';
+import { SoundEffectPool } from '../audio/SoundEffectPool';
 
 const STORAGE_KEYS = {
   bestScore: 'dead-rush-high-score',
@@ -8,6 +10,7 @@ const STORAGE_KEYS = {
 
 export class RewardSystem {
   private readonly state: RewardState;
+  private readonly rewardSound: SoundEffectPool;
   private readonly recentKillTimes: number[] = [];
   private elapsedSeconds = 0;
   private nextFixedMilestoneIndex = 0;
@@ -16,7 +19,17 @@ export class RewardSystem {
 
   constructor(private readonly config: GameConfig) {
     this.state = this.createInitialState();
+    this.rewardSound = new SoundEffectPool(this.config.rewards.audio.rewardPath, {
+      poolSize: 4,
+      volume: this.config.rewards.audio.rewardVolume,
+      playbackRate: 1,
+    });
+    this.rewardSound.prime();
     this.resetRun();
+  }
+
+  destroy(): void {
+    this.rewardSound.destroy();
   }
 
   resetRun(): void {
@@ -69,6 +82,7 @@ export class RewardSystem {
       return 0;
     }
 
+    const startingMultiplier = this.state.multiplier;
     const eventTime = this.elapsedSeconds;
     const previousDoubleCount = this.countRecentKills(
       this.config.rewards.doubleKillWindow,
@@ -81,6 +95,7 @@ export class RewardSystem {
 
     let awardedScore = 0;
     let dangerBonus = 0;
+    let cueLevel: 'none' | 'minor' | 'major' | 'peak' = 'none';
 
     for (const event of events) {
       this.extendChain();
@@ -121,14 +136,17 @@ export class RewardSystem {
       awardedScore += this.config.rewards.bonuses.multiKill;
       this.state.comboBonusTotal += this.config.rewards.bonuses.multiKill;
       callout = `MULTI KILL +${this.config.rewards.bonuses.multiKill}`;
+      cueLevel = 'peak';
     } else if (currentTripleCount >= 3 && previousTripleCount < 3) {
       awardedScore += this.config.rewards.bonuses.tripleKill;
       this.state.comboBonusTotal += this.config.rewards.bonuses.tripleKill;
       callout = `TRIPLE KILL +${this.config.rewards.bonuses.tripleKill}`;
+      cueLevel = 'major';
     } else if (currentDoubleCount >= 2 && previousDoubleCount < 2) {
       awardedScore += this.config.rewards.bonuses.doubleKill;
       this.state.comboBonusTotal += this.config.rewards.bonuses.doubleKill;
       callout = `DOUBLE KILL +${this.config.rewards.bonuses.doubleKill}`;
+      cueLevel = 'major';
     }
 
     const explosiveKillCount = events.filter((event) => event.wasExplosive).length;
@@ -140,14 +158,26 @@ export class RewardSystem {
       if (!callout) {
         callout = `EXPLOSIVE BONUS +${explosiveBonus}`;
       }
+      cueLevel = this.promoteCue(cueLevel, explosiveKillCount >= 3 ? 'major' : 'minor');
     }
 
     if (!callout && dangerBonus > 0) {
       callout = `DANGER KILL +${dangerBonus}`;
     }
 
+    if (this.state.multiplier > startingMultiplier) {
+      cueLevel = this.promoteCue(
+        cueLevel,
+        this.state.multiplier >= 2 ? 'major' : 'minor',
+      );
+    }
+
     if (callout) {
       this.setCallout(callout, this.config.rewards.calloutDuration);
+    }
+
+    if (cueLevel !== 'none') {
+      this.playRewardCue(cueLevel);
     }
 
     return awardedScore;
@@ -197,6 +227,7 @@ export class RewardSystem {
       this.state.milestoneBonusTotal += milestoneValue;
       awardedScore += milestoneValue;
       this.setCallout(`${milestoneTime}s SURVIVED +${milestoneValue}`);
+      this.playRewardCue('milestone');
     }
 
     while (elapsedSeconds >= this.nextRepeatingMilestoneTime) {
@@ -205,6 +236,7 @@ export class RewardSystem {
       this.setCallout(
         `${this.nextRepeatingMilestoneTime}s SURVIVED +${this.config.rewards.repeatingMilestoneValue}`,
       );
+      this.playRewardCue('milestone');
       this.nextRepeatingMilestoneTime += this.config.rewards.repeatingMilestoneEvery;
     }
 
@@ -261,6 +293,38 @@ export class RewardSystem {
   private setCallout(text: string, duration = this.config.rewards.calloutDuration): void {
     this.state.recentCallout = text;
     this.state.recentCalloutTimer = duration;
+  }
+
+  private promoteCue(
+    current: 'none' | 'minor' | 'major' | 'peak',
+    next: 'minor' | 'major' | 'peak',
+  ): 'minor' | 'major' | 'peak' {
+    const order = { none: 0, minor: 1, major: 2, peak: 3 } as const;
+    if (current === 'none') {
+      return next;
+    }
+    return order[next] > order[current] ? next : current;
+  }
+
+  private playRewardCue(kind: 'minor' | 'major' | 'peak' | 'milestone'): void {
+    let volume = this.config.rewards.audio.rewardVolume;
+    let playbackRate = 1;
+
+    if (kind === 'minor') {
+      volume *= 0.9;
+      playbackRate = randomRange(0.94, 0.99);
+    } else if (kind === 'major') {
+      volume *= 1.08;
+      playbackRate = randomRange(1.01, 1.08);
+    } else if (kind === 'peak') {
+      volume *= 1.22;
+      playbackRate = randomRange(1.08, 1.16);
+    } else {
+      volume *= 0.98;
+      playbackRate = randomRange(0.9, 0.97);
+    }
+
+    this.rewardSound.play(volume, playbackRate);
   }
 
   private createInitialState(): RewardState {

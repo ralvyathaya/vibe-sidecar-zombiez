@@ -621,6 +621,10 @@ export interface GameConfig {
     adrenalineDuration: number;
     nitroDuration: number;
     nitroEarliestSeconds: number;
+    audio: {
+      pickupPath: string;
+      pickupVolume: number;
+    };
   };
   rewards: {
     chainDuration: number;
@@ -644,6 +648,10 @@ export interface GameConfig {
       doubleKill: number;
       tripleKill: number;
       multiKill: number;
+    };
+    audio: {
+      rewardPath: string;
+      rewardVolume: number;
     };
   };
 }

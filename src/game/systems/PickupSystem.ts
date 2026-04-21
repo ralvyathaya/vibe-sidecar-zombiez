@@ -21,6 +21,7 @@ import type {
   PlayerState,
 } from '../../core/types';
 import { randomInt, randomRange, sampleRoadCurveOffset } from '../../core/utils';
+import { SoundEffectPool } from '../audio/SoundEffectPool';
 
 type PickupRecord = ActivePickup & {
   shotgunVariant: Group;
@@ -36,6 +37,7 @@ export class PickupSystem {
   private readonly root = new Group();
   private readonly pickups: PickupRecord[] = [];
   private readonly bobVector = new Vector3();
+  private readonly pickupSound: SoundEffectPool;
 
   private shotgunTemplate: Group | null = null;
   private bazookaTemplate: Group | null = null;
@@ -49,6 +51,12 @@ export class PickupSystem {
     private readonly config: GameConfig,
   ) {
     this.root.name = 'PickupSystemRoot';
+    this.pickupSound = new SoundEffectPool(this.config.pickups.audio.pickupPath, {
+      poolSize: 4,
+      volume: this.config.pickups.audio.pickupVolume,
+      playbackRate: 1,
+    });
+    this.pickupSound.prime();
     this.scene.add(this.root);
     this.createPool();
     this.reset();
@@ -116,6 +124,7 @@ export class PickupSystem {
         pickup.width * 0.5 + this.config.player.collisionRadius;
 
       if (closeEnoughInZ && closeEnoughInX) {
+        this.playPickupCue(pickup.kind);
         events.push({
           type: pickup.kind,
           ammo: pickup.ammo,
@@ -214,6 +223,7 @@ export class PickupSystem {
 
   destroy(): void {
     this.reset();
+    this.pickupSound.destroy();
     this.root.removeFromParent();
     this.disposeObject(this.shotgunTemplate);
     this.disposeObject(this.bazookaTemplate);
@@ -752,6 +762,27 @@ export class PickupSystem {
       this.config.world.roadSurfaceY + 0.85,
       zPosition,
     );
+  }
+
+  private playPickupCue(kind: PickupType): void {
+    let volume = this.config.pickups.audio.pickupVolume;
+    let playbackRate = randomRange(0.98, 1.04);
+
+    if (kind === 'shotgun') {
+      volume *= 1.1;
+      playbackRate = randomRange(0.94, 0.99);
+    } else if (kind === 'bazooka') {
+      volume *= 1.24;
+      playbackRate = randomRange(0.88, 0.95);
+    } else if (kind === 'medkit') {
+      volume *= 0.96;
+      playbackRate = randomRange(1.02, 1.08);
+    } else if (kind === 'nitroCan') {
+      volume *= 1.08;
+      playbackRate = randomRange(0.94, 1);
+    }
+
+    this.pickupSound.play(volume, playbackRate);
   }
 
   private getPickupValue(

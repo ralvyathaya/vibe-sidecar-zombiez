@@ -149,6 +149,7 @@ export class Game {
     this.enemySystem.destroy();
     this.worldSystem.destroy();
     this.pickupSystem.destroy();
+    this.rewardSystem.destroy();
     this.engineLoop.destroy();
     this.stallSound.destroy();
     this.rendererSystem.destroy();

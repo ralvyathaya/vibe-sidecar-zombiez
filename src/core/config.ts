@@ -681,6 +681,10 @@ export const GAME_CONFIG: GameConfig = {
     adrenalineDuration: 8,
     nitroDuration: 3,
     nitroEarliestSeconds: 18,
+    audio: {
+      pickupPath: '/audio/gameplay/item-pickup.ogg',
+      pickupVolume: 0.24,
+    },
   },
   rewards: {
     chainDuration: 2.2,
@@ -709,6 +713,10 @@ export const GAME_CONFIG: GameConfig = {
       doubleKill: 25,
       tripleKill: 60,
       multiKill: 100,
+    },
+    audio: {
+      rewardPath: '/audio/gameplay/reward-industrial.ogg',
+      rewardVolume: 0.26,
     },
   },
 };
