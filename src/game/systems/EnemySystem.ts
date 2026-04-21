@@ -1931,7 +1931,16 @@ export class EnemySystem {
     try {
       const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
       const loader = new GLTFLoader();
-      const gltf = await loader.loadAsync(path);
+      const [gltf, textureGltf] = await Promise.all([
+        loader.loadAsync(path),
+        this.config.enemies.runnerModel.textureMaterialPath
+          ? loader.loadAsync(this.config.enemies.runnerModel.textureMaterialPath).catch(() => null)
+          : Promise.resolve(null),
+      ]);
+      const textureMaterials = this.collectTemplateMaterials(textureGltf?.scene ?? null);
+      if (textureMaterials.length > 0) {
+        this.applyTemplateMaterials(gltf.scene, textureMaterials);
+      }
       this.prepareLatchPresentationScene(gltf.scene);
       this.latchPresentationRoot.add(gltf.scene);
       this.latchPresentationMixer = new AnimationMixer(gltf.scene);
@@ -2165,6 +2174,27 @@ export class EnemySystem {
         }
         this.registerFlashMaterial(object.material, flashMaterials);
       }
+    });
+  }
+
+  private applyTemplateMaterials(
+    root: Object3D,
+    textureMaterials: Array<Material | Material[]>,
+  ): void {
+    let meshIndex = 0;
+
+    root.traverse((object) => {
+      if (!(object instanceof Mesh)) {
+        return;
+      }
+
+      const templateMaterial = textureMaterials[meshIndex] ?? null;
+      meshIndex += 1;
+      if (!templateMaterial) {
+        return;
+      }
+
+      object.material = this.cloneMaterialAssignment(templateMaterial);
     });
   }
 

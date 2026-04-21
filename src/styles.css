@@ -786,7 +786,7 @@ body {
 }
 
 .segment-chip {
-  display: inline-flex;
+  display: none;
   align-items: center;
   justify-content: center;
   min-height: 34px;
@@ -820,6 +820,11 @@ body {
   text-transform: uppercase;
   color: #fff0d2;
   box-shadow: 0 12px 26px rgba(0, 0, 0, 0.16);
+}
+
+.event-chip[hidden],
+.buff-panel[hidden] {
+  display: none;
 }
 
 .event-chip[data-event="berserkWave"] {

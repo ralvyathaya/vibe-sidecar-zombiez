@@ -1189,7 +1189,7 @@ export class WorldSystem {
     if (type === 'car') {
       obstacle.width = this.config.world.car.width;
       obstacle.depth = this.config.world.car.depth;
-      obstacle.damage = 18;
+      obstacle.damage = this.config.player.maxHealth;
       obstacle.handlingPenalty = 0.22;
       obstacle.aimShake = 0.03;
       obstacle.threatScore = 3.8;

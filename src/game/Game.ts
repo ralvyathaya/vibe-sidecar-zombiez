@@ -400,10 +400,6 @@ export class Game {
       0,
       GAME_CONFIG.ride.latchWiggleRequired,
     );
-    this.latchEscapeProgress = Math.max(
-      0,
-      this.latchEscapeProgress - deltaTime * GAME_CONFIG.player.wiggleDecay,
-    );
 
     if (this.latchEscapeProgress >= GAME_CONFIG.ride.latchWiggleRequired) {
       const kill = this.enemySystem.clearLatchedRunnerByWiggle();
@@ -411,7 +407,13 @@ export class Game {
       if (kill) {
         this.playerSystem.state.score += kill.baseScore;
       }
+      return;
     }
+
+    this.latchEscapeProgress = Math.max(
+      0,
+      this.latchEscapeProgress - deltaTime * GAME_CONFIG.player.wiggleDecay,
+    );
   }
 
   private decayRoadFeedback(deltaTime: number): void {

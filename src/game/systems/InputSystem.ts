@@ -146,7 +146,7 @@ export class InputSystem {
         this.lastLeanTapCode === oppositeKey &&
         now - this.lastLeanTapTime <= 280
       ) {
-        this.wigglePulse += 0.42;
+        this.wigglePulse += 0.34;
       }
       this.lastLeanTapCode = event.code;
       this.lastLeanTapTime = now;

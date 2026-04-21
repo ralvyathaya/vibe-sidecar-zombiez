@@ -300,7 +300,8 @@ export class UISystem {
 
     hudTop.append(this.rewardHud, this.radarPanel);
     this.buffPanel.append(this.adrenalineBuff, this.nitroBuff);
-    hudMiddle.append(this.segmentChip, this.eventChip, this.buffPanel, statsPanel);
+    this.segmentChip.hidden = true;
+    hudMiddle.append(this.eventChip, this.buffPanel, statsPanel);
     hudBottom.append(leftPanel, this.ammoPanel);
     hud.append(hudTop, hudMiddle, hudBottom);
 
@@ -467,8 +468,6 @@ export class UISystem {
         ? 'true'
         : 'false';
 
-    this.segmentChip.textContent = snapshot.ride ? snapshot.ride.segment.toUpperCase() : 'REST';
-    this.segmentChip.dataset.segment = snapshot.ride?.segment ?? 'rest';
     this.eventChip.hidden = !snapshot.ride || snapshot.ride.activeEvent === 'none';
     this.eventChip.textContent = this.getEventLabel(snapshot.ride?.activeEvent ?? 'none');
     this.eventChip.dataset.event = snapshot.ride?.activeEvent ?? 'none';
