@@ -805,6 +805,7 @@ export interface RideState {
   eventDuration: number;
   floorItMode: boolean;
   brakeMode: boolean;
+  nitroActive: boolean;
   engineTroubleMode: boolean;
   engineTroubleWobble: number;
   laneCutJolt: number;

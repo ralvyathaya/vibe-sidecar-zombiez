@@ -24,7 +24,7 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { SpeedShaderPass } from './post/SpeedShaderPass';
 import type { GameConfig, RideState, RunEventType, RunSegment } from './types';
-import { lerp } from './utils';
+import { approach, lerp } from './utils';
 
 export class RendererSystem {
   readonly scene = new Scene();
@@ -84,12 +84,13 @@ export class RendererSystem {
     this.addClouds();
     const renderPass = new RenderPass(this.scene, this.camera);
     this.speedPass = new SpeedShaderPass({
-      // Edge-only streaks: center stays readable, corners carry most of the sprint punch.
-      edgeStart: 0.77,
-      edgeStrength: 0.78,
-      lineDensity: 132,
-      lineLength: 28,
-      lineSoftness: 0.2,
+      // Edge-only streaks: sparse continuous lines, much calmer than the previous
+      // segmented burst look.
+      edgeStart: 0.81,
+      edgeStrength: 0.34,
+      lineDensity: 54,
+      lineLength: 18,
+      lineSoftness: 0.08,
     });
     this.speedPass.setCenter(0.5, 0.5);
     this.composer = new EffectComposer(this.renderer);
@@ -142,23 +143,31 @@ export class RendererSystem {
   updateSpeedEffect(deltaTime: number, ride: RideState | null): void {
     this.speedEffectTime += deltaTime;
     const targetSpeed = ride
-      ? Math.min(
-          1,
-          Math.max(
-            0,
-            (ride.speedMultiplier - 1) / 0.24,
-            (ride.floorItMode ? ride.driveBoostStrength * 0.9 : 0),
-          ),
-        )
+      ? (() => {
+          const speedPressure = Math.max(0, (ride.speedMultiplier - 1.04) / 0.18);
+          const floorItBoost = ride.floorItMode
+            ? 0.18 + ride.driveBoostStrength * 0.72
+            : 0;
+          const nitroBoost = ride.nitroActive
+            ? 0.4 + Math.max(speedPressure * 0.5, 0.08)
+            : 0;
+          const brakeCut = ride.brakeMode ? ride.driveBrakeStrength * 0.46 : 0;
+          return Math.min(1, Math.max(0, speedPressure, floorItBoost, nitroBoost) - brakeCut);
+        })()
       : 0;
-    const targetIntensity = targetSpeed <= 0.02 ? 0 : Math.min(1, targetSpeed * 1.08);
-    const smoothing = Math.min(1, deltaTime * 7.5);
-    this.speedEffectSpeed = lerp(this.speedEffectSpeed, targetSpeed, smoothing);
-    this.speedEffectIntensity = lerp(this.speedEffectIntensity, targetIntensity, smoothing * 0.86);
+    const targetIntensity = targetSpeed <= 0.035 ? 0 : Math.min(1, targetSpeed * 0.72);
+    const speedRate = targetSpeed > this.speedEffectSpeed ? 6.5 : 13.5;
+    const intensityRate = targetIntensity > this.speedEffectIntensity ? 6 : 15.5;
+    this.speedEffectSpeed = approach(this.speedEffectSpeed, targetSpeed, deltaTime * speedRate);
+    this.speedEffectIntensity = approach(
+      this.speedEffectIntensity,
+      targetIntensity,
+      deltaTime * intensityRate,
+    );
     this.speedPass.setTime(this.speedEffectTime);
     this.speedPass.setSpeed(this.speedEffectSpeed);
     this.speedPass.setIntensity(this.speedEffectIntensity);
-    this.speedPass.enabled = this.speedEffectIntensity > 0.008 || targetIntensity > 0.008;
+    this.speedPass.enabled = this.speedEffectIntensity > 0.006 || targetIntensity > 0.006;
   }
 
   private addLighting(): void {

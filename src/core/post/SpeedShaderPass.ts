@@ -10,11 +10,11 @@ export interface SpeedShaderTuning {
 }
 
 const DEFAULT_TUNING: SpeedShaderTuning = {
-  edgeStart: 0.76,
-  edgeStrength: 0.72,
-  lineDensity: 126,
-  lineLength: 26,
-  lineSoftness: 0.18,
+  edgeStart: 0.81,
+  edgeStrength: 0.34,
+  lineDensity: 54,
+  lineLength: 18,
+  lineSoftness: 0.08,
 };
 
 const VERTEX_SHADER = /* glsl */ `
@@ -60,24 +60,17 @@ const FRAGMENT_SHADER = /* glsl */ `
     float angularCoord = angle01 * density + timeShift;
     float cell = floor(angularCoord);
     float local = abs(fract(angularCoord) - 0.5);
-    float seed = hash11(cell * 17.13 + floor(radius * 96.0) * 0.71);
+    float seed = hash11(cell * 17.13);
+    float keep = step(0.62, seed);
 
-    float width = mix(0.24, 0.075, min(1.0, density / 160.0));
-    float soft = max(0.004, width * (0.28 + softness * 1.35));
+    float width = mix(0.18, 0.055, min(1.0, density / 90.0));
+    float soft = max(0.003, width * (0.18 + softness * 1.05));
     float band = 1.0 - smoothstep(width, width + soft, local);
+    float reachStart = mix(0.82, 0.56, clamp(lengthScale / 28.0, 0.0, 1.0));
+    float radialMask = smoothstep(reachStart, 1.0, radius);
+    float pulse = 0.88 + 0.12 * sin(uTime * (1.6 + uSpeed * 1.8) + seed * TAU);
 
-    float travel = fract(
-      (1.0 - radius) * (lengthScale * mix(0.85, 1.5, seed)) -
-      uTime * (6.0 + uSpeed * 28.0) +
-      seed * 11.0
-    );
-    float segmentLength = mix(0.2, 0.86, edgeMask) * mix(0.82, 1.18, seed);
-    float segmentSoft = 0.035 + softness * 0.14;
-    float segment =
-      smoothstep(0.0, segmentSoft, travel) *
-      (1.0 - smoothstep(segmentLength, segmentLength + segmentSoft * 1.5, travel));
-
-    return band * segment * mix(0.55, 1.0, seed);
+    return keep * band * radialMask * edgeMask * pulse * mix(0.72, 1.0, seed);
   }
 
   void main() {
@@ -95,20 +88,19 @@ const FRAGMENT_SHADER = /* glsl */ `
     // Box distance keeps the center clean while making the outer screen band the only active region.
     float boxRadius = max(abs(centeredUv.x), abs(centeredUv.y));
     float edgeMask = smoothstep(edgeStart, 1.0, boxRadius);
-    float cornerBoost = smoothstep(0.86, 1.24, length(centeredUv));
-    float borderBoost = edgeMask * edgeMask * (1.0 + cornerBoost * 0.28);
+    float cornerBoost = smoothstep(0.88, 1.24, length(centeredUv));
+    float borderBoost = edgeMask * edgeMask * (1.0 + cornerBoost * 0.14);
 
     float density = max(8.0, lineDensity);
     float lengthScale = max(2.0, lineLength);
     float softness = clamp(lineSoftness, 0.01, 1.0);
 
-    float layerA = streakLayer(dir, radius, edgeMask, density, lengthScale, softness, 0.0);
-    float layerB = streakLayer(dir, radius, edgeMask, density * 0.72, lengthScale * 0.66, softness * 1.15, 13.0);
-    float layerC = streakLayer(dir, radius, edgeMask, density * 1.18, lengthScale * 0.44, softness * 0.9, 37.0);
-    float streaks = max(layerA, max(layerB * 0.74, layerC * 0.5));
+    float layerA = streakLayer(dir, radius, edgeMask, density, lengthScale, softness, uTime * 0.18);
+    float layerB = streakLayer(dir, radius, edgeMask, density * 0.58, lengthScale * 0.9, softness * 1.12, 9.0 - uTime * 0.1);
+    float streaks = max(layerA, layerB * 0.52);
 
-    float intensity = uIntensity * edgeStrength * borderBoost;
-    vec3 streakTint = mix(vec3(0.78, 0.8, 0.83), vec3(0.92, 0.94, 0.97), cornerBoost);
+    float intensity = uIntensity * edgeStrength * borderBoost * 0.7;
+    vec3 streakTint = mix(vec3(0.76, 0.78, 0.8), vec3(0.88, 0.9, 0.93), cornerBoost);
     vec3 color = sceneColor.rgb + streakTint * streaks * intensity;
 
     gl_FragColor = vec4(color, sceneColor.a);

@@ -38,6 +38,7 @@ export class DriverSystem {
   private segment: RunSegment = 'rest';
   private segmentElapsed = 0;
   private activeEvent: RunEventType = 'none';
+  private previousEvent: RunEventType = 'none';
   private eventTimer = 0;
   private eventDuration = 0;
   private nitroActive = false;
@@ -75,6 +76,7 @@ export class DriverSystem {
     this.segment = this.config.pacing.sequence[0] ?? 'rest';
     this.segmentElapsed = 0;
     this.activeEvent = 'none';
+    this.previousEvent = 'none';
     this.eventTimer = 0;
     this.eventDuration = 0;
     this.nitroActive = false;
@@ -99,6 +101,17 @@ export class DriverSystem {
     this.activeEvent = activeEvent;
     this.eventTimer = eventTimer;
     this.eventDuration = eventDuration;
+    if (this.activeEvent === 'berserkWave' && this.previousEvent !== 'berserkWave') {
+      // Berserk should raise pressure through enemy density, not through a long
+      // bike wobble. If we enter the event while a prior engine stumble is still
+      // running, cut it short so the shake ends quickly.
+      this.engineTroubleTimer = Math.min(
+        this.engineTroubleTimer,
+        this.config.driver.engineTroubleForcedDuration,
+      );
+      this.engineTroubleRoughness = Math.min(this.engineTroubleRoughness, 0.18);
+    }
+    this.previousEvent = this.activeEvent;
     this.nitroActive = nitroActive;
     this.segmentElapsed += deltaTime;
     this.advanceSegmentIfNeeded();
@@ -161,8 +174,9 @@ export class DriverSystem {
     const toCenter = this.resolveLaneCenter(this.laneToIndex);
     const laneCenterX = lerp(fromCenter, toCenter, laneAlpha);
     const speedMultiplier = this.getSpeedMultiplier(failureSeverity, hasLatch, nitroActive);
-    const slipperyTurnJitter =
-      this.activeEvent === 'slipperyRoad' && this.laneChangeTimer > 0 ? 0.012 : 0;
+    // Slippery road should change handling, not leave the bike visibly buzzing for
+    // several seconds. Keep the event readable through speed/handling only.
+    const slipperyTurnJitter = 0;
     const baseHandlingPenalty =
       failureSeverity * this.config.ride.failureHandlingPenalty +
       (this.floorItTimer > 0 ? 0.045 : 0) +
@@ -226,6 +240,7 @@ export class DriverSystem {
       eventDuration: this.eventDuration,
       floorItMode: this.floorItTimer > 0,
       brakeMode: this.brakeTimer > 0,
+      nitroActive: this.nitroActive,
       engineTroubleMode: this.engineTroubleTimer > 0,
       engineTroubleWobble:
         this.engineTroubleTimer > 0
@@ -448,9 +463,12 @@ export class DriverSystem {
       currentLane.bruteCount > 0 ||
       currentLane.smallCount >= 3 ||
       currentLane.brokenLane;
+    const scoreMargin =
+      this.config.driver.scoreMarginToChange +
+      (this.activeEvent === 'slipperyRoad' ? 0.7 : 0);
     const shouldChange =
       currentHasHardThreat ||
-      bestScore + this.config.driver.scoreMarginToChange < currentScore ||
+      bestScore + scoreMargin < currentScore ||
       this.canAutoPickupLane(bestLane, currentLane, failureSeverity, hasLatch);
 
     if (!shouldChange) {
@@ -517,7 +535,7 @@ export class DriverSystem {
     failureSeverity: number,
     hasLatch: boolean,
   ): LaneThreatState | null {
-    if (hasLatch) {
+    if (hasLatch || this.activeEvent === 'berserkWave') {
       return null;
     }
 
@@ -525,7 +543,6 @@ export class DriverSystem {
     const blockerDistance = currentLane.blockerDistance ?? Number.POSITIVE_INFINITY;
     const stressedEnough =
       failureSeverity >= this.config.driver.engineTroubleFailureThreshold ||
-      (this.activeEvent === 'berserkWave' && failureSeverity >= 0.22) ||
       (this.segment === 'chaos' && failureSeverity >= 0.28 && currentLane.score >= 1.1);
     const fairWindow =
       !currentLane.blocker &&

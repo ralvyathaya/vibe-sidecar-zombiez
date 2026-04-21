@@ -593,12 +593,14 @@ export class WorldSystem {
 
     for (let index = 0; index < 4; index += 1) {
       const z = -18 + index * 10 + randomRange(-2, 2);
+      const farTower = Math.random() < 0.28;
+      const midTower = Math.random() < 0.18;
       parent.add(
         this.createBackdropBillboard(
           farBaseX + side * randomRange(1.5, 4.2),
           z,
-          randomRange(7.8, 12.8),
-          randomRange(9.5, 16.5),
+          farTower ? randomRange(4.8, 8.4) : randomRange(6.4, 13.8),
+          farTower ? randomRange(18, 31) : randomRange(8.6, 17.5),
           side,
           index % 2 === 0 ? 0x4f545b : 0x5f615b,
           0.22,
@@ -608,8 +610,8 @@ export class WorldSystem {
         this.createBackdropBillboard(
           midBaseX + side * randomRange(0.8, 2.2),
           z + randomRange(-1.2, 1.2),
-          randomRange(4.4, 7.2),
-          randomRange(4.8, 8.2),
+          midTower ? randomRange(3.4, 5.4) : randomRange(4.2, 8.6),
+          midTower ? randomRange(10.5, 17.5) : randomRange(4.8, 9.8),
           side,
           index % 2 === 0 ? 0x7b6657 : 0x6a5d53,
           0.34,
@@ -640,9 +642,24 @@ export class WorldSystem {
 
   private createRuinedBuilding(x: number, z: number): Group {
     const group = new Group();
-    const width = randomRange(2.8, 5.8);
-    const height = randomRange(3.8, 8.2);
-    const depth = randomRange(2.4, 4.8);
+    const profileRoll = Math.random();
+    const isTower = profileRoll > 0.82;
+    const isWideBlock = profileRoll < 0.24;
+    const width = isTower
+      ? randomRange(2.6, 4.1)
+      : isWideBlock
+        ? randomRange(4.8, 7.8)
+        : randomRange(3.1, 5.9);
+    const height = isTower
+      ? randomRange(10.5, 18.5)
+      : isWideBlock
+        ? randomRange(4.1, 6.9)
+        : randomRange(5.4, 10.6);
+    const depth = isTower
+      ? randomRange(2.8, 4.2)
+      : isWideBlock
+        ? randomRange(3.1, 5.8)
+        : randomRange(2.6, 4.8);
     const shell = new Mesh(
       BUILDING_GEOMETRY,
       new MeshStandardMaterial({
@@ -667,7 +684,8 @@ export class WorldSystem {
     brokenTop.scale.set(width * randomRange(0.55, 0.82), randomRange(0.18, 0.36), depth * 0.94);
     group.add(brokenTop);
 
-    for (let index = 0; index < 2; index += 1) {
+    const windowStripCount = Math.max(2, Math.min(5, Math.floor(height / 3.2)));
+    for (let index = 0; index < windowStripCount; index += 1) {
       const windowStrip = new Mesh(
         WINDOW_STRIP_GEOMETRY,
         new MeshStandardMaterial({
@@ -679,11 +697,53 @@ export class WorldSystem {
       );
       windowStrip.position.set(
         0,
-        height * (0.28 + index * 0.24),
+        height * (0.22 + index * (0.62 / Math.max(1, windowStripCount - 1))),
         depth * 0.51,
       );
-      windowStrip.scale.set(width * 0.72, 0.22, 1);
+      windowStrip.scale.set(width * randomRange(0.52, 0.76), randomRange(0.14, 0.26), 1);
       group.add(windowStrip);
+    }
+
+    if (!isTower && Math.random() < 0.58) {
+      const annex = new Mesh(
+        BUILDING_GEOMETRY,
+        new MeshStandardMaterial({
+          color: randomRange(0, 1) > 0.5 ? 0x4f4944 : 0x5b544c,
+          flatShading: true,
+          roughness: 0.99,
+        }),
+      );
+      const annexWidth = width * randomRange(0.28, 0.48);
+      const annexHeight = height * randomRange(0.35, 0.62);
+      annex.position.set(
+        (width * 0.5 - annexWidth * 0.42) * (Math.random() < 0.5 ? -1 : 1),
+        annexHeight * 0.5 - 0.1,
+        randomRange(-0.16, 0.16),
+      );
+      annex.scale.set(annexWidth, annexHeight, depth * randomRange(0.82, 0.98));
+      group.add(annex);
+    }
+
+    if (isTower || Math.random() < 0.22) {
+      const rooftopSpine = new Mesh(
+        BUILDING_GEOMETRY,
+        new MeshStandardMaterial({
+          color: 0x2b2c30,
+          flatShading: true,
+          roughness: 1,
+        }),
+      );
+      rooftopSpine.position.set(
+        randomRange(-width * 0.18, width * 0.18),
+        height + randomRange(0.55, 1.8),
+        randomRange(-0.12, 0.12),
+      );
+      rooftopSpine.scale.set(
+        randomRange(0.12, 0.24),
+        isTower ? randomRange(1.1, 3.4) : randomRange(0.5, 1.4),
+        randomRange(0.12, 0.2),
+      );
+      group.add(rooftopSpine);
     }
 
     group.position.set(x, 0, z);
@@ -700,6 +760,7 @@ export class WorldSystem {
     opacity: number,
   ): Group {
     const group = new Group();
+    const isTower = height >= 17;
     const shell = new Mesh(
       BUILDING_GEOMETRY,
       new MeshStandardMaterial({
@@ -731,6 +792,52 @@ export class WorldSystem {
     );
     jaggedTop.scale.set(width * randomRange(0.42, 0.76), randomRange(0.22, 0.48), 0.12);
     group.add(jaggedTop);
+
+    if (Math.random() < (isTower ? 0.76 : 0.32)) {
+      const wing = new Mesh(
+        BUILDING_GEOMETRY,
+        new MeshStandardMaterial({
+          color: 0x30343a,
+          flatShading: true,
+          roughness: 1,
+          transparent: true,
+          opacity: opacity * 0.8,
+        }),
+      );
+      const wingWidth = width * randomRange(0.24, 0.52);
+      const wingHeight = height * randomRange(isTower ? 0.24 : 0.32, isTower ? 0.52 : 0.6);
+      wing.position.set(
+        (width * 0.5 + wingWidth * 0.2) * (Math.random() < 0.5 ? -1 : 1),
+        wingHeight * 0.5,
+        -0.01,
+      );
+      wing.scale.set(wingWidth, wingHeight, 0.11);
+      group.add(wing);
+    }
+
+    if (isTower || Math.random() < 0.24) {
+      const antenna = new Mesh(
+        BUILDING_GEOMETRY,
+        new MeshStandardMaterial({
+          color: 0x262a30,
+          flatShading: true,
+          roughness: 1,
+          transparent: true,
+          opacity: opacity * 0.92,
+        }),
+      );
+      antenna.position.set(
+        randomRange(-width * 0.18, width * 0.18),
+        height + randomRange(0.5, isTower ? 3.2 : 1.6),
+        0.02,
+      );
+      antenna.scale.set(
+        randomRange(0.08, 0.18),
+        isTower ? randomRange(1.6, 4.6) : randomRange(0.6, 1.8),
+        0.08,
+      );
+      group.add(antenna);
+    }
 
     group.position.set(x, 0, z);
     group.rotation.y = side < 0 ? Math.PI * 0.04 : -Math.PI * 0.04;

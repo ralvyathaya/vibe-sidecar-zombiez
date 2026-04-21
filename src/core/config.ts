@@ -679,7 +679,7 @@ export const GAME_CONFIG: GameConfig = {
     medkitHeal: 30,
     medkitLowHealthBias: 0.38,
     adrenalineDuration: 8,
-    nitroDuration: 6,
+    nitroDuration: 3,
     nitroEarliestSeconds: 18,
   },
   rewards: {
