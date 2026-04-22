@@ -2,7 +2,7 @@ import type { GameConfig } from './types';
 
 export const GAME_CONFIG: GameConfig = {
   debug: {
-    developmentWeapons: true,
+    developmentWeapons: false,
   },
   renderer: {
     clearColor: 0x0a0f14,
