@@ -154,8 +154,6 @@ export class WorldSystem {
     void this.loadBarrelMarkerTexture();
     void this.loadBarricadeTemplate();
     void this.loadConcreteBlockTemplate();
-    void this.loadCarTemplate();
-    void this.loadBarrelTemplate();
     this.reset();
   }
 
@@ -346,6 +344,16 @@ export class WorldSystem {
         zPosition: obstacle.mesh.position.z,
       }))
       .sort((left, right) => right.zPosition - left.zPosition);
+  }
+
+  prewarmDeferredAssets(elapsedSeconds: number): void {
+    if (elapsedSeconds >= 6 && !this.carTemplate && !this.carLoadPromise) {
+      void this.loadCarTemplate();
+    }
+
+    if (elapsedSeconds >= 10 && !this.barrelTemplate && !this.barrelLoadPromise) {
+      void this.loadBarrelTemplate();
+    }
   }
 
   findProjectileImpact(
@@ -1248,6 +1256,12 @@ export class WorldSystem {
       laneIndex = this.pickLaneIndexForType(type, spawnZ);
     }
 
+    if (type === 'car' && !this.carTemplate && !this.carLoadPromise) {
+      void this.loadCarTemplate();
+    } else if (type === 'barrel' && !this.barrelTemplate && !this.barrelLoadPromise) {
+      void this.loadBarrelTemplate();
+    }
+
     obstacle.lane = laneIndex;
     obstacle.laneLocalX =
       (this.config.world.laneCenters[laneIndex] ?? 0) +
@@ -1637,12 +1651,12 @@ export class WorldSystem {
 
   private prepareStaticTemplate(scene: Object3D): Group {
     scene.traverse((object) => {
-      object.frustumCulled = false;
       const maybeMesh = object as Mesh;
       if (!maybeMesh.isMesh) {
         return;
       }
 
+      maybeMesh.frustumCulled = true;
       maybeMesh.renderOrder = 3;
       const materials = Array.isArray(maybeMesh.material)
         ? maybeMesh.material

@@ -1,6 +1,15 @@
 export const clamp = (value: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, value));
 
+export interface RuntimePerformanceProfile {
+  touchLike: boolean;
+  lowPower: boolean;
+  maxPixelRatio: number;
+  enableVehicleShadows: boolean;
+}
+
+let cachedRuntimePerformanceProfile: RuntimePerformanceProfile | null = null;
+
 export const lerp = (start: number, end: number, t: number): number =>
   start + (end - start) * t;
 
@@ -27,3 +36,33 @@ export const sampleRoadCurveOffset = (
   amplitude: number,
 ): number =>
   Math.sin((zPosition - elapsedTime * 12) * frequency) * amplitude;
+
+export const getRuntimePerformanceProfile = (): RuntimePerformanceProfile => {
+  if (cachedRuntimePerformanceProfile) {
+    return cachedRuntimePerformanceProfile;
+  }
+
+  const coarsePointer =
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(pointer: coarse)').matches;
+  const touchPoints =
+    typeof navigator !== 'undefined' && typeof navigator.maxTouchPoints === 'number'
+      ? navigator.maxTouchPoints
+      : 0;
+  const deviceMemory =
+    typeof navigator !== 'undefined' && 'deviceMemory' in navigator
+      ? (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? null
+      : null;
+  const touchLike = coarsePointer || touchPoints > 0;
+  const lowPower = touchLike || (deviceMemory !== null && deviceMemory <= 6);
+
+  cachedRuntimePerformanceProfile = {
+    touchLike,
+    lowPower,
+    maxPixelRatio: lowPower ? 1.25 : 1.75,
+    enableVehicleShadows: !lowPower,
+  };
+
+  return cachedRuntimePerformanceProfile;
+};

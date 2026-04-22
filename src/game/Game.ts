@@ -217,6 +217,9 @@ export class Game {
       const simulationDelta = this.consumeSimulationDelta(deltaTime);
       this.handleContextActions();
       this.decayRoadFeedback(deltaTime);
+      this.enemySystem.prewarmUpcomingAssets(this.spawnSystem.elapsedSeconds);
+      this.worldSystem.prewarmDeferredAssets(this.spawnSystem.elapsedSeconds);
+      this.pickupSystem.prewarmUpcomingAssets(this.spawnSystem.elapsedSeconds);
 
       let loadout = this.weaponSystem.getLoadoutState();
       const pickupHints = this.pickupSystem.getLaneHints(
@@ -260,16 +263,6 @@ export class Game {
       const promptResolution = this.driverSystem.consumePromptResolution();
       if (promptResolution) {
         this.applyDriverResolution(promptResolution);
-        const refreshedPickupHints = this.pickupSystem.getLaneHints(
-          loadout,
-          this.playerSystem.state,
-          this.spawnSystem.elapsedSeconds,
-        );
-        combinedLaneThreats = this.combineLaneThreats(
-          this.worldSystem.getLaneThreats(),
-          this.enemySystem.getLaneThreats(),
-          refreshedPickupHints,
-        );
       }
       const preWorldRide = this.composeRideState(
         baseRide,
@@ -289,10 +282,11 @@ export class Game {
         simulationDelta,
         this.spawnSystem.elapsedSeconds,
       );
+      const playerPosition = this.playerSystem.getPosition(this.playerPosition);
 
       this.enemySystem.update(
         simulationDelta,
-        this.playerSystem.getPosition(this.playerPosition),
+        playerPosition,
         preWorldRide.forwardSpeed,
         this.spawnSystem.activeEvent,
         (zombie) => this.handleEnemyContact(zombie),
@@ -369,7 +363,7 @@ export class Game {
         this.spawnSystem.elapsedSeconds,
       );
       const finalLaneThreats = this.combineLaneThreats(
-        this.worldSystem.getLaneThreats(),
+        worldImpact.laneThreats,
         this.enemySystem.getLaneThreats(),
         finalPickupHints,
       );
@@ -389,7 +383,7 @@ export class Game {
       this.rendererSystem.updateSpeedEffect(simulationDelta, finalRide);
       this.vehicleRigSystem.update(
         simulationDelta,
-        this.playerSystem.getPosition(this.playerPosition),
+        playerPosition,
         this.playerSystem.getEngineTurnAmount(),
         this.playerSystem.state.hitFlash,
         this.state,

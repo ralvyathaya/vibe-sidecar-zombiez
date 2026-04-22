@@ -21,7 +21,7 @@ import {
   Vector3,
 } from 'three';
 import type { GameConfig, GameStateType, RideState } from '../../core/types';
-import { approach } from '../../core/utils';
+import { approach, getRuntimePerformanceProfile } from '../../core/utils';
 
 type WheelSpinAxis = 'x' | 'y' | 'z';
 
@@ -80,6 +80,7 @@ export class VehicleRigSystem {
   private readonly baseHeadlightFillTargetPosition = new Vector3();
   private readonly perspectiveCamera: PerspectiveCamera | null;
   private readonly baseFov: number;
+  private readonly runtimeProfile = getRuntimePerformanceProfile();
   private readonly wheelBindings: WheelBinding[] = [];
   private readonly wheelBounds = new Box3();
   private readonly wheelSize = new Vector3();
@@ -151,13 +152,15 @@ export class VehicleRigSystem {
     this.headlight.angle = MathUtils.degToRad(rig.headlightAngleDegrees);
     this.headlight.penumbra = rig.headlightPenumbra;
     this.headlight.decay = rig.headlightDecay;
-    this.headlight.castShadow = true;
-    this.headlight.shadow.mapSize.set(rig.headlightShadowMapSize, rig.headlightShadowMapSize);
-    this.headlight.shadow.bias = rig.headlightShadowBias;
-    this.headlight.shadow.normalBias = rig.headlightShadowNormalBias;
-    this.headlight.shadow.radius = 2;
-    this.headlight.shadow.camera.near = 0.5;
-    this.headlight.shadow.camera.far = Math.max(12, rig.headlightDistance + 6);
+    this.headlight.castShadow = this.runtimeProfile.enableVehicleShadows;
+    if (this.runtimeProfile.enableVehicleShadows) {
+      this.headlight.shadow.mapSize.set(rig.headlightShadowMapSize, rig.headlightShadowMapSize);
+      this.headlight.shadow.bias = rig.headlightShadowBias;
+      this.headlight.shadow.normalBias = rig.headlightShadowNormalBias;
+      this.headlight.shadow.radius = 2;
+      this.headlight.shadow.camera.near = 0.5;
+      this.headlight.shadow.camera.far = Math.max(12, rig.headlightDistance + 6);
+    }
     this.headlightFill.color.setHex(rig.headlightFillColor);
     this.headlightFill.intensity = rig.headlightFillIntensity;
     this.headlightFill.distance = rig.headlightFillDistance;

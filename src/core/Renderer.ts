@@ -24,23 +24,25 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { SpeedShaderPass } from './post/SpeedShaderPass';
 import type { GameConfig, RideState, RunEventType, RunSegment } from './types';
-import { approach, lerp } from './utils';
+import { approach, getRuntimePerformanceProfile, lerp } from './utils';
 
 export class RendererSystem {
   readonly scene = new Scene();
   readonly camera = new PerspectiveCamera(72, 1, 0.1, 220);
-  readonly renderer = new WebGLRenderer({
-    antialias: true,
-    powerPreference: 'high-performance',
-  });
+  readonly renderer: WebGLRenderer;
   private currentClearColor = 0;
   private currentFogColor = 0;
   private currentFogNear = 0;
   private currentFogFar = 0;
   private currentExposure = 0;
+  private readonly backgroundColor = new Color();
+  private readonly fogColor = new Color();
+  private readonly colorLerpStart = new Color();
+  private readonly colorLerpEnd = new Color();
   private readonly composer: EffectComposer;
   private readonly speedPass: SpeedShaderPass;
   private readonly outputPass: OutputPass;
+  private readonly runtimeProfile = getRuntimePerformanceProfile();
   private speedEffectTime = 0;
   private speedEffectSpeed = 0;
   private speedEffectIntensity = 0;
@@ -49,16 +51,24 @@ export class RendererSystem {
     private readonly mount: HTMLElement,
     private readonly config: GameConfig,
   ) {
-    this.scene.background = new Color(this.config.renderer.clearColor);
+    this.renderer = new WebGLRenderer({
+      antialias: !this.runtimeProfile.lowPower,
+      powerPreference: 'high-performance',
+    });
+
+    this.backgroundColor.setHex(this.config.renderer.clearColor);
+    this.fogColor.setHex(this.config.renderer.fogColor);
+    this.scene.background = this.backgroundColor;
     this.scene.fog = new Fog(
       this.config.renderer.fogColor,
       this.config.renderer.fogNear,
       this.config.renderer.fogFar,
     );
+    (this.scene.fog as Fog).color = this.fogColor;
 
     this.camera.position.set(0, this.config.player.eyeHeight, 0);
 
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.runtimeProfile.maxPixelRatio));
     this.renderer.outputColorSpace = SRGBColorSpace;
     this.renderer.toneMapping = ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = this.config.renderer.exposure;
@@ -68,7 +78,7 @@ export class RendererSystem {
     if (typeof maybePhysicalRenderer.useLegacyLights === 'boolean') {
       maybePhysicalRenderer.useLegacyLights = false;
     }
-    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.enabled = this.runtimeProfile.enableVehicleShadows;
     this.renderer.shadowMap.type = PCFSoftShadowMap;
     this.renderer.domElement.className = 'game-canvas';
     this.currentClearColor = this.config.renderer.clearColor;
@@ -107,7 +117,12 @@ export class RendererSystem {
   }
 
   render(): void {
-    this.composer.render();
+    if (this.speedPass.enabled) {
+      this.composer.render();
+      return;
+    }
+
+    this.renderer.render(this.scene, this.camera);
   }
 
   destroy(): void {
@@ -132,9 +147,9 @@ export class RendererSystem {
       smoothing,
     );
 
-    this.scene.background = new Color(this.currentClearColor);
     const fog = this.scene.fog as Fog;
-    fog.color = new Color(this.currentFogColor);
+    this.backgroundColor.setHex(this.currentClearColor);
+    this.fogColor.setHex(this.currentFogColor);
     fog.near = this.currentFogNear;
     fog.far = this.currentFogFar;
     this.renderer.toneMappingExposure = this.currentExposure;
@@ -295,9 +310,9 @@ export class RendererSystem {
   }
 
   private lerpColor(startHex: number, endHex: number, t: number): number {
-    const start = new Color(startHex);
-    const end = new Color(endHex);
-    start.lerp(end, t);
-    return start.getHex();
+    this.colorLerpStart.setHex(startHex);
+    this.colorLerpEnd.setHex(endHex);
+    this.colorLerpStart.lerp(this.colorLerpEnd, t);
+    return this.colorLerpStart.getHex();
   }
 }

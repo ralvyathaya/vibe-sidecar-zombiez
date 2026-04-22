@@ -138,6 +138,7 @@ export class EnemySystem {
   private latchedRunner: ActiveZombie | null = null;
   private latchPresentationMixer: AnimationMixer | null = null;
   private latchPresentationAction: AnimationAction | null = null;
+  private latchPresentationPromise: Promise<void> | null = null;
   private latchPresentationLoaded = false;
   private activeEvent: RunEventType = 'none';
 
@@ -187,7 +188,6 @@ export class EnemySystem {
     this.latchOccluder.renderOrder = 7;
     this.latchOccluder.visible = false;
     this.latchPresentationRoot.add(this.latchOccluder);
-    void this.loadLatchPresentation();
 
     for (let index = 0; index < this.config.enemies.poolSize; index += 1) {
       const zombie = this.createZombie(index);
@@ -220,8 +220,6 @@ export class EnemySystem {
     }
 
     void this.loadHumanoidAssets('walker');
-    void this.loadHumanoidAssets('runner');
-    void this.loadHumanoidAssets('tank');
   }
 
   reset(): void {
@@ -600,6 +598,13 @@ export class EnemySystem {
 
     this.latchedRunner = zombie;
     zombie.velocity.set(0, 0, 0);
+    if (
+      !this.latchPresentationLoaded &&
+      !this.latchPresentationPromise &&
+      this.config.enemies.runnerModel.latchPresentationPath
+    ) {
+      void this.loadLatchPresentation();
+    }
     this.attachLatchPresentation(zombie);
     this.updateLatchedRunner(zombie);
     return true;
@@ -770,6 +775,25 @@ export class EnemySystem {
 
     contacts.sort((left, right) => left.distance - right.distance);
     return contacts.slice(0, 14).map(({ distance: _distance, ...contact }) => contact);
+  }
+
+  prewarmUpcomingAssets(elapsedSeconds: number): void {
+    if (elapsedSeconds >= 6 && !this.humanoidAssets.runner && !this.humanoidAssetPromises.runner) {
+      void this.loadHumanoidAssets('runner');
+    }
+
+    if (
+      elapsedSeconds >= 8 &&
+      this.config.enemies.runnerModel.latchPresentationPath &&
+      !this.latchPresentationLoaded &&
+      !this.latchPresentationPromise
+    ) {
+      void this.loadLatchPresentation();
+    }
+
+    if (elapsedSeconds >= 30 && !this.humanoidAssets.tank && !this.humanoidAssetPromises.tank) {
+      void this.loadHumanoidAssets('tank');
+    }
   }
 
   private isHumanoidType(type: ZombieType): type is HumanoidZombieType {
@@ -2030,53 +2054,62 @@ export class EnemySystem {
 
   private async loadLatchPresentation(): Promise<void> {
     const path = this.config.enemies.runnerModel.latchPresentationPath;
-    if (!path) {
+    if (!path || this.latchPresentationLoaded) {
       return;
     }
 
-    try {
-      const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
-      const loader = new GLTFLoader();
-      const [gltf, textureGltf] = await Promise.all([
-        loader.loadAsync(path),
-        this.config.enemies.runnerModel.textureMaterialPath
-          ? loader.loadAsync(this.config.enemies.runnerModel.textureMaterialPath).catch(() => null)
-          : Promise.resolve(null),
-      ]);
-      const textureMaterials = this.collectTemplateMaterials(textureGltf?.scene ?? null);
-      if (textureMaterials.length > 0) {
-        this.applyTemplateMaterials(gltf.scene, textureMaterials);
-      }
-      this.prepareLatchPresentationScene(gltf.scene);
-      this.latchPresentationRoot.add(gltf.scene);
-      this.latchPresentationMixer = new AnimationMixer(gltf.scene);
-      const clip = gltf.animations[0] ?? null;
-      if (clip) {
-        this.latchPresentationAction = this.latchPresentationMixer.clipAction(clip);
-        this.latchPresentationAction
-          .setLoop(LoopRepeat, Infinity)
-          .setEffectiveTimeScale(1)
-          .setEffectiveWeight(1)
-          .play();
-        this.latchPresentationAction.paused = true;
-      }
-      this.latchPresentationLoaded = true;
-      if (this.latchedRunner) {
-        this.attachLatchPresentation(this.latchedRunner);
-      }
-    } catch (error) {
-      console.warn('Failed to load latched runner presentation GLB.', error);
+    if (this.latchPresentationPromise) {
+      return this.latchPresentationPromise;
     }
+
+    this.latchPresentationPromise = (async () => {
+      try {
+        const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
+        const loader = new GLTFLoader();
+        const [gltf, textureGltf] = await Promise.all([
+          loader.loadAsync(path),
+          this.config.enemies.runnerModel.textureMaterialPath
+            ? loader.loadAsync(this.config.enemies.runnerModel.textureMaterialPath).catch(() => null)
+            : Promise.resolve(null),
+        ]);
+        const textureMaterials = this.collectTemplateMaterials(textureGltf?.scene ?? null);
+        if (textureMaterials.length > 0) {
+          this.applyTemplateMaterials(gltf.scene, textureMaterials);
+        }
+        this.prepareLatchPresentationScene(gltf.scene);
+        this.latchPresentationRoot.add(gltf.scene);
+        this.latchPresentationMixer = new AnimationMixer(gltf.scene);
+        const clip = gltf.animations[0] ?? null;
+        if (clip) {
+          this.latchPresentationAction = this.latchPresentationMixer.clipAction(clip);
+          this.latchPresentationAction
+            .setLoop(LoopRepeat, Infinity)
+            .setEffectiveTimeScale(1)
+            .setEffectiveWeight(1)
+            .play();
+          this.latchPresentationAction.paused = true;
+        }
+        this.latchPresentationLoaded = true;
+        if (this.latchedRunner) {
+          this.attachLatchPresentation(this.latchedRunner);
+        }
+      } catch (error) {
+        console.warn('Failed to load latched runner presentation GLB.', error);
+      } finally {
+        this.latchPresentationPromise = null;
+      }
+    })();
+
+    return this.latchPresentationPromise;
   }
 
   private prepareLatchPresentationScene(root: Object3D): void {
     root.traverse((object) => {
-      object.frustumCulled = false;
-
       if (!(object instanceof Mesh)) {
         return;
       }
 
+      object.frustumCulled = !(object as Mesh & { isSkinnedMesh?: boolean }).isSkinnedMesh;
       object.renderOrder = 6;
       object.castShadow = false;
       object.receiveShadow = true;
@@ -2247,7 +2280,7 @@ export class EnemySystem {
         return;
       }
 
-      object.frustumCulled = false;
+      object.frustumCulled = !(object as Mesh & { isSkinnedMesh?: boolean }).isSkinnedMesh;
       object.castShadow = false;
       object.receiveShadow = true;
 

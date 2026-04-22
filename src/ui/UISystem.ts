@@ -766,30 +766,39 @@ export class UISystem {
     this.lastElapsedSeconds = snapshot.elapsedSeconds;
     this.tankWarningCooldown = Math.max(0, this.tankWarningCooldown - deltaTime);
     const healthRatio = Math.max(0, snapshot.player.health / snapshot.player.maxHealth);
-    this.healthFill.style.transform = `scaleX(${healthRatio})`;
-    this.healthValue.textContent = `${Math.ceil(snapshot.player.health)} HP`;
+    this.setTransformStyle(this.healthFill, `scaleX(${healthRatio})`);
+    this.setText(this.healthValue, `${Math.ceil(snapshot.player.health)} HP`);
     const healthHue = Math.max(4, Math.round(healthRatio * 118));
     const healthColor = `hsl(${healthHue} 82% 50%)`;
     const healthAccent = `hsl(${Math.min(healthHue + 16, 128)} 78% 62%)`;
-    this.healthFill.style.background = `linear-gradient(90deg, ${healthColor} 0%, ${healthAccent} 100%)`;
-    this.healthFill.style.boxShadow = `0 0 22px hsla(${healthHue} 90% 56% / 0.42)`;
+    this.setStyleValue(
+      this.healthFill,
+      'background',
+      `linear-gradient(90deg, ${healthColor} 0%, ${healthAccent} 100%)`,
+    );
+    this.setStyleValue(
+      this.healthFill,
+      'boxShadow',
+      `0 0 22px hsla(${healthHue} 90% 56% / 0.42)`,
+    );
 
     const ammoState = snapshot.weapon.reloading
       ? 'reloading'
       : snapshot.weapon.ammoInMagazine === 0
         ? 'empty'
         : 'ready';
-    this.ammoPanel.dataset.state = ammoState;
-    this.ammoPanel.dataset.weapon = snapshot.weapon.weaponType;
-    this.ammoValue.dataset.state = ammoState;
-    this.ammoReserve.dataset.state = ammoState;
-    this.weaponIcon.dataset.weapon = snapshot.weapon.weaponType;
-    this.weaponIcon.src = WEAPON_ART[snapshot.weapon.weaponType];
-    this.weaponName.textContent = snapshot.weapon.weaponLabel;
-    this.ammoValue.textContent = `${snapshot.weapon.ammoInMagazine}`;
-    this.ammoReserve.textContent = snapshot.weapon.reserveAmmoText;
+    this.setDataset(this.ammoPanel, 'state', ammoState);
+    this.setDataset(this.ammoPanel, 'weapon', snapshot.weapon.weaponType);
+    this.setDataset(this.ammoValue, 'state', ammoState);
+    this.setDataset(this.ammoReserve, 'state', ammoState);
+    this.setDataset(this.weaponIcon, 'weapon', snapshot.weapon.weaponType);
+    this.setImageSource(this.weaponIcon, WEAPON_ART[snapshot.weapon.weaponType]);
+    this.setText(this.weaponName, snapshot.weapon.weaponLabel);
+    this.setText(this.ammoValue, `${snapshot.weapon.ammoInMagazine}`);
+    this.setText(this.ammoReserve, snapshot.weapon.reserveAmmoText);
     this.ammoReserve.hidden = !snapshot.weapon.showReserve;
-    this.ammoPanel.style.setProperty(
+    this.setStyleProperty(
+      this.ammoPanel,
       '--ammo-columns',
       `${Math.min(6, Math.max(1, snapshot.weapon.magazineSize))}`,
     );
@@ -797,57 +806,70 @@ export class UISystem {
     for (let index = 0; index < this.ammoRounds.length; index += 1) {
       const round = this.ammoRounds[index];
       round.hidden = index >= snapshot.weapon.magazineSize;
-      round.dataset.loaded = index < snapshot.weapon.ammoInMagazine ? 'true' : 'false';
-      round.dataset.state = ammoState;
-      round.dataset.shape = snapshot.weapon.roundStyle;
+      this.setDataset(round, 'loaded', index < snapshot.weapon.ammoInMagazine ? 'true' : 'false');
+      this.setDataset(round, 'state', ammoState);
+      this.setDataset(round, 'shape', snapshot.weapon.roundStyle);
     }
 
     this.reloadHint.hidden = !snapshot.weapon.showReloadHint || this.mobileControlsEnabled;
 
-    this.scoreValue.textContent = `${snapshot.player.score}`;
-    this.multiplierValue.textContent = `Chain x${snapshot.reward.multiplier.toFixed(2)}`;
-    this.multiplierValue.dataset.active = snapshot.reward.chainCount > 1 ? 'true' : 'false';
-    this.multiplierValue.dataset.tier = this.getChainTier(snapshot.reward);
-    this.chainPanel.dataset.active = snapshot.reward.chainCount > 0 ? 'true' : 'false';
-    this.chainPanel.dataset.ready = snapshot.reward.chainCount > 0 ? 'false' : 'true';
-    this.chainPanel.dataset.tier = this.getChainTier(snapshot.reward);
-    this.chainFill.style.transform = `scaleX(${snapshot.reward.chainTimerRatio.toFixed(3)})`;
-    this.chainLabel.textContent =
+    this.setText(this.scoreValue, `${snapshot.player.score}`);
+    this.setText(this.multiplierValue, `Chain x${snapshot.reward.multiplier.toFixed(2)}`);
+    this.setDataset(this.multiplierValue, 'active', snapshot.reward.chainCount > 1 ? 'true' : 'false');
+    this.setDataset(this.multiplierValue, 'tier', this.getChainTier(snapshot.reward));
+    this.setDataset(this.chainPanel, 'active', snapshot.reward.chainCount > 0 ? 'true' : 'false');
+    this.setDataset(this.chainPanel, 'ready', snapshot.reward.chainCount > 0 ? 'false' : 'true');
+    this.setDataset(this.chainPanel, 'tier', this.getChainTier(snapshot.reward));
+    this.setTransformStyle(this.chainFill, `scaleX(${snapshot.reward.chainTimerRatio.toFixed(3)})`);
+    this.setText(
+      this.chainLabel,
       snapshot.reward.chainCount > 0
         ? `${snapshot.reward.chainCount} HIT CHAIN`
-        : 'Chain Ready';
-    this.distanceValue.textContent = formatDistance(snapshot.player.distance);
-    this.timerValue.textContent = `${snapshot.elapsedSeconds.toFixed(1)}s`;
-    this.rewardCallout.textContent = snapshot.reward.recentCallout;
-    this.rewardCallout.dataset.visible =
+        : 'Chain Ready',
+    );
+    this.setText(this.distanceValue, formatDistance(snapshot.player.distance));
+    this.setText(this.timerValue, `${snapshot.elapsedSeconds.toFixed(1)}s`);
+    this.setText(this.rewardCallout, snapshot.reward.recentCallout);
+    this.setDataset(
+      this.rewardCallout,
+      'visible',
       snapshot.reward.recentCalloutTimer > 0 && snapshot.reward.recentCallout !== ''
         ? 'true'
-        : 'false';
-    this.rewardCallout.dataset.combo =
-      /(DOUBLE|TRIPLE|MULTI) KILL/.test(snapshot.reward.recentCallout) ? 'true' : 'false';
+        : 'false',
+    );
+    this.setDataset(
+      this.rewardCallout,
+      'combo',
+      /(DOUBLE|TRIPLE|MULTI) KILL/.test(snapshot.reward.recentCallout) ? 'true' : 'false',
+    );
     this.accoladeBanner.hidden =
       snapshot.reward.activeAccoladeTimer <= 0 || snapshot.reward.activeAccolade === '';
-    this.accoladeBanner.textContent = snapshot.reward.activeAccolade;
-    this.accoladeBanner.dataset.visible =
+    this.setText(this.accoladeBanner, snapshot.reward.activeAccolade);
+    this.setDataset(
+      this.accoladeBanner,
+      'visible',
       snapshot.reward.activeAccoladeTimer > 0 && snapshot.reward.activeAccolade !== ''
         ? 'true'
-        : 'false';
-    this.accoladeBanner.dataset.tone = snapshot.reward.activeAccoladeTone;
+        : 'false',
+    );
+    this.setDataset(this.accoladeBanner, 'tone', snapshot.reward.activeAccoladeTone);
 
     const activeEvent = snapshot.ride?.activeEvent ?? 'none';
     const eventVisible = Boolean(snapshot.ride) && activeEvent !== 'none';
     this.eventChip.hidden = !eventVisible;
-    this.eventChip.textContent = this.getEventLabel(activeEvent);
-    this.eventChip.dataset.event = activeEvent;
-    this.eventChip.dataset.visible = eventVisible ? 'true' : 'false';
+    this.setText(this.eventChip, this.getEventLabel(activeEvent));
+    this.setDataset(this.eventChip, 'event', activeEvent);
+    this.setDataset(this.eventChip, 'visible', eventVisible ? 'true' : 'false');
     this.buffPanel.hidden = snapshot.player.nitroTimer <= 0;
     this.adrenalineBuff.hidden = true;
     this.nitroBuff.hidden = snapshot.player.nitroTimer <= 0;
-    this.adrenalineBuff.textContent = '';
-    this.nitroBuff.textContent =
+    this.setText(this.adrenalineBuff, '');
+    this.setText(
+      this.nitroBuff,
       snapshot.player.nitroTimer > 0
         ? `Auto Accel ${(snapshot.player.nitroTimer).toFixed(1)}s`
-        : '';
+        : '',
+    );
     const laneRequestActive =
       snapshot.gameState === 'running' && Boolean(snapshot.ride?.laneRequestActive);
     const laneRequestProgress = snapshot.ride?.laneRequestHoldRatio ?? 0;
@@ -855,18 +877,26 @@ export class UISystem {
     this.laneRequestHud.hidden = !laneRequestActive;
     this.laneRequestLeft.hidden = !laneRequestActive || laneRequestDirection !== -1;
     this.laneRequestRight.hidden = !laneRequestActive || laneRequestDirection !== 1;
-    this.laneRequestLeft.style.setProperty(
+    this.setStyleProperty(
+      this.laneRequestLeft,
       '--lane-request-progress',
       laneRequestProgress.toFixed(3),
     );
-    this.laneRequestRight.style.setProperty(
+    this.setStyleProperty(
+      this.laneRequestRight,
       '--lane-request-progress',
       laneRequestProgress.toFixed(3),
     );
-    this.laneRequestLeft.dataset.complete =
-      laneRequestProgress >= 0.999 && laneRequestDirection === -1 ? 'true' : 'false';
-    this.laneRequestRight.dataset.complete =
-      laneRequestProgress >= 0.999 && laneRequestDirection === 1 ? 'true' : 'false';
+    this.setDataset(
+      this.laneRequestLeft,
+      'complete',
+      laneRequestProgress >= 0.999 && laneRequestDirection === -1 ? 'true' : 'false',
+    );
+    this.setDataset(
+      this.laneRequestRight,
+      'complete',
+      laneRequestProgress >= 0.999 && laneRequestDirection === 1 ? 'true' : 'false',
+    );
 
     const driverPresentation = this.resolveDriverPresentation(snapshot);
     if (snapshot.gameState !== 'running') {
@@ -886,31 +916,37 @@ export class UISystem {
       driverPresentation ?? (this.driverPanelHold > 0 ? this.lastDriverPresentation : null);
     this.syncDriverDialogSound(visibleDriverPresentation, snapshot.gameState);
     this.driverPanel.hidden = snapshot.gameState !== 'running';
-    this.driverPanel.dataset.visible = visibleDriverPresentation ? 'true' : 'false';
-    this.driverPanel.dataset.mood = visibleDriverPresentation?.mood ?? 'calm';
-    this.driverPanel.dataset.prompt =
-      visibleDriverPresentation?.showControls ? 'true' : 'false';
-    this.driverPortrait.src = DRIVER_PORTRAITS[visibleDriverPresentation?.mood ?? 'calm'];
+    this.setDataset(this.driverPanel, 'visible', visibleDriverPresentation ? 'true' : 'false');
+    this.setDataset(this.driverPanel, 'mood', visibleDriverPresentation?.mood ?? 'calm');
+    this.setDataset(
+      this.driverPanel,
+      'prompt',
+      visibleDriverPresentation?.showControls ? 'true' : 'false',
+    );
+    this.setImageSource(
+      this.driverPortrait,
+      DRIVER_PORTRAITS[visibleDriverPresentation?.mood ?? 'calm'],
+    );
     this.driverPortrait.alt = `Driver ${visibleDriverPresentation?.mood ?? 'calm'}`;
     this.driverPrompt.hidden = false;
-    this.driverPrompt.dataset.intent = visibleDriverPresentation?.intent ?? 'idle';
-    this.driverPromptLabel.textContent = visibleDriverPresentation?.label ?? '';
-    this.driverPromptSpeaker.textContent = visibleDriverPresentation?.speaker ?? '';
-    this.driverPromptTimerFill.style.transform = `scaleX(${(
-      visibleDriverPresentation?.timerRatio ?? 0
-    ).toFixed(3)})`;
+    this.setDataset(this.driverPrompt, 'intent', visibleDriverPresentation?.intent ?? 'idle');
+    this.setText(this.driverPromptLabel, visibleDriverPresentation?.label ?? '');
+    this.setText(this.driverPromptSpeaker, visibleDriverPresentation?.speaker ?? '');
+    this.setTransformStyle(
+      this.driverPromptTimerFill,
+      `scaleX(${(visibleDriverPresentation?.timerRatio ?? 0).toFixed(3)})`,
+    );
     this.driverPromptTimer.hidden = !visibleDriverPresentation?.showTimer;
     this.driverPromptControls.hidden = !visibleDriverPresentation?.showControls;
-    this.driverPromptControls.textContent =
-      visibleDriverPresentation?.controlsLabel ?? '';
+    this.setText(this.driverPromptControls, visibleDriverPresentation?.controlsLabel ?? '');
 
     this.latchWarning.hidden = !snapshot.ride?.latchActive;
     if (snapshot.ride?.latchActive) {
-      this.latchLabel.textContent = 'Runner latched - shoot low or break it loose';
-      this.latchFill.style.transform = `scaleX(${snapshot.ride.latchWiggleRatio.toFixed(3)})`;
+      this.setText(this.latchLabel, 'Runner latched - shoot low or break it loose');
+      this.setTransformStyle(this.latchFill, `scaleX(${snapshot.ride.latchWiggleRatio.toFixed(3)})`);
     }
 
-    this.radarPanel.style.opacity = `${snapshot.ride?.radarStrength ?? 1}`;
+    this.setStyleValue(this.radarPanel, 'opacity', `${snapshot.ride?.radarStrength ?? 1}`);
     for (let index = 0; index < this.radarDots.length; index += 1) {
       const dot = this.radarDots[index];
       const contact = snapshot.radarContacts[index];
@@ -920,59 +956,70 @@ export class UISystem {
       }
 
       dot.hidden = false;
-      dot.style.left = `${50 + contact.offset * 46}%`;
-      dot.style.opacity = `${(0.3 + contact.proximity * 0.7).toFixed(2)}`;
-      dot.style.transform = `translate(-50%, -50%) scale(${(
-        0.82 + contact.proximity * 0.55
-      ).toFixed(3)})`;
-      dot.dataset.type = contact.type;
+      this.setStyleValue(dot, 'left', `${50 + contact.offset * 46}%`);
+      this.setStyleValue(dot, 'opacity', `${(0.3 + contact.proximity * 0.7).toFixed(2)}`);
+      this.setTransformStyle(
+        dot,
+        `translate(-50%, -50%) scale(${(0.82 + contact.proximity * 0.55).toFixed(3)})`,
+      );
+      this.setDataset(dot, 'type', contact.type);
     }
 
-    this.crosshair.dataset.hit = snapshot.weapon.hitConfirm > 0 ? 'true' : 'false';
-    this.crosshair.dataset.style = snapshot.weapon.crosshairStyle;
-    this.crosshair.dataset.latched = snapshot.ride?.latchActive ? 'true' : 'false';
-    this.crosshair.style.setProperty(
+    this.setDataset(this.crosshair, 'hit', snapshot.weapon.hitConfirm > 0 ? 'true' : 'false');
+    this.setDataset(this.crosshair, 'style', snapshot.weapon.crosshairStyle);
+    this.setDataset(this.crosshair, 'latched', snapshot.ride?.latchActive ? 'true' : 'false');
+    this.setStyleProperty(
+      this.crosshair,
       '--crosshair-gap',
       `${snapshot.weapon.crosshairGap.toFixed(2)}px`,
     );
-    this.crosshair.style.setProperty(
+    this.setStyleProperty(
+      this.crosshair,
       '--crosshair-arm-length',
       `${(
         snapshot.weapon.crosshairStyle === 'shotgun'
           ? 0
           : snapshot.weapon.crosshairStyle === 'bazooka'
             ? 11 + snapshot.weapon.crosshairKick * 1.8
-            : 7.5 + snapshot.weapon.crosshairKick * 1.3
+          : 7.5 + snapshot.weapon.crosshairKick * 1.3
       ).toFixed(2)}px`,
     );
-    this.crosshair.style.setProperty(
+    this.setStyleProperty(
+      this.crosshair,
       '--crosshair-bracket-width',
       `${(8 + snapshot.weapon.crosshairGap * 0.16).toFixed(2)}px`,
     );
-    this.crosshair.style.setProperty(
+    this.setStyleProperty(
+      this.crosshair,
       '--crosshair-bracket-height',
       `${(18 + snapshot.weapon.crosshairGap * 0.7).toFixed(2)}px`,
     );
     const shakeScale = snapshot.ride
       ? 1 + snapshot.ride.aimShake * 0.45 + snapshot.ride.failureSeverity * 0.08
       : 1;
-    this.crosshair.style.transform = `translate(-50%, -50%) scale(${(
-      (1 + snapshot.weapon.crosshairKick * (snapshot.weapon.crosshairStyle === 'shotgun' ? 0.04 : 0.022)) *
-      shakeScale
-    ).toFixed(3)})`;
+    this.setTransformStyle(
+      this.crosshair,
+      `translate(-50%, -50%) scale(${(
+        (1 + snapshot.weapon.crosshairKick * (snapshot.weapon.crosshairStyle === 'shotgun' ? 0.04 : 0.022)) *
+        shakeScale
+      ).toFixed(3)})`,
+    );
     const vignetteStrength =
       snapshot.player.hitFlash * 0.55 +
       (snapshot.ride?.failureSeverity ?? 0) * 0.28 +
       (snapshot.ride?.latchActive ? 0.12 : 0);
-    this.vignette.style.opacity = `${Math.min(1, vignetteStrength).toFixed(2)}`;
-    this.root.dataset.state = snapshot.gameState;
-    this.root.dataset.segment = snapshot.ride?.segment ?? 'rest';
-    this.root.dataset.failure =
+    this.setStyleValue(this.vignette, 'opacity', `${Math.min(1, vignetteStrength).toFixed(2)}`);
+    this.setDataset(this.root, 'state', snapshot.gameState);
+    this.setDataset(this.root, 'segment', snapshot.ride?.segment ?? 'rest');
+    this.setDataset(
+      this.root,
+      'failure',
       snapshot.ride && snapshot.ride.failureSeverity >= 0.9
         ? 'critical'
         : snapshot.ride && snapshot.ride.failureSeverity >= 0.45
           ? 'warning'
-          : 'stable';
+          : 'stable',
+    );
     this.lastWeaponType = snapshot.weapon.weaponType;
     this.lastNitroTimer = snapshot.player.nitroTimer;
     this.updateOverlay(snapshot);
@@ -980,29 +1027,31 @@ export class UISystem {
 
   private updateOverlay(snapshot: HUDSnapshot): void {
     if (snapshot.gameState === 'dead') {
-      this.overlayStateScoreValue.textContent = `${snapshot.player.score}`;
-      this.overlayStateDistanceValue.textContent = formatDistance(snapshot.player.distance);
-      this.overlayStateTimeValue.textContent = `${snapshot.elapsedSeconds.toFixed(1)}s`;
-      this.overlayStateBestChainValue.textContent = `${snapshot.reward.bestChain}`;
-      this.overlayStateKillsValue.textContent = `${snapshot.reward.zombiesKilled}`;
+      this.setText(this.overlayStateScoreValue, `${snapshot.player.score}`);
+      this.setText(this.overlayStateDistanceValue, formatDistance(snapshot.player.distance));
+      this.setText(this.overlayStateTimeValue, `${snapshot.elapsedSeconds.toFixed(1)}s`);
+      this.setText(this.overlayStateBestChainValue, `${snapshot.reward.bestChain}`);
+      this.setText(this.overlayStateKillsValue, `${snapshot.reward.zombiesKilled}`);
       return;
     }
 
     if (snapshot.gameState === 'menu') {
-      this.overlayMenuStats.textContent =
+      this.setText(
+        this.overlayMenuStats,
         `Best Score  ${snapshot.reward.bestScore}\n` +
         `Best Chain  ${snapshot.reward.bestChainRecord}\n` +
-        `Last Run  ${snapshot.reward.lastRunScore}`;
-      this.overlayMeta.textContent = '';
+        `Last Run  ${snapshot.reward.lastRunScore}`,
+      );
+      this.setText(this.overlayMeta, '');
       this.overlayBreakdown.hidden = true;
-      this.overlayBreakdown.textContent = '';
+      this.setText(this.overlayBreakdown, '');
       return;
     }
 
-    this.overlayMenuStats.textContent = '';
-    this.overlayMeta.textContent = '';
+    this.setText(this.overlayMenuStats, '');
+    this.setText(this.overlayMeta, '');
     this.overlayBreakdown.hidden = true;
-    this.overlayBreakdown.textContent = '';
+    this.setText(this.overlayBreakdown, '');
   }
 
   private resolveDriverMood(snapshot: HUDSnapshot): DriverPortraitMood {
@@ -1504,6 +1553,47 @@ export class UISystem {
       button.dataset.active = 'false';
       onHoldChange(false);
     });
+  }
+
+  private setText(node: Node & { textContent: string | null }, value: string): void {
+    if (node.textContent !== value) {
+      node.textContent = value;
+    }
+  }
+
+  private setDataset(element: HTMLElement, key: string, value: string): void {
+    if (element.dataset[key] !== value) {
+      element.dataset[key] = value;
+    }
+  }
+
+  private setStyleValue(
+    element: HTMLElement,
+    property: 'background' | 'boxShadow' | 'left' | 'opacity',
+    value: string,
+  ): void {
+    const style = element.style as CSSStyleDeclaration & Record<string, string>;
+    if (style[property] !== value) {
+      style[property] = value;
+    }
+  }
+
+  private setTransformStyle(element: HTMLElement, value: string): void {
+    if (element.style.transform !== value) {
+      element.style.transform = value;
+    }
+  }
+
+  private setStyleProperty(element: HTMLElement, property: string, value: string): void {
+    if (element.style.getPropertyValue(property) !== value) {
+      element.style.setProperty(property, value);
+    }
+  }
+
+  private setImageSource(image: HTMLImageElement, source: string): void {
+    if (image.getAttribute('src') !== source) {
+      image.src = source;
+    }
   }
 
   destroy(): void {

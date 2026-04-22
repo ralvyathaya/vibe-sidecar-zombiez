@@ -62,8 +62,6 @@ export class PickupSystem {
     this.scene.add(this.root);
     this.createPool();
     this.reset();
-    void this.loadShotgunTemplate();
-    void this.loadBazookaTemplate();
   }
 
   reset(): void {
@@ -235,6 +233,24 @@ export class PickupSystem {
     return hints;
   }
 
+  prewarmUpcomingAssets(elapsedSeconds: number): void {
+    if (
+      elapsedSeconds >= this.config.pickups.unlockTimeSeconds - 6 &&
+      !this.shotgunTemplate &&
+      !this.shotgunLoadPromise
+    ) {
+      void this.loadShotgunTemplate();
+    }
+
+    if (
+      elapsedSeconds >= this.config.pickups.bazookaUnlockTimeSeconds - 8 &&
+      !this.bazookaTemplate &&
+      !this.bazookaLoadPromise
+    ) {
+      void this.loadBazookaTemplate();
+    }
+  }
+
   destroy(): void {
     this.reset();
     this.pickupSound.destroy();
@@ -370,6 +386,9 @@ export class PickupSystem {
     pickup.spinSpeed = randomRange(0.8, 1.35);
     pickup.bobOffset = Math.random() * Math.PI * 2;
     if (kind === 'shotgun') {
+      if (!this.shotgunTemplate && !this.shotgunLoadPromise) {
+        void this.loadShotgunTemplate();
+      }
       pickup.ammo = this.config.pickups.shotgunPickupAmmo;
       pickup.width = 1.9;
       pickup.depth = 1.2;
@@ -390,6 +409,9 @@ export class PickupSystem {
     }
 
     if (kind === 'bazooka') {
+      if (!this.bazookaTemplate && !this.bazookaLoadPromise) {
+        void this.loadBazookaTemplate();
+      }
       pickup.ammo = this.config.bazooka.maxAmmo;
       pickup.width = 2.2;
       pickup.depth = 1.45;
@@ -749,12 +771,12 @@ export class PickupSystem {
 
   private prepareTemplate(root: Group): void {
     root.traverse((object) => {
-      object.frustumCulled = false;
       const maybeMesh = object as Mesh;
       if (!maybeMesh.isMesh) {
         return;
       }
 
+      maybeMesh.frustumCulled = true;
       maybeMesh.renderOrder = 4;
       const materials = Array.isArray(maybeMesh.material)
         ? maybeMesh.material
