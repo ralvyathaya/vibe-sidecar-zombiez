@@ -45,8 +45,8 @@ const ROAD_SPLAT_GEOMETRY = new CircleGeometry(1, 10);
 const HIT_FLASH_COLOR = 0x5a1405;
 const NEAR_VISIBILITY_COLOR = 0x10161d;
 const BERSERK_AURA_COLOR = 0x551010;
-const BERSERK_SPEED_MULTIPLIER = 1.2;
-const BERSERK_AURA_INTENSITY = 0.16;
+const BERSERK_SPEED_MULTIPLIER = 1.5;
+const BERSERK_AURA_INTENSITY = 0.25;
 
 type HumanoidAssets = {
   template: Group;
