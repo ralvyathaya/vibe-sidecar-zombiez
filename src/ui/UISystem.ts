@@ -310,7 +310,9 @@ export class UISystem {
     this.eventChip.className = 'event-chip';
     this.buffPanel.className = 'buff-panel';
     this.adrenalineBuff.className = 'buff-chip';
+    this.adrenalineBuff.dataset.buff = 'adrenaline';
     this.nitroBuff.className = 'buff-chip';
+    this.nitroBuff.dataset.buff = 'nitro';
     this.laneRequestHud.className = 'lane-request-hud';
     this.laneRequestLeft.className = 'lane-request lane-request--left';
     this.laneRequestLeftLabel.className = 'lane-request-label';
