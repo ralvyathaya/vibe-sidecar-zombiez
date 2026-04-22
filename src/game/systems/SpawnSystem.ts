@@ -1,6 +1,7 @@
 import type { GameConfig, RunEventType, RunSegment, ZombieType } from '../../core/types';
 import { lerp, randomInt, randomRange } from '../../core/utils';
 import type { EnemySystem } from './EnemySystem';
+import type { WorldSystem } from './WorldSystem';
 
 export class SpawnSystem {
   elapsedSeconds = 0;
@@ -15,6 +16,7 @@ export class SpawnSystem {
   private lastEvent: Exclude<RunEventType, 'none'> | null = null;
   private scriptedBerserkTriggered = false;
   private openingForcedWalkerSpawns = 3;
+  private barrelClusterCooldown = 1.4;
 
   constructor(private readonly config: GameConfig) {}
 
@@ -30,6 +32,7 @@ export class SpawnSystem {
     this.lastEvent = null;
     this.scriptedBerserkTriggered = false;
     this.openingForcedWalkerSpawns = 3;
+    this.barrelClusterCooldown = 1.4;
   }
 
   notifyLatchResolved(): void {
@@ -47,11 +50,17 @@ export class SpawnSystem {
     return this.eventDuration;
   }
 
-  update(deltaTime: number, enemies: EnemySystem, segment: RunSegment): void {
+  update(
+    deltaTime: number,
+    enemies: EnemySystem,
+    segment: RunSegment,
+    world?: WorldSystem,
+  ): void {
     this.elapsedSeconds += deltaTime;
     this.segment = segment;
     this.nextSpawnIn -= deltaTime;
     this.runnerCooldown = Math.max(0, this.runnerCooldown - deltaTime);
+    this.barrelClusterCooldown = Math.max(0, this.barrelClusterCooldown - deltaTime);
     this.updateEvents(deltaTime);
 
     if (this.nextSpawnIn > 0) {
@@ -127,6 +136,8 @@ export class SpawnSystem {
       const laneX = this.config.world.laneCenters[laneIndex] ?? 0;
       enemies.spawn('walker', laneX + randomRange(-0.38, 0.38), randomRange(-112, -96));
     }
+
+    this.maybeSpawnBarrelCluster(enemies, world);
   }
 
   // The ramp keeps early seconds readable, then layers faster threats and tanks later.
@@ -233,6 +244,64 @@ export class SpawnSystem {
       spacingMin: 5,
       spacingMax: 9,
     };
+  }
+
+  private maybeSpawnBarrelCluster(enemies: EnemySystem, world?: WorldSystem): void {
+    if (!world || this.barrelClusterCooldown > 0 || this.elapsedSeconds < 6) {
+      return;
+    }
+
+    if (enemies.getActiveCount() >= this.config.enemies.poolSize - 2) {
+      return;
+    }
+
+    const barrelHints = world.getBarrelClusterHints(110);
+    if (barrelHints.length === 0) {
+      return;
+    }
+
+    const clusterHint = barrelHints[randomInt(0, barrelHints.length - 1)];
+    if (!clusterHint) {
+      return;
+    }
+
+    const spawnCount = Math.random() < 0.58 ? 2 : 1;
+    let spawned = 0;
+
+    for (let index = 0; index < spawnCount; index += 1) {
+      if (enemies.getActiveCount() >= this.config.enemies.poolSize - 1) {
+        break;
+      }
+
+      const canUseRunner =
+        this.elapsedSeconds >= 24 &&
+        this.runnerCooldown <= 0 &&
+        enemies.getActiveCountByType('runner') < this.config.spawn.runnerMaxActive &&
+        Math.random() < (this.activeEvent === 'berserkWave' ? 0.28 : 0.14);
+      const zombieType: ZombieType = canUseRunner ? 'runner' : 'walker';
+      const spawnZ = clusterHint.zPosition + randomRange(-7.5, 3.2) - index * randomRange(1.8, 2.8);
+      if (spawnZ > -18 || spawnZ < this.config.enemies.spawnMinZ - 8) {
+        continue;
+      }
+
+      const laneOffset = randomRange(-0.42, 0.42);
+      const spawnedZombie = enemies.spawn(zombieType, clusterHint.laneX + laneOffset, spawnZ);
+      if (!spawnedZombie) {
+        continue;
+      }
+
+      spawned += 1;
+      if (zombieType === 'runner') {
+        this.runnerCooldown = randomRange(
+          this.config.spawn.runnerCooldownMin,
+          this.config.spawn.runnerCooldownMax,
+        );
+      }
+    }
+
+    if (spawned > 0) {
+      this.barrelClusterCooldown = randomRange(2.8, 4.6);
+    }
   }
 
   private updateEvents(deltaTime: number): void {

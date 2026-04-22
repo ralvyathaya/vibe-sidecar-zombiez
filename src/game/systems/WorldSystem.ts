@@ -63,6 +63,12 @@ type ExplosionEffect = {
   maxLife: number;
 };
 
+type BarrelClusterHint = {
+  laneIndex: number;
+  laneX: number;
+  zPosition: number;
+};
+
 type BreakEffectPiece = {
   mesh: Mesh;
   velocity: Vector3;
@@ -320,6 +326,24 @@ export class WorldSystem {
     );
     this.recycleObstacle(obstacle);
     return kills;
+  }
+
+  getBarrelClusterHints(maxDistanceAhead = 104): BarrelClusterHint[] {
+    return this.obstacles
+      .filter((obstacle) => {
+        if (!obstacle.active || obstacle.type !== 'barrel') {
+          return false;
+        }
+
+        const distanceAhead = -obstacle.mesh.position.z;
+        return distanceAhead >= 20 && distanceAhead <= maxDistanceAhead;
+      })
+      .map((obstacle) => ({
+        laneIndex: obstacle.lane,
+        laneX: this.config.world.laneCenters[obstacle.lane] ?? obstacle.laneLocalX,
+        zPosition: obstacle.mesh.position.z,
+      }))
+      .sort((left, right) => right.zPosition - left.zPosition);
   }
 
   findProjectileImpact(
@@ -1696,6 +1720,7 @@ export class WorldSystem {
   }
 
   private applyBarrelVisual(root: Group): void {
+    const obstacleId = root.userData.obstacleId as number | undefined;
     root.clear();
     const visual = this.barrelTemplate
       ? this.barrelTemplate.clone(true)
@@ -1704,6 +1729,9 @@ export class WorldSystem {
     visual.position.y = 0.08;
     this.setShadowFlags(visual, true, true);
     root.add(visual);
+    if (obstacleId !== undefined) {
+      this.assignObstacleId(root, obstacleId);
+    }
   }
 
   private setShadowFlags(root: Object3D, castShadow: boolean, receiveShadow: boolean): void {

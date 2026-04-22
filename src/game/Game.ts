@@ -223,7 +223,12 @@ export class Game {
       this.frameRideState = preWorldRide;
 
       this.playerSystem.updateRunning(simulationDelta, this.inputSystem, preWorldRide);
-      this.spawnSystem.update(simulationDelta, this.enemySystem, preWorldRide.segment);
+      this.spawnSystem.update(
+        simulationDelta,
+        this.enemySystem,
+        preWorldRide.segment,
+        this.worldSystem,
+      );
       this.playerSystem.state.score += this.rewardSystem.update(
         simulationDelta,
         this.spawnSystem.elapsedSeconds,

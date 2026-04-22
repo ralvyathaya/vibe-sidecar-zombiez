@@ -56,7 +56,7 @@ export const GAME_CONFIG: GameConfig = {
     wiggleDecay: 0.34,
     wiggleMaxInterval: 0.28,
     latchAimShake: 0.035,
-    failureAimShake: 0.028,
+    failureAimShake: 0.0112,
   },
   vehicle: {
     engineAudioPath: '/audio/vehicle/engine-sound.ogg',
@@ -92,7 +92,7 @@ export const GAME_CONFIG: GameConfig = {
       damageShakeDecay: 10,
       laneShift: 0.12,
       laneRollDegrees: 2.9,
-      failureShakeAmplitude: 0.018,
+      failureShakeAmplitude: 0.0072,
       latchShakeAmplitude: 0.016,
       sidecarLatchPosition: [-1.00, -1.96, -1.25],
       headlightPosition: [-1.5, -1.38, -1.35],
@@ -119,7 +119,7 @@ export const GAME_CONFIG: GameConfig = {
     },
   },
   ride: {
-    lowHealthThreshold: 0.5,
+    lowHealthThreshold: 0.35,
     criticalHealthThreshold: 0.25,
     failureHandlingPenalty: 0.4,
     failureSpeedPenalty: 0.18,
