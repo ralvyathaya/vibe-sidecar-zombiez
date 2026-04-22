@@ -168,6 +168,11 @@ export class UISystem {
   private readonly latchWarning = document.createElement('div');
   private readonly latchLabel = document.createElement('div');
   private readonly latchFill = document.createElement('div');
+  private readonly latchKeys = document.createElement('div');
+  private readonly latchKeysPrompt = document.createElement('div');
+  private readonly latchKeysRow = document.createElement('div');
+  private readonly latchKeyA = document.createElement('span');
+  private readonly latchKeyD = document.createElement('span');
   private readonly crosshair = document.createElement('div');
   private readonly crosshairLeft = document.createElement('span');
   private readonly crosshairRight = document.createElement('span');
@@ -343,7 +348,17 @@ export class UISystem {
     latchBar.className = 'latch-bar';
     this.latchFill.className = 'latch-fill';
     latchBar.append(this.latchFill);
-    this.latchWarning.append(this.latchLabel, latchBar);
+    this.latchKeys.className = 'latch-keys';
+    this.latchKeysPrompt.className = 'latch-keys-prompt';
+    this.latchKeysPrompt.textContent = 'Tap fast to shake it loose';
+    this.latchKeysRow.className = 'latch-keys-row';
+    this.latchKeyA.className = 'latch-key';
+    this.latchKeyA.textContent = 'A';
+    this.latchKeyD.className = 'latch-key';
+    this.latchKeyD.textContent = 'D';
+    this.latchKeysRow.append(this.latchKeyA, this.latchKeyD);
+    this.latchKeys.append(this.latchKeysPrompt, this.latchKeysRow);
+    this.latchWarning.append(this.latchLabel, latchBar, this.latchKeys);
 
     this.reloadHint.className = 'reload-hint';
     this.reloadHintTextBefore.className = 'reload-hint-text';
@@ -498,9 +513,7 @@ export class UISystem {
       this.createMenuControlRow('LMB', 'Fire weapon'),
       this.createMenuControlRow('Mouse', 'Aim sidecar gun'),
       this.createMenuControlRow('A / D Hold', 'Call for left or right lane'),
-      this.createMenuControlRow('A / D Tap', 'Wiggle loose if runner latches'),
       this.createMenuControlRow('R', 'Reload handgun'),
-      this.createMenuControlRow('Enter', 'Start run / resume overlay'),
     );
 
     const gameplayCard = this.createMenuCard('Gameplay');
@@ -522,9 +535,7 @@ export class UISystem {
       this.createMenuControlRow('LMB', 'Fire weapon'),
       this.createMenuControlRow('Mouse', 'Aim sidecar gun'),
       this.createMenuControlRow('A / D Hold', 'Call for a lane change'),
-      this.createMenuControlRow('A / D Tap', 'Break runner latch'),
       this.createMenuControlRow('R', 'Reload handgun'),
-      this.createMenuControlRow('Enter', 'Resume run'),
     );
 
     const summaryTitle = document.createElement('h2');
@@ -649,6 +660,9 @@ export class UISystem {
       default:
         this.overlay.hidden = true;
         this.overlay.dataset.mode = 'hidden';
+        this.overlayMenu.hidden = true;
+        this.overlayState.hidden = true;
+        this.overlayDialog.hidden = true;
         break;
     }
   }
@@ -811,7 +825,7 @@ export class UISystem {
 
     this.latchWarning.hidden = !snapshot.ride?.latchActive;
     if (snapshot.ride?.latchActive) {
-      this.latchLabel.textContent = 'Runner latched - shoot or wiggle A/D';
+      this.latchLabel.textContent = 'Runner latched - shoot low or break it loose';
       this.latchFill.style.transform = `scaleX(${snapshot.ride.latchWiggleRatio.toFixed(3)})`;
     }
 

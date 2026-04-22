@@ -63,6 +63,11 @@ export class Game {
       return;
     }
 
+    if (event.repeat) {
+      event.preventDefault();
+      return;
+    }
+
     event.preventDefault();
     this.triggerPrimaryAction();
   };
@@ -83,6 +88,7 @@ export class Game {
   private frameRideState: RideState | null = null;
   private lastRideState: RideState | null = null;
   private stallLoopActive = false;
+  private overlayActionLockUntil = 0;
 
   constructor(root: HTMLElement) {
     this.shell.className = 'game-shell';
@@ -650,10 +656,15 @@ export class Game {
   }
 
   private triggerPrimaryAction(): void {
+    if (!this.beginOverlayAction()) {
+      return;
+    }
+
     if (this.state === 'menu' || this.state === 'dead') {
       this.resetGame();
     }
 
+    this.blurOverlayFocus();
     SoundEffectPool.unlockAudio();
     this.inputSystem.clearTransientInput();
     this.setState('running');
@@ -661,11 +672,33 @@ export class Game {
   }
 
   private triggerRestartAction(): void {
+    if (!this.beginOverlayAction()) {
+      return;
+    }
+
     this.resetGame();
+    this.blurOverlayFocus();
     SoundEffectPool.unlockAudio();
     this.inputSystem.clearTransientInput();
     this.setState('running');
     this.inputSystem.requestPointerLock();
+  }
+
+  private beginOverlayAction(): boolean {
+    const now = performance.now();
+    if (now < this.overlayActionLockUntil) {
+      return false;
+    }
+
+    this.overlayActionLockUntil = now + 260;
+    return true;
+  }
+
+  private blurOverlayFocus(): void {
+    const activeElement = document.activeElement;
+    if (activeElement instanceof HTMLElement) {
+      activeElement.blur();
+    }
   }
 
   private resetGame(): void {
