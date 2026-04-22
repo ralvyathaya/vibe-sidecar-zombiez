@@ -490,23 +490,6 @@ export class UISystem {
       menuHint,
     );
 
-    const menuCenter = document.createElement('div');
-    menuCenter.className = 'overlay-menu-center';
-
-    const menuCenterFrame = document.createElement('div');
-    menuCenterFrame.className = 'overlay-menu-stage';
-
-    const menuCenterTop = document.createElement('div');
-    menuCenterTop.className = 'overlay-menu-stage-copy overlay-menu-stage-copy--top';
-    menuCenterTop.textContent = 'LIVE ROAD FEED';
-
-    const menuCenterBottom = document.createElement('div');
-    menuCenterBottom.className = 'overlay-menu-stage-copy overlay-menu-stage-copy--bottom';
-    menuCenterBottom.textContent = 'The driver owns the lane. You own the gun.';
-
-    menuCenterFrame.append(menuCenterTop, menuCenterBottom);
-    menuCenter.append(menuCenterFrame);
-
     const menuRight = document.createElement('div');
     menuRight.className = 'overlay-menu-right';
 
@@ -593,7 +576,7 @@ export class UISystem {
     );
     this.overlayState.append(this.overlayStateLeft, this.overlayStateRight);
     this.overlay.append(this.overlayMenu, this.overlayState, this.overlayDialog);
-    this.overlayMenu.append(menuLeft, menuCenter, menuRight);
+    this.overlayMenu.append(menuLeft, menuRight);
     this.syncMenuAudioButtons();
     this.root.append(
       hud,
@@ -1351,12 +1334,10 @@ export class UISystem {
     this.overlayMenuMusicToggle.dataset.enabled = this.audioPreferences.musicEnabled
       ? 'true'
       : 'false';
-    this.overlayMenuSfxToggle.textContent = this.audioPreferences.sfxEnabled
-      ? 'SFX  ON'
-      : 'SFX  OFF';
-    this.overlayMenuMusicToggle.textContent = this.audioPreferences.musicEnabled
-      ? 'MUSIC  ON'
-      : 'MUSIC  OFF';
+    this.overlayMenuSfxToggle.dataset.kind = 'sfx';
+    this.overlayMenuMusicToggle.dataset.kind = 'music';
+    this.overlayMenuSfxToggle.textContent = 'Enable SFX';
+    this.overlayMenuMusicToggle.textContent = 'Enable Music';
   }
 
   destroy(): void {
