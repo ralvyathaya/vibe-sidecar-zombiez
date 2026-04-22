@@ -7,6 +7,7 @@ import type {
   WeaponStatus,
 } from '../core/types';
 import { formatDistance } from '../core/utils';
+import { SoundEffectPool } from '../game/audio/SoundEffectPool';
 
 type DriverPortraitMood = 'calm' | 'observing' | 'panic';
 
@@ -118,11 +119,17 @@ export class UISystem {
   private readonly crosshairBracketLeft = document.createElement('span');
   private readonly crosshairBracketRight = document.createElement('span');
   private readonly vignette = document.createElement('div');
+  private readonly driverDialogSound = new SoundEffectPool('/audio/ui/dialog-beep.ogg', {
+    poolSize: 2,
+    volume: 0.06,
+    playbackRate: 1.12,
+  });
   private readonly ammoRounds: HTMLSpanElement[] = [];
   private readonly radarDots: HTMLSpanElement[] = [];
   private driverPanelHold = 0;
   private lastElapsedSeconds = 0;
   private lastDriverPresentation: DriverPresentation | null = null;
+  private lastVisibleDriverPresentationKey: string | null = null;
   private lastWeaponType: WeaponStatus['weaponType'] | null = null;
   private lastNitroTimer = 0;
   private tankWarningCooldown = 0;
@@ -338,6 +345,7 @@ export class UISystem {
       this.overlay,
     );
     host.append(this.root);
+    this.driverDialogSound.prime();
   }
 
   setState(gameState: GameStateType): void {
@@ -495,6 +503,7 @@ export class UISystem {
 
     const visibleDriverPresentation =
       driverPresentation ?? (this.driverPanelHold > 0 ? this.lastDriverPresentation : null);
+    this.syncDriverDialogSound(visibleDriverPresentation, snapshot.gameState);
     this.driverPanel.hidden = snapshot.gameState !== 'running';
     this.driverPanel.dataset.visible = visibleDriverPresentation ? 'true' : 'false';
     this.driverPanel.dataset.mood = visibleDriverPresentation?.mood ?? 'calm';
@@ -926,6 +935,28 @@ export class UISystem {
       return 'BLACKOUT';
     }
     return '';
+  }
+
+  destroy(): void {
+    this.driverDialogSound.destroy();
+    this.root.remove();
+  }
+
+  private syncDriverDialogSound(
+    visibleDriverPresentation: DriverPresentation | null,
+    gameState: GameStateType,
+  ): void {
+    if (gameState !== 'running' || !visibleDriverPresentation) {
+      this.lastVisibleDriverPresentationKey = null;
+      return;
+    }
+
+    if (this.lastVisibleDriverPresentationKey === visibleDriverPresentation.key) {
+      return;
+    }
+
+    this.lastVisibleDriverPresentationKey = visibleDriverPresentation.key;
+    this.driverDialogSound.play(0.055, 1.12 + Math.random() * 0.06);
   }
 
 }

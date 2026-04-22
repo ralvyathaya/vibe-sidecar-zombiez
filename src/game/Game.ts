@@ -144,6 +144,7 @@ export class Game {
 
   destroy(): void {
     this.gameLoop.stop();
+    this.uiSystem.destroy();
     this.inputSystem.destroy();
     this.weaponSystem.destroy();
     this.vehicleRigSystem.destroy();
