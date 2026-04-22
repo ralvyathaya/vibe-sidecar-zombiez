@@ -4,6 +4,7 @@ import {
   CanvasTexture,
   ConeGeometry,
   DoubleSide,
+  Euler,
   Group,
   MathUtils,
   Mesh,
@@ -21,7 +22,18 @@ import {
 import type { GameConfig, GameStateType, RideState } from '../../core/types';
 import { approach } from '../../core/utils';
 
+type WheelSpinAxis = 'x' | 'y' | 'z';
+
+type WheelBinding = {
+  node: Object3D;
+  baseRotation: Euler;
+};
+
 export class VehicleRigSystem {
+  private static readonly WHEEL_SPIN_AXIS: WheelSpinAxis = 'x';
+  private static readonly WHEEL_SPIN_MULTIPLIER = -2.7;
+  private static readonly WHEEL_NODE_NAMES = ['wheel_front', 'wheel_rear', 'wheel_sidecar'] as const;
+
   private readonly vehicleRig = new Group();
   private readonly obstructionShakeGroup = new Group();
   private readonly vehicleSpace = new Group();
@@ -66,11 +78,13 @@ export class VehicleRigSystem {
   private readonly baseFocusHeadlightTargetPosition = new Vector3();
   private readonly perspectiveCamera: PerspectiveCamera | null;
   private readonly baseFov: number;
+  private readonly wheelBindings: WheelBinding[] = [];
   private loadedScene: Object3D | null = null;
   private currentFov = 72;
   private time = 0;
   private hitShake = 0;
   private lastHitFlash = 0;
+  private wheelSpinAngle = 0;
 
   constructor(
     private readonly camera: Camera,
@@ -419,6 +433,7 @@ export class VehicleRigSystem {
     this.time = 0;
     this.hitShake = 0;
     this.lastHitFlash = 0;
+    this.wheelSpinAngle = 0;
     this.vehicleRig.position.set(0, 0, 0);
     this.vehicleRig.rotation.set(0, 0, 0);
     this.obstructionShakeGroup.position.set(0, 0, 0);
@@ -464,6 +479,7 @@ export class VehicleRigSystem {
     (this.headlightGlow.material as SpriteMaterial).opacity = 0.05;
     (this.focusHeadlightGlow.material as SpriteMaterial).opacity = 0;
     this.vehicleRig.visible = true;
+    this.applyWheelSpin();
   }
 
   update(
@@ -494,6 +510,12 @@ export class VehicleRigSystem {
       engineTroubleWobble * this.config.driver.engineTroubleWobbleAmplitude * engineTroubleWave;
     const floorItPush = (ride?.floorItMode ? ride.driveBoostStrength : 0) * 0.012;
     const brakeStability = 1 - (ride?.brakeMode ? ride.driveBrakeStrength * 0.24 : 0);
+    const wheelForwardSpeed = ride?.forwardSpeed ?? this.config.player.forwardSpeed;
+    this.wheelSpinAngle +=
+      deltaTime *
+      wheelForwardSpeed *
+      VehicleRigSystem.WHEEL_SPIN_MULTIPLIER;
+    this.applyWheelSpin();
 
     this.vehicleRig.position.copy(playerPosition).add(this.baseRigOffset);
 
@@ -726,6 +748,7 @@ export class VehicleRigSystem {
     }
 
     this.prepareModel(model);
+    this.bindWheelNodes(model);
     model.position.copy(this.baseModelPosition);
     model.rotation.set(
       this.baseModelRotation.x,
@@ -735,6 +758,7 @@ export class VehicleRigSystem {
     model.scale.setScalar(this.config.vehicle.stage1Rig.modelScale);
     this.modelRoot.add(model);
     this.loadedScene = model;
+    this.applyWheelSpin();
   }
 
   private prepareModel(model: Object3D): void {
@@ -762,6 +786,49 @@ export class VehicleRigSystem {
         }
       }
     });
+  }
+
+  private bindWheelNodes(model: Object3D): void {
+    this.wheelBindings.length = 0;
+    for (const wheelName of VehicleRigSystem.WHEEL_NODE_NAMES) {
+      const node =
+        model.getObjectByName(wheelName) ?? this.findNodeByNameInsensitive(model, wheelName);
+      if (!node) {
+        continue;
+      }
+
+      this.wheelBindings.push({
+        node,
+        baseRotation: node.rotation.clone(),
+      });
+    }
+  }
+
+  private applyWheelSpin(): void {
+    const axis = VehicleRigSystem.WHEEL_SPIN_AXIS;
+    for (const binding of this.wheelBindings) {
+      binding.node.rotation.set(
+        binding.baseRotation.x,
+        binding.baseRotation.y,
+        binding.baseRotation.z,
+      );
+      binding.node.rotation[axis] += this.wheelSpinAngle;
+    }
+  }
+
+  private findNodeByNameInsensitive(root: Object3D, targetName: string): Object3D | null {
+    const normalizedTarget = targetName.toLowerCase();
+    let match: Object3D | null = null;
+    root.traverse((object) => {
+      if (match || !object.name) {
+        return;
+      }
+
+      if (object.name.toLowerCase() === normalizedTarget) {
+        match = object;
+      }
+    });
+    return match;
   }
 
   private disposeObject(root: Object3D | null): void {

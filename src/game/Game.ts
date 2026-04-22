@@ -41,7 +41,7 @@ export class Game {
   private readonly uiSystem: UISystem;
   private readonly gameLoop: GameLoop;
   private readonly engineLoop: LoopingSound;
-  private readonly stallSound: SoundEffectPool;
+  private readonly stallLoop: LoopingSound;
   private readonly playerPosition = new Vector3();
   private readonly playerForward = new Vector3();
 
@@ -58,6 +58,7 @@ export class Game {
   private latchWasActive = false;
   private frameRideState: RideState | null = null;
   private lastRideState: RideState | null = null;
+  private stallLoopActive = false;
 
   constructor(root: HTMLElement) {
     this.shell.className = 'game-shell';
@@ -101,12 +102,12 @@ export class Game {
       driveEnterSmoothing: 0.08,
       driveReleaseSmoothing: 0.18,
     });
-    this.stallSound = new SoundEffectPool(GAME_CONFIG.vehicle.stallAudioPath, {
-      poolSize: 1,
+    this.stallLoop = new LoopingSound(GAME_CONFIG.vehicle.stallAudioPath, {
       volume: GAME_CONFIG.vehicle.stallAudioVolume,
       playbackRate: GAME_CONFIG.vehicle.stallAudioPlaybackRate,
+      highpassHz: Math.max(48, GAME_CONFIG.vehicle.engineHighpassHz * 0.6),
+      lowpassHz: Math.max(900, GAME_CONFIG.vehicle.engineLowpassHz * 0.78),
     });
-    this.stallSound.prime();
     this.gameLoop = new GameLoop(
       (deltaTime) => this.update(deltaTime),
       () => this.rendererSystem.render(),
@@ -151,7 +152,7 @@ export class Game {
     this.pickupSystem.destroy();
     this.rewardSystem.destroy();
     this.engineLoop.destroy();
-    this.stallSound.destroy();
+    this.stallLoop.destroy();
     this.rendererSystem.destroy();
   }
 
@@ -315,12 +316,7 @@ export class Game {
         laneRequestState,
       );
       this.frameRideState = finalRide;
-      if (!this.lastRideState?.engineTroubleMode && finalRide.engineTroubleMode) {
-        this.stallSound.play(
-          GAME_CONFIG.vehicle.stallAudioVolume,
-          GAME_CONFIG.vehicle.stallAudioPlaybackRate,
-        );
-      }
+      this.syncStallLoop(finalRide.engineTroubleMode);
       this.lastRideState = finalRide;
       this.rendererSystem.updateAtmosphere(
         simulationDelta,
@@ -368,6 +364,7 @@ export class Game {
       );
       this.engineLoop.setDriveState(0, 0);
       this.engineLoop.setTurnAmount(0);
+      this.syncStallLoop(false);
       this.weaponSystem.updateIdle(deltaTime);
       this.frameRideState = idleRide;
       this.lastRideState = idleRide;
@@ -630,6 +627,7 @@ export class Game {
     this.latchWasActive = false;
     this.frameRideState = null;
     this.lastRideState = null;
+    this.syncStallLoop(false);
   }
 
   private setState(nextState: GameStateType): void {
@@ -644,6 +642,24 @@ export class Game {
       this.engineLoop.setDriveState(0, 0);
       this.engineLoop.setTurnAmount(0);
       this.engineLoop.pause();
+      this.syncStallLoop(false);
     }
+  }
+
+  private syncStallLoop(active: boolean): void {
+    if (this.stallLoopActive === active) {
+      return;
+    }
+
+    this.stallLoopActive = active;
+    if (active) {
+      this.stallLoop.play(
+        GAME_CONFIG.vehicle.stallAudioVolume,
+        GAME_CONFIG.vehicle.stallAudioPlaybackRate,
+      );
+      return;
+    }
+
+    this.stallLoop.pause();
   }
 }
