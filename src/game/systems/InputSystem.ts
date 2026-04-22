@@ -276,6 +276,18 @@ export class InputSystem {
       this.laneRequestTriggered = false;
     }
 
+    // Once a lane request has fired, require the player to release A/D before
+    // charging a new request. This prevents the HUD ring from staying full while
+    // the key is held and makes each lane call read as a discrete command.
+    if (this.laneRequestTriggered) {
+      return {
+        active: false,
+        direction: 0,
+        holdRatio: 0,
+        triggered: false,
+      };
+    }
+
     const durationMs = Math.max(holdDurationSeconds * 1000, 1);
     const elapsedMs = Math.max(0, now - this.laneRequestStartedAt);
     const triggered = !this.laneRequestTriggered && elapsedMs >= durationMs;

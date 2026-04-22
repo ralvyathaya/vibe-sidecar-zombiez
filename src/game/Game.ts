@@ -176,10 +176,6 @@ export class Game {
       );
       const latchActive = this.enemySystem.hasLatchedRunner();
       const laneRequestBlocked = latchActive || this.driverSystem.hasActivePrompt();
-      const laneRequestState = this.inputSystem.getLaneRequestState(
-        GAME_CONFIG.driver.laneRequestHoldDuration,
-        laneRequestBlocked,
-      );
       const laneRequestDirection = this.inputSystem.consumeLaneRequest(
         GAME_CONFIG.driver.laneRequestHoldDuration,
         laneRequestBlocked,
@@ -192,6 +188,10 @@ export class Game {
           latchActive,
         );
       }
+      const laneRequestState = this.inputSystem.getLaneRequestState(
+        GAME_CONFIG.driver.laneRequestHoldDuration,
+        laneRequestBlocked,
+      );
       const baseRide = this.driverSystem.update(
         simulationDelta,
         combinedLaneThreats,
