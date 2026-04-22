@@ -1913,7 +1913,8 @@ body {
 }
 
 .event-chip[hidden],
-.buff-panel[hidden] {
+.buff-panel[hidden],
+.buff-chip[hidden] {
   display: none;
 }
 
