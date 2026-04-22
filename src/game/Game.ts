@@ -144,7 +144,12 @@ export class Game {
     );
 
     this.inputSystem.onPointerLockChange = (locked) => {
-      if (!locked && this.state === 'running' && !this.suppressUnlockPause) {
+      if (
+        !locked &&
+        this.state === 'running' &&
+        !this.suppressUnlockPause &&
+        this.inputSystem.shouldUsePointerLock()
+      ) {
         this.setState('paused');
       }
 
@@ -169,7 +174,17 @@ export class Game {
       this.audioPreferences.musicEnabled = enabled;
       this.saveAudioPreferences();
     };
+    this.uiSystem.onMobileLaneHoldChange = (direction, active) => {
+      this.inputSystem.setVirtualLaneHeld(direction, active);
+    };
+    this.uiSystem.onMobileReload = () => {
+      this.inputSystem.queueVirtualReload();
+    };
+    this.uiSystem.onMobileFireHeldChange = (active) => {
+      this.inputSystem.setVirtualFireHeld(active);
+    };
     this.uiSystem.setAudioPreferences(this.audioPreferences);
+    this.uiSystem.setTouchControlsEnabled(this.inputSystem.usesTouchControls());
     this.applyAudioPreferences();
     window.addEventListener('keydown', this.handleOverlayKeyDown);
 
@@ -670,7 +685,9 @@ export class Game {
     SoundEffectPool.unlockAudio();
     this.inputSystem.clearTransientInput();
     this.setState('running');
-    this.inputSystem.requestPointerLock();
+    if (this.inputSystem.shouldUsePointerLock()) {
+      this.inputSystem.requestPointerLock();
+    }
   }
 
   private triggerRestartAction(): void {
@@ -683,7 +700,9 @@ export class Game {
     SoundEffectPool.unlockAudio();
     this.inputSystem.clearTransientInput();
     this.setState('running');
-    this.inputSystem.requestPointerLock();
+    if (this.inputSystem.shouldUsePointerLock()) {
+      this.inputSystem.requestPointerLock();
+    }
   }
 
   private beginOverlayAction(): boolean {
@@ -737,6 +756,7 @@ export class Game {
         GAME_CONFIG.vehicle.enginePlaybackRate,
       );
     } else {
+      this.inputSystem.releaseVirtualControls();
       this.engineLoop.setDriveState(0, 0);
       this.engineLoop.setTurnAmount(0);
       this.engineLoop.pause();

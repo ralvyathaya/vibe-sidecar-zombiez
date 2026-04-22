@@ -77,6 +77,9 @@ export class UISystem {
   onRestartAction?: () => void;
   onSfxPreferenceChange?: (enabled: boolean) => void;
   onMusicPreferenceChange?: (enabled: boolean) => void;
+  onMobileLaneHoldChange?: (direction: -1 | 1, active: boolean) => void;
+  onMobileReload?: () => void;
+  onMobileFireHeldChange?: (active: boolean) => void;
 
   private readonly root = document.createElement('div');
   private readonly overlay = document.createElement('div');
@@ -158,6 +161,13 @@ export class UISystem {
   private readonly laneRequestRightRing = document.createElement('div');
   private readonly laneRequestRightCore = document.createElement('div');
   private readonly laneRequestRightKey = document.createElement('span');
+  private readonly mobileControls = document.createElement('div');
+  private readonly mobileControlsLeft = document.createElement('div');
+  private readonly mobileControlsRight = document.createElement('div');
+  private readonly mobileLeftButton = document.createElement('button');
+  private readonly mobileRightButton = document.createElement('button');
+  private readonly mobileReloadButton = document.createElement('button');
+  private readonly mobileFireButton = document.createElement('button');
   private readonly driverPanel = document.createElement('div');
   private readonly driverPortraitFrame = document.createElement('div');
   private readonly driverPortrait = document.createElement('img');
@@ -204,6 +214,7 @@ export class UISystem {
   private lastWeaponType: WeaponStatus['weaponType'] | null = null;
   private lastNitroTimer = 0;
   private tankWarningCooldown = 0;
+  private mobileControlsEnabled = false;
 
   constructor(host: HTMLElement) {
     this.root.className = 'ui-root';
@@ -322,6 +333,52 @@ export class UISystem {
     this.laneRequestRightRing.append(this.laneRequestRightCore);
     this.laneRequestRight.append(this.laneRequestRightLabel, this.laneRequestRightRing);
     this.laneRequestHud.append(this.laneRequestLeft, this.laneRequestRight);
+    this.mobileControls.className = 'mobile-controls';
+    this.mobileControlsLeft.className = 'mobile-controls-group mobile-controls-group--left';
+    this.mobileControlsRight.className = 'mobile-controls-group mobile-controls-group--right';
+    this.mobileLeftButton.className = 'mobile-control mobile-control--lane';
+    this.mobileLeftButton.type = 'button';
+    this.mobileLeftButton.dataset.touchControl = 'true';
+    this.mobileLeftButton.textContent = 'LEFT';
+    this.mobileRightButton.className = 'mobile-control mobile-control--lane';
+    this.mobileRightButton.type = 'button';
+    this.mobileRightButton.dataset.touchControl = 'true';
+    this.mobileRightButton.textContent = 'RIGHT';
+    this.mobileReloadButton.className = 'mobile-control mobile-control--reload';
+    this.mobileReloadButton.type = 'button';
+    this.mobileReloadButton.dataset.touchControl = 'true';
+    this.mobileReloadButton.textContent = 'RELOAD';
+    this.mobileFireButton.className = 'mobile-control mobile-control--fire';
+    this.mobileFireButton.type = 'button';
+    this.mobileFireButton.dataset.touchControl = 'true';
+    this.mobileFireButton.textContent = 'SHOOT';
+    this.bindHoldControl(this.mobileLeftButton, (active) => {
+      this.onMobileLaneHoldChange?.(-1, active);
+    });
+    this.bindHoldControl(this.mobileRightButton, (active) => {
+      this.onMobileLaneHoldChange?.(1, active);
+    });
+    this.bindHoldControl(this.mobileFireButton, (active) => {
+      this.onMobileFireHeldChange?.(active);
+    });
+    this.mobileReloadButton.addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      this.mobileReloadButton.dataset.active = 'true';
+      this.mobileReloadButton.setPointerCapture?.(event.pointerId);
+      this.onMobileReload?.();
+    });
+    this.mobileReloadButton.addEventListener('pointerup', () => {
+      this.mobileReloadButton.dataset.active = 'false';
+    });
+    this.mobileReloadButton.addEventListener('pointercancel', () => {
+      this.mobileReloadButton.dataset.active = 'false';
+    });
+    this.mobileReloadButton.addEventListener('lostpointercapture', () => {
+      this.mobileReloadButton.dataset.active = 'false';
+    });
+    this.mobileControlsLeft.append(this.mobileLeftButton, this.mobileRightButton);
+    this.mobileControlsRight.append(this.mobileReloadButton, this.mobileFireButton);
+    this.mobileControls.append(this.mobileControlsLeft, this.mobileControlsRight);
     this.driverPanel.className = 'driver-panel';
     this.driverPortraitFrame.className = 'driver-portrait-frame';
     this.driverPortrait.className = 'driver-portrait';
@@ -603,6 +660,7 @@ export class UISystem {
     this.syncAudioButtons();
     this.root.append(
       hud,
+      this.mobileControls,
       this.laneRequestHud,
       this.driverPanel,
       this.latchWarning,
@@ -623,6 +681,7 @@ export class UISystem {
       this.driverPanelHold = 0;
       this.lastDriverPresentation = null;
       this.lastElapsedSeconds = 0;
+      this.releaseMobileControls();
     }
 
     switch (gameState) {
@@ -677,11 +736,19 @@ export class UISystem {
         this.overlayDialog.hidden = true;
         break;
     }
+
+    this.updateMobileControlsVisibility(gameState);
   }
 
   setAudioPreferences(preferences: AudioPreferenceState): void {
     this.audioPreferences = { ...preferences };
     this.syncAudioButtons();
+  }
+
+  setTouchControlsEnabled(enabled: boolean): void {
+    this.mobileControlsEnabled = enabled;
+    this.root.dataset.touchControls = enabled ? 'true' : 'false';
+    this.updateMobileControlsVisibility(this.root.dataset.state as GameStateType);
   }
 
   setDeathCause(cause: DeathCausePresentation): void {
@@ -733,7 +800,7 @@ export class UISystem {
       round.dataset.shape = snapshot.weapon.roundStyle;
     }
 
-    this.reloadHint.hidden = !snapshot.weapon.showReloadHint;
+    this.reloadHint.hidden = !snapshot.weapon.showReloadHint || this.mobileControlsEnabled;
 
     this.scoreValue.textContent = `${snapshot.player.score}`;
     this.multiplierValue.textContent = `Chain x${snapshot.reward.multiplier.toFixed(2)}`;
@@ -1396,7 +1463,49 @@ export class UISystem {
       : 'Music Off';
   }
 
+  private updateMobileControlsVisibility(gameState: GameStateType): void {
+    this.mobileControls.hidden = !this.mobileControlsEnabled || gameState !== 'running';
+  }
+
+  private releaseMobileControls(): void {
+    this.mobileLeftButton.dataset.active = 'false';
+    this.mobileRightButton.dataset.active = 'false';
+    this.mobileReloadButton.dataset.active = 'false';
+    this.mobileFireButton.dataset.active = 'false';
+    this.onMobileLaneHoldChange?.(-1, false);
+    this.onMobileLaneHoldChange?.(1, false);
+    this.onMobileFireHeldChange?.(false);
+  }
+
+  private bindHoldControl(
+    button: HTMLButtonElement,
+    onHoldChange: (active: boolean) => void,
+  ): void {
+    button.addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      button.dataset.active = 'true';
+      button.setPointerCapture?.(event.pointerId);
+      onHoldChange(true);
+    });
+
+    const release = (event?: PointerEvent) => {
+      if (event) {
+        event.preventDefault();
+      }
+      button.dataset.active = 'false';
+      onHoldChange(false);
+    };
+
+    button.addEventListener('pointerup', release);
+    button.addEventListener('pointercancel', release);
+    button.addEventListener('lostpointercapture', () => {
+      button.dataset.active = 'false';
+      onHoldChange(false);
+    });
+  }
+
   destroy(): void {
+    this.releaseMobileControls();
     this.driverDialogSound.destroy();
     this.root.remove();
   }
