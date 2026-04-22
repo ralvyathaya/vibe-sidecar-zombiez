@@ -78,6 +78,7 @@ export class UISystem {
   onSfxPreferenceChange?: (enabled: boolean) => void;
   onMusicPreferenceChange?: (enabled: boolean) => void;
   onMobileLaneHoldChange?: (direction: -1 | 1, active: boolean) => void;
+  onMobileLaneTap?: (direction: -1 | 1) => void;
   onMobileReload?: () => void;
   onMobileFireHeldChange?: (active: boolean) => void;
 
@@ -118,6 +119,8 @@ export class UISystem {
   private readonly overlayStateKillsValue = document.createElement('span');
   private readonly overlayStateCauseTitle = document.createElement('div');
   private readonly overlayStateCauseBody = document.createElement('div');
+  private menuReloadControlRow: HTMLElement | null = null;
+  private pauseReloadControlRow: HTMLElement | null = null;
   private readonly rewardHud = document.createElement('div');
   private readonly statsPanel = document.createElement('div');
   private readonly healthFill = document.createElement('div');
@@ -354,12 +357,24 @@ export class UISystem {
     this.mobileFireButton.type = 'button';
     this.mobileFireButton.dataset.touchControl = 'true';
     this.mobileFireButton.textContent = 'SHOOT';
-    this.bindHoldControl(this.mobileLeftButton, (active) => {
-      this.onMobileLaneHoldChange?.(-1, active);
-    });
-    this.bindHoldControl(this.mobileRightButton, (active) => {
-      this.onMobileLaneHoldChange?.(1, active);
-    });
+    this.bindHoldControl(
+      this.mobileLeftButton,
+      (active) => {
+        this.onMobileLaneHoldChange?.(-1, active);
+      },
+      () => {
+        this.onMobileLaneTap?.(-1);
+      },
+    );
+    this.bindHoldControl(
+      this.mobileRightButton,
+      (active) => {
+        this.onMobileLaneHoldChange?.(1, active);
+      },
+      () => {
+        this.onMobileLaneTap?.(1);
+      },
+    );
     this.bindHoldControl(this.mobileFireButton, (active) => {
       this.onMobileFireHeldChange?.(active);
     });
@@ -574,11 +589,12 @@ export class UISystem {
     menuRight.className = 'overlay-menu-right';
 
     const controlsCard = this.createMenuCard('Controls');
+    this.menuReloadControlRow = this.createMenuControlRow('R', 'Reload handgun');
     controlsCard.append(
       this.createMenuControlRow('LMB', 'Fire weapon'),
       this.createMenuControlRow('Mouse', 'Aim sidecar gun'),
       this.createMenuControlRow('A / D Hold', 'Call for left or right lane'),
-      this.createMenuControlRow('R', 'Reload handgun'),
+      this.menuReloadControlRow,
     );
 
     const gameplayCard = this.createMenuCard('Gameplay');
@@ -598,12 +614,13 @@ export class UISystem {
     const pausedAudioLabel = document.createElement('div');
     pausedAudioLabel.className = 'overlay-menu-section-label';
     pausedAudioLabel.textContent = 'Audio';
+    this.pauseReloadControlRow = this.createMenuControlRow('R', 'Reload handgun');
     this.overlayStateControlsPanel.append(
       pausedControlsTitle,
       this.createMenuControlRow('LMB', 'Fire weapon'),
       this.createMenuControlRow('Mouse', 'Aim sidecar gun'),
       this.createMenuControlRow('A / D Hold', 'Call for a lane change'),
-      this.createMenuControlRow('R', 'Reload handgun'),
+      this.pauseReloadControlRow,
       pausedAudioLabel,
       this.overlayStateSfxToggle,
       this.overlayStateMusicToggle,
@@ -750,6 +767,17 @@ export class UISystem {
   setTouchControlsEnabled(enabled: boolean): void {
     this.mobileControlsEnabled = enabled;
     this.root.dataset.touchControls = enabled ? 'true' : 'false';
+    this.latchKeysPrompt.textContent = enabled
+      ? 'Tap left / right fast to shake it loose'
+      : 'Tap fast to shake it loose';
+    this.latchKeyA.textContent = enabled ? 'LEFT' : 'A';
+    this.latchKeyD.textContent = enabled ? 'RIGHT' : 'D';
+    if (this.menuReloadControlRow) {
+      this.menuReloadControlRow.hidden = enabled;
+    }
+    if (this.pauseReloadControlRow) {
+      this.pauseReloadControlRow.hidden = enabled;
+    }
     this.updateMobileControlsVisibility(this.root.dataset.state as GameStateType);
   }
 
@@ -1531,11 +1559,13 @@ export class UISystem {
   private bindHoldControl(
     button: HTMLButtonElement,
     onHoldChange: (active: boolean) => void,
+    onTapStart?: () => void,
   ): void {
     button.addEventListener('pointerdown', (event) => {
       event.preventDefault();
       button.dataset.active = 'true';
       button.setPointerCapture?.(event.pointerId);
+      onTapStart?.();
       onHoldChange(true);
     });
 

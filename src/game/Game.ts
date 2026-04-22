@@ -177,6 +177,9 @@ export class Game {
     this.uiSystem.onMobileLaneHoldChange = (direction, active) => {
       this.inputSystem.setVirtualLaneHeld(direction, active);
     };
+    this.uiSystem.onMobileLaneTap = (direction) => {
+      this.inputSystem.queueVirtualWiggle(direction);
+    };
     this.uiSystem.onMobileReload = () => {
       this.inputSystem.queueVirtualReload();
     };

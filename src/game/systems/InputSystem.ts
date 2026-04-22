@@ -176,6 +176,11 @@ export class InputSystem {
     this.setVirtualKey(code, active);
   }
 
+  queueVirtualWiggle(direction: -1 | 1): void {
+    const code = direction < 0 ? 'KeyA' : 'KeyD';
+    this.registerLeanTap(code);
+  }
+
   setVirtualFireHeld(active: boolean): void {
     this.virtualFireHeld = active;
   }
