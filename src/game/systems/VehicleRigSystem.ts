@@ -1,5 +1,6 @@
 import {
   AdditiveBlending,
+  Box3,
   Camera,
   CanvasTexture,
   ConeGeometry,
@@ -27,12 +28,19 @@ type WheelSpinAxis = 'x' | 'y' | 'z';
 type WheelBinding = {
   node: Object3D;
   baseRotation: Euler;
+  blurMeshes: Array<{
+    mesh: Mesh;
+    baseRotation: Euler;
+  }>;
 };
 
 export class VehicleRigSystem {
   private static readonly WHEEL_SPIN_AXIS: WheelSpinAxis = 'x';
-  private static readonly WHEEL_SPIN_MULTIPLIER = -2.7;
+  private static readonly WHEEL_SPIN_MULTIPLIER = 3.7;
   private static readonly WHEEL_NODE_NAMES = ['wheel_front', 'wheel_rear', 'wheel_sidecar'] as const;
+  private static readonly WHEEL_BLUR_MIN_SPEED = 3.8;
+  private static readonly WHEEL_BLUR_MAX_OPACITY = 1.0;
+  private static readonly WHEEL_BLUR_THICKNESS_OFFSET = 0.02;
 
   private readonly vehicleRig = new Group();
   private readonly obstructionShakeGroup = new Group();
@@ -59,6 +67,7 @@ export class VehicleRigSystem {
   private readonly splashTexture: CanvasTexture;
   private readonly hotspotTexture: CanvasTexture;
   private readonly glowTexture: CanvasTexture;
+  private readonly wheelBlurTexture: CanvasTexture;
   private readonly baseRigOffset = new Vector3();
   private readonly baseModelPosition = new Vector3();
   private readonly baseModelRotation = new Vector3();
@@ -72,6 +81,8 @@ export class VehicleRigSystem {
   private readonly perspectiveCamera: PerspectiveCamera | null;
   private readonly baseFov: number;
   private readonly wheelBindings: WheelBinding[] = [];
+  private readonly wheelBounds = new Box3();
+  private readonly wheelSize = new Vector3();
   private loadedScene: Object3D | null = null;
   private currentFov = 72;
   private time = 0;
@@ -106,6 +117,7 @@ export class VehicleRigSystem {
     this.splashTexture = this.createSplashTexture();
     this.hotspotTexture = this.createHotspotTexture();
     this.glowTexture = this.createGlowTexture();
+    this.wheelBlurTexture = this.createWheelBlurTexture();
 
     this.vehicleRig.name = 'VehicleRig';
     this.obstructionShakeGroup.name = 'VehicleObstructionShake';
@@ -375,6 +387,7 @@ export class VehicleRigSystem {
     (this.headlightSideSpillLeft.material as MeshBasicMaterial).opacity = 0;
     (this.headlightSideSpillRight.material as MeshBasicMaterial).opacity = 0;
     (this.headlightGlow.material as SpriteMaterial).opacity = 0.05;
+    this.setWheelBlurOpacity(0);
     this.vehicleRig.visible = true;
     this.applyWheelSpin();
   }
@@ -408,6 +421,13 @@ export class VehicleRigSystem {
     const floorItPush = (ride?.floorItMode ? ride.driveBoostStrength : 0) * 0.012;
     const brakeStability = 1 - (ride?.brakeMode ? ride.driveBrakeStrength * 0.24 : 0);
     const wheelForwardSpeed = running ? (ride?.forwardSpeed ?? this.config.player.forwardSpeed) : 0;
+    const wheelBlurStrength = running
+      ? MathUtils.smoothstep(
+          Math.abs(wheelForwardSpeed),
+          VehicleRigSystem.WHEEL_BLUR_MIN_SPEED,
+          this.config.player.forwardSpeed * 0.92,
+        )
+      : 0;
     const failureSwayX = Math.sin(this.time * 4.4) * failureStress * rig.failureShakeAmplitude * 0.5;
     const failureSwayY = Math.cos(this.time * 3.5) * failureStress * rig.failureShakeAmplitude * 0.34;
     const failureYaw = Math.sin(this.time * 2.9) * failureStress * 0.004;
@@ -417,6 +437,9 @@ export class VehicleRigSystem {
       wheelForwardSpeed *
       VehicleRigSystem.WHEEL_SPIN_MULTIPLIER;
     this.applyWheelSpin();
+    this.setWheelBlurOpacity(
+      wheelBlurStrength * VehicleRigSystem.WHEEL_BLUR_MAX_OPACITY,
+    );
 
     this.vehicleRig.position.copy(playerPosition).add(this.baseRigOffset);
 
@@ -579,6 +602,7 @@ export class VehicleRigSystem {
   destroy(): void {
     this.vehicleRig.removeFromParent();
     this.disposeObject(this.loadedScene);
+    this.wheelBlurTexture.dispose();
   }
 
   private async loadVehicleModel(): Promise<void> {
@@ -660,6 +684,7 @@ export class VehicleRigSystem {
       this.wheelBindings.push({
         node,
         baseRotation: node.rotation.clone(),
+        blurMeshes: this.createWheelBlurMeshes(node),
       });
     }
   }
@@ -673,7 +698,83 @@ export class VehicleRigSystem {
         binding.baseRotation.z,
       );
       binding.node.rotation[axis] += this.wheelSpinAngle;
+
+      for (const blur of binding.blurMeshes) {
+        blur.mesh.rotation.set(
+          blur.baseRotation.x,
+          blur.baseRotation.y,
+          blur.baseRotation.z,
+        );
+        blur.mesh.rotation[axis] -= this.wheelSpinAngle;
+      }
     }
+  }
+
+  private setWheelBlurOpacity(opacity: number): void {
+    const resolvedOpacity = MathUtils.clamp(opacity, 0, VehicleRigSystem.WHEEL_BLUR_MAX_OPACITY);
+    for (const binding of this.wheelBindings) {
+      for (const blur of binding.blurMeshes) {
+        const material = blur.mesh.material as MeshBasicMaterial;
+        material.opacity = resolvedOpacity;
+        blur.mesh.visible = resolvedOpacity > 0.015;
+      }
+    }
+  }
+
+  private createWheelBlurMeshes(node: Object3D): Array<{ mesh: Mesh; baseRotation: Euler }> {
+    this.wheelBounds.setFromObject(node);
+    this.wheelBounds.getSize(this.wheelSize);
+    const axis = VehicleRigSystem.WHEEL_SPIN_AXIS;
+    const diameter =
+      axis === 'x'
+        ? Math.max(this.wheelSize.y, this.wheelSize.z)
+        : axis === 'y'
+          ? Math.max(this.wheelSize.x, this.wheelSize.z)
+          : Math.max(this.wheelSize.x, this.wheelSize.y);
+    const thickness =
+      axis === 'x'
+        ? this.wheelSize.x
+        : axis === 'y'
+          ? this.wheelSize.y
+          : this.wheelSize.z;
+    if (!Number.isFinite(diameter) || diameter <= 0.02) {
+      return [];
+    }
+
+    const planeSize = Math.max(0.12, diameter * 1.24);
+    const offset = thickness * 0.18 + VehicleRigSystem.WHEEL_BLUR_THICKNESS_OFFSET;
+    const blurMeshes: Array<{ mesh: Mesh; baseRotation: Euler }> = [];
+    for (const side of [-1, 1] as const) {
+      const blur = new Mesh(
+        new PlaneGeometry(planeSize, planeSize),
+        new MeshBasicMaterial({
+          color: 0x191715,
+          map: this.wheelBlurTexture,
+          transparent: true,
+          opacity: 1,
+          depthWrite: false,
+          side: DoubleSide,
+        }),
+      );
+      blur.visible = false;
+      blur.renderOrder = 2;
+      if (axis === 'x') {
+        blur.rotation.y = Math.PI * 0.5;
+        blur.position.x = side * offset;
+      } else if (axis === 'y') {
+        blur.rotation.x = Math.PI * 0.5;
+        blur.position.y = side * offset;
+      } else {
+        blur.position.z = side * offset;
+      }
+      node.add(blur);
+      blurMeshes.push({
+        mesh: blur,
+        baseRotation: blur.rotation.clone(),
+      });
+    }
+
+    return blurMeshes;
   }
 
   private findNodeByNameInsensitive(root: Object3D, targetName: string): Object3D | null {
@@ -884,6 +985,50 @@ export class VehicleRigSystem {
       canvas.height * 0.22,
     );
 
+    const texture = new CanvasTexture(canvas);
+    texture.needsUpdate = true;
+    return texture;
+  }
+
+  private createWheelBlurTexture(): CanvasTexture {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 256;
+    const context = canvas.getContext('2d');
+    if (!context) {
+      throw new Error('Unable to create wheel blur texture.');
+    }
+
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.translate(canvas.width * 0.5, canvas.height * 0.5);
+
+    const tireGradient = context.createRadialGradient(0, 0, 16, 0, 0, 108);
+    tireGradient.addColorStop(0, 'rgba(18,16,15,0.10)');
+    tireGradient.addColorStop(0.34, 'rgba(20,18,17,0.28)');
+    tireGradient.addColorStop(0.68, 'rgba(18,17,16,0.66)');
+    tireGradient.addColorStop(0.84, 'rgba(10,10,10,0.88)');
+    tireGradient.addColorStop(1, 'rgba(8,8,8,0)');
+    context.fillStyle = tireGradient;
+    context.beginPath();
+    context.arc(0, 0, 108, 0, Math.PI * 2);
+    context.fill();
+
+    const hubGradient = context.createRadialGradient(0, 0, 0, 0, 0, 54);
+    hubGradient.addColorStop(0, 'rgba(26,24,22,0.42)');
+    hubGradient.addColorStop(0.55, 'rgba(22,21,19,0.24)');
+    hubGradient.addColorStop(1, 'rgba(22,21,19,0)');
+    context.fillStyle = hubGradient;
+    context.beginPath();
+    context.arc(0, 0, 54, 0, Math.PI * 2);
+    context.fill();
+
+    context.strokeStyle = 'rgba(66,64,60,0.22)';
+    context.lineWidth = 5;
+    context.beginPath();
+    context.arc(0, 0, 78, 0, Math.PI * 2);
+    context.stroke();
+
+    context.setTransform(1, 0, 0, 1, 0, 0);
     const texture = new CanvasTexture(canvas);
     texture.needsUpdate = true;
     return texture;
