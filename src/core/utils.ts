@@ -4,8 +4,10 @@ export const clamp = (value: number, min: number, max: number): number =>
 export interface RuntimePerformanceProfile {
   touchLike: boolean;
   lowPower: boolean;
+  balanced: boolean;
   maxPixelRatio: number;
   enableVehicleShadows: boolean;
+  enableAntialias: boolean;
 }
 
 let cachedRuntimePerformanceProfile: RuntimePerformanceProfile | null = null;
@@ -54,14 +56,36 @@ export const getRuntimePerformanceProfile = (): RuntimePerformanceProfile => {
     typeof navigator !== 'undefined' && 'deviceMemory' in navigator
       ? (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? null
       : null;
+  const hardwareConcurrency =
+    typeof navigator !== 'undefined' && typeof navigator.hardwareConcurrency === 'number'
+      ? navigator.hardwareConcurrency
+      : null;
+  const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1280;
+  const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 720;
+  const devicePixelRatioValue =
+    typeof window !== 'undefined' && typeof window.devicePixelRatio === 'number'
+      ? window.devicePixelRatio
+      : 1;
   const touchLike = coarsePointer || touchPoints > 0;
-  const lowPower = touchLike || (deviceMemory !== null && deviceMemory <= 6);
+  const estimatedPixelLoad =
+    viewportWidth * viewportHeight * Math.pow(Math.min(devicePixelRatioValue, 2), 2);
+  const lowPower =
+    touchLike ||
+    (deviceMemory !== null && deviceMemory <= 4) ||
+    (hardwareConcurrency !== null && hardwareConcurrency <= 4);
+  const balanced =
+    !lowPower &&
+    ((deviceMemory !== null && deviceMemory <= 8) ||
+      (hardwareConcurrency !== null && hardwareConcurrency <= 8) ||
+      estimatedPixelLoad >= 2_600_000);
 
   cachedRuntimePerformanceProfile = {
     touchLike,
     lowPower,
-    maxPixelRatio: lowPower ? 1.25 : 1.75,
-    enableVehicleShadows: !lowPower,
+    balanced,
+    maxPixelRatio: lowPower ? 1.05 : balanced ? 1.18 : 1.32,
+    enableVehicleShadows: !lowPower && !balanced,
+    enableAntialias: !lowPower && !balanced && devicePixelRatioValue <= 1.25,
   };
 
   return cachedRuntimePerformanceProfile;

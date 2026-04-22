@@ -52,7 +52,7 @@ export class RendererSystem {
     private readonly config: GameConfig,
   ) {
     this.renderer = new WebGLRenderer({
-      antialias: !this.runtimeProfile.lowPower,
+      antialias: this.runtimeProfile.enableAntialias,
       powerPreference: 'high-performance',
     });
 
