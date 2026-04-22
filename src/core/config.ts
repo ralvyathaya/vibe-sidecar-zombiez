@@ -233,7 +233,7 @@ export const GAME_CONFIG: GameConfig = {
       durationMin: 7,
       durationMax: 11,
       blackoutRadarMultiplier: 0.42,
-      blackoutFogMultiplier: 0.84,
+      blackoutFogMultiplier: 1.44,
       slipperyHandlingPenalty: 0.08,
       slipperyPulseEffectiveness: 0.9,
       slipperyLaneChangeMultiplier: 1.05,

@@ -58,6 +58,7 @@ export class LoopingSound {
   private currentTurnAmount = 0;
   private currentDriveAccel = 0;
   private currentDriveBrake = 0;
+  private enabled = true;
 
   constructor(
     private readonly source: string,
@@ -97,7 +98,22 @@ export class LoopingSound {
     this.baseVolume = volume;
     this.basePlaybackRate = playbackRate;
     this.recomputeTargets();
+    if (!this.enabled) {
+      return;
+    }
     void this.ensurePlaying();
+  }
+
+  setEnabled(enabled: boolean): void {
+    this.enabled = enabled;
+    if (!enabled) {
+      this.stop();
+      return;
+    }
+
+    if (this.desiredPlaying) {
+      void this.ensurePlaying();
+    }
   }
 
   setTurnAmount(turnAmount: number): void {
@@ -184,6 +200,10 @@ export class LoopingSound {
   }
 
   private async ensurePlaying(): Promise<void> {
+    if (!this.enabled) {
+      return;
+    }
+
     const context = this.ensureContext();
     const buffer = await this.loadBuffer(context);
 

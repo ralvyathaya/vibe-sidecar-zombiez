@@ -59,6 +59,7 @@ export class RewardSystem {
     this.state.chainTimer = 0;
     this.state.chainTimerRatio = 0;
     this.state.multiplier = 1;
+    this.state.zombiesKilled = 0;
     this.state.bestChain = 0;
     this.state.comboBonusTotal = 0;
     this.state.milestoneBonusTotal = 0;
@@ -123,6 +124,7 @@ export class RewardSystem {
 
     for (const event of events) {
       this.extendChain();
+      this.state.zombiesKilled += 1;
       awardedScore += Math.round(event.baseScore * this.state.multiplier);
 
       const eventDangerBonus =
@@ -436,6 +438,7 @@ export class RewardSystem {
       chainTimer: 0,
       chainTimerRatio: 0,
       multiplier: 1,
+      zombiesKilled: 0,
       bestChain: 0,
       comboBonusTotal: 0,
       milestoneBonusTotal: 0,

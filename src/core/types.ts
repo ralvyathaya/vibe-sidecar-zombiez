@@ -720,6 +720,7 @@ export interface RewardState {
   chainTimer: number;
   chainTimerRatio: number;
   multiplier: number;
+  zombiesKilled: number;
   bestChain: number;
   comboBonusTotal: number;
   milestoneBonusTotal: number;
@@ -839,6 +840,7 @@ export interface WorldImpactResult {
   aimShake: number;
   cameraShake: number;
   reaction: WorldReactionType;
+  obstacleType: ObstacleType | null;
   freezeDuration: number;
   laneThreats: LaneThreatState[];
 }

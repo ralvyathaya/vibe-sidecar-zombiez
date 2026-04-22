@@ -12,6 +12,7 @@ type ActiveVoice = {
 export class SoundEffectPool {
   private static sharedContext: AudioContext | null = null;
   private static sharedBuffers = new Map<string, Promise<AudioBuffer>>();
+  private static effectsEnabled = true;
 
   private readonly maxVoices: number;
   private readonly activeVoices: ActiveVoice[] = [];
@@ -36,6 +37,10 @@ export class SoundEffectPool {
     }
   }
 
+  static setEffectsEnabled(enabled: boolean): void {
+    SoundEffectPool.effectsEnabled = enabled;
+  }
+
   prime(): void {
     const context = this.ensureContext();
     void this.loadBuffer(context);
@@ -45,6 +50,10 @@ export class SoundEffectPool {
     volume = this.defaultVolume,
     playbackRate = this.defaultPlaybackRate,
   ): void {
+    if (!SoundEffectPool.effectsEnabled) {
+      return;
+    }
+
     const context = this.ensureContext();
     if (context.state === 'suspended') {
       void context.resume().catch(() => {

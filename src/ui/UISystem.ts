@@ -23,6 +23,22 @@ const WEAPON_ART: Record<WeaponStatus['weaponType'], string> = {
   bazooka: '/ui/weapons/bazooka.png',
 };
 
+const MENU_LOGO = '/ui/menu/logo-game.png';
+
+const PAUSE_SUBHEADINGS = [
+  'The driver is pretending this pause was tactical.',
+  'Everybody breathe. Even the ones trying to eat us.',
+  'Pointer lock escaped first. Typical.',
+  'Tiny intermission before the next poor decision.',
+];
+
+const DEATH_SUBHEADINGS = [
+  'The road finally cashed the check.',
+  'That run had excellent intentions and terrible luck.',
+  'Heroic posture. Catastrophic outcome.',
+  'You survived the driver for a while. That still counts.',
+];
+
 type HUDSnapshot = {
   gameState: GameStateType;
   player: PlayerState;
@@ -46,8 +62,21 @@ type DriverPresentation = {
   persistSeconds: number;
 };
 
+type AudioPreferenceState = {
+  sfxEnabled: boolean;
+  musicEnabled: boolean;
+};
+
+type DeathCausePresentation = {
+  title: string;
+  body: string;
+};
+
 export class UISystem {
   onPrimaryAction?: () => void;
+  onRestartAction?: () => void;
+  onSfxPreferenceChange?: (enabled: boolean) => void;
+  onMusicPreferenceChange?: (enabled: boolean) => void;
 
   private readonly root = document.createElement('div');
   private readonly overlay = document.createElement('div');
@@ -56,6 +85,34 @@ export class UISystem {
   private readonly overlayMeta = document.createElement('div');
   private readonly overlayBreakdown = document.createElement('div');
   private readonly overlayButton = document.createElement('button');
+  private readonly overlayMenu = document.createElement('div');
+  private readonly overlayMenuLogo = document.createElement('img');
+  private readonly overlayMenuStartButton = document.createElement('button');
+  private readonly overlayMenuCopy = document.createElement('p');
+  private readonly overlayMenuStats = document.createElement('div');
+  private readonly overlayMenuSfxToggle = document.createElement('button');
+  private readonly overlayMenuMusicToggle = document.createElement('button');
+  private readonly overlayDialog = document.createElement('div');
+  private readonly overlayState = document.createElement('div');
+  private readonly overlayStateLeft = document.createElement('div');
+  private readonly overlayStateRight = document.createElement('div');
+  private readonly overlayStateLogo = document.createElement('img');
+  private readonly overlayStateTitle = document.createElement('h2');
+  private readonly overlayStateSubtitle = document.createElement('p');
+  private readonly overlayStateActions = document.createElement('div');
+  private readonly overlayStatePrimaryButton = document.createElement('button');
+  private readonly overlayStateSecondaryButton = document.createElement('button');
+  private readonly overlayStateHint = document.createElement('div');
+  private readonly overlayStateControlsPanel = document.createElement('section');
+  private readonly overlayStateSummaryPanel = document.createElement('section');
+  private readonly overlayStateCausePanel = document.createElement('section');
+  private readonly overlayStateScoreValue = document.createElement('span');
+  private readonly overlayStateDistanceValue = document.createElement('span');
+  private readonly overlayStateTimeValue = document.createElement('span');
+  private readonly overlayStateBestChainValue = document.createElement('span');
+  private readonly overlayStateKillsValue = document.createElement('span');
+  private readonly overlayStateCauseTitle = document.createElement('div');
+  private readonly overlayStateCauseBody = document.createElement('div');
   private readonly rewardHud = document.createElement('div');
   private readonly statsPanel = document.createElement('div');
   private readonly healthFill = document.createElement('div');
@@ -127,6 +184,12 @@ export class UISystem {
   });
   private readonly ammoRounds: HTMLSpanElement[] = [];
   private readonly radarDots: HTMLSpanElement[] = [];
+  private audioPreferences: AudioPreferenceState = {
+    sfxEnabled: true,
+    musicEnabled: true,
+  };
+  private pauseSubtitle = PAUSE_SUBHEADINGS[0];
+  private deathSubtitle = DEATH_SUBHEADINGS[0];
   private driverPanelHold = 0;
   private lastElapsedSeconds = 0;
   private lastDriverPresentation: DriverPresentation | null = null;
@@ -320,22 +383,218 @@ export class UISystem {
     this.vignette.className = 'damage-vignette';
 
     this.overlay.className = 'overlay';
+    this.overlayMenu.className = 'overlay-menu';
+    this.overlayDialog.className = 'overlay-dialog';
+    this.overlayState.className = 'overlay-state';
+    this.overlayStateLeft.className = 'overlay-state-left';
+    this.overlayStateRight.className = 'overlay-state-right';
     this.overlayTitle.className = 'overlay-title';
     this.overlayText.className = 'overlay-text';
     this.overlayMeta.className = 'overlay-meta';
     this.overlayBreakdown.className = 'overlay-breakdown';
     this.overlayButton.className = 'overlay-button';
+    this.overlayStateLogo.className = 'overlay-state-logo';
+    this.overlayStateLogo.src = MENU_LOGO;
+    this.overlayStateLogo.alt = 'Sidecar of the Dead';
+    this.overlayStateLogo.decoding = 'async';
+    this.overlayStateTitle.className = 'overlay-state-title';
+    this.overlayStateSubtitle.className = 'overlay-state-subtitle';
+    this.overlayStateActions.className = 'overlay-state-actions';
+    this.overlayStatePrimaryButton.className = 'overlay-state-button overlay-state-button--primary';
+    this.overlayStatePrimaryButton.type = 'button';
+    this.overlayStateSecondaryButton.className =
+      'overlay-state-button overlay-state-button--secondary';
+    this.overlayStateSecondaryButton.type = 'button';
+    this.overlayStateHint.className = 'overlay-state-hint';
+    this.overlayStateControlsPanel.className = 'overlay-state-panel overlay-state-panel--controls';
+    this.overlayStateSummaryPanel.className = 'overlay-state-panel overlay-state-panel--summary';
+    this.overlayStateCausePanel.className = 'overlay-state-panel overlay-state-panel--cause';
+    this.overlayStateCauseTitle.className = 'overlay-state-cause-title';
+    this.overlayStateCauseBody.className = 'overlay-state-cause-body';
+    this.overlayMenuLogo.className = 'overlay-menu-logo';
+    this.overlayMenuLogo.src = MENU_LOGO;
+    this.overlayMenuLogo.alt = 'Sidecar of the Dead';
+    this.overlayMenuLogo.decoding = 'async';
+    this.overlayMenuStartButton.className = 'overlay-menu-start';
+    this.overlayMenuStartButton.type = 'button';
+    this.overlayMenuStartButton.textContent = 'Start Run';
+    this.overlayMenuCopy.className = 'overlay-menu-copy';
+    this.overlayMenuCopy.textContent =
+      'Built roughly 90% with AI tools: Cursor + Codex for code, Nano Banana for image iteration, ElevenLabs for voices and SFX passes, plus Gemini-assisted music and prompt workflow.';
+    this.overlayMenuStats.className = 'overlay-menu-stats';
+    this.overlayMenuSfxToggle.className = 'overlay-menu-toggle';
+    this.overlayMenuSfxToggle.type = 'button';
+    this.overlayMenuMusicToggle.className = 'overlay-menu-toggle';
+    this.overlayMenuMusicToggle.type = 'button';
     this.overlayButton.addEventListener('click', () => {
       this.onPrimaryAction?.();
     });
+    this.overlayStatePrimaryButton.addEventListener('click', () => {
+      this.onPrimaryAction?.();
+    });
+    this.overlayStateSecondaryButton.addEventListener('click', () => {
+      this.onRestartAction?.();
+    });
+    this.overlayMenuStartButton.addEventListener('click', () => {
+      this.onPrimaryAction?.();
+    });
+    this.overlayMenuSfxToggle.addEventListener('click', () => {
+      const nextValue = !this.audioPreferences.sfxEnabled;
+      this.audioPreferences.sfxEnabled = nextValue;
+      this.syncMenuAudioButtons();
+      this.onSfxPreferenceChange?.(nextValue);
+    });
+    this.overlayMenuMusicToggle.addEventListener('click', () => {
+      const nextValue = !this.audioPreferences.musicEnabled;
+      this.audioPreferences.musicEnabled = nextValue;
+      this.syncMenuAudioButtons();
+      this.onMusicPreferenceChange?.(nextValue);
+    });
 
-    this.overlay.append(
+    const menuLeft = document.createElement('section');
+    menuLeft.className = 'overlay-menu-panel overlay-menu-panel--left';
+
+    const menuEyebrow = document.createElement('div');
+    menuEyebrow.className = 'overlay-menu-eyebrow';
+    menuEyebrow.textContent = 'Driver Chaos Sidecar Survival';
+
+    const menuTagline = document.createElement('p');
+    menuTagline.className = 'overlay-menu-tagline';
+    menuTagline.textContent = 'Ride shotgun. Shoot low. Survive your driver.';
+
+    const menuOptions = document.createElement('div');
+    menuOptions.className = 'overlay-menu-options';
+
+    const menuOptionsLabel = document.createElement('div');
+    menuOptionsLabel.className = 'overlay-menu-section-label';
+    menuOptionsLabel.textContent = 'Boot Options';
+
+    menuOptions.append(
+      menuOptionsLabel,
+      this.overlayMenuSfxToggle,
+      this.overlayMenuMusicToggle,
+    );
+
+    const menuHint = document.createElement('div');
+    menuHint.className = 'overlay-menu-hint';
+    menuHint.textContent = 'Press Enter to start';
+
+    menuLeft.append(
+      this.overlayMenuLogo,
+      menuEyebrow,
+      menuTagline,
+      this.overlayMenuStartButton,
+      this.overlayMenuCopy,
+      this.overlayMenuStats,
+      menuOptions,
+      menuHint,
+    );
+
+    const menuCenter = document.createElement('div');
+    menuCenter.className = 'overlay-menu-center';
+
+    const menuCenterFrame = document.createElement('div');
+    menuCenterFrame.className = 'overlay-menu-stage';
+
+    const menuCenterTop = document.createElement('div');
+    menuCenterTop.className = 'overlay-menu-stage-copy overlay-menu-stage-copy--top';
+    menuCenterTop.textContent = 'LIVE ROAD FEED';
+
+    const menuCenterBottom = document.createElement('div');
+    menuCenterBottom.className = 'overlay-menu-stage-copy overlay-menu-stage-copy--bottom';
+    menuCenterBottom.textContent = 'The driver owns the lane. You own the gun.';
+
+    menuCenterFrame.append(menuCenterTop, menuCenterBottom);
+    menuCenter.append(menuCenterFrame);
+
+    const menuRight = document.createElement('div');
+    menuRight.className = 'overlay-menu-right';
+
+    const controlsCard = this.createMenuCard('Controls');
+    controlsCard.append(
+      this.createMenuControlRow('LMB', 'Fire weapon'),
+      this.createMenuControlRow('Mouse', 'Aim sidecar gun'),
+      this.createMenuControlRow('A / D Hold', 'Call for left or right lane'),
+      this.createMenuControlRow('A / D Tap', 'Wiggle loose if runner latches'),
+      this.createMenuControlRow('R', 'Reload handgun'),
+      this.createMenuControlRow('Enter', 'Start run / resume overlay'),
+    );
+
+    const gameplayCard = this.createMenuCard('Gameplay');
+    gameplayCard.append(
+      this.createMenuPoint('Driver controls the bike. You react, shoot, and survive.'),
+      this.createMenuPoint('Aim lower when a runner clamps onto the sidecar.'),
+      this.createMenuPoint('Shotgun saves panic moments. Bazooka deletes bad boards.'),
+      this.createMenuPoint('Barrels punish crowds, but hard blockers still end the run.'),
+      this.createMenuPoint('Call lanes early. The driver is reckless, not psychic.'),
+    );
+
+    menuRight.append(controlsCard, gameplayCard);
+
+    const pausedControlsTitle = document.createElement('h2');
+    pausedControlsTitle.className = 'overlay-state-panel-title';
+    pausedControlsTitle.textContent = 'Controls';
+    this.overlayStateControlsPanel.append(
+      pausedControlsTitle,
+      this.createMenuControlRow('LMB', 'Fire weapon'),
+      this.createMenuControlRow('Mouse', 'Aim sidecar gun'),
+      this.createMenuControlRow('A / D Hold', 'Call for a lane change'),
+      this.createMenuControlRow('A / D Tap', 'Break runner latch'),
+      this.createMenuControlRow('R', 'Reload handgun'),
+      this.createMenuControlRow('Enter', 'Resume run'),
+    );
+
+    const summaryTitle = document.createElement('h2');
+    summaryTitle.className = 'overlay-state-panel-title';
+    summaryTitle.textContent = 'Run Summary';
+    this.overlayStateSummaryPanel.append(
+      summaryTitle,
+      this.createSummaryRow('score', 'Score', this.overlayStateScoreValue),
+      this.createSummaryRow('distance', 'Distance', this.overlayStateDistanceValue),
+      this.createSummaryRow('time', 'Time', this.overlayStateTimeValue),
+      this.createSummaryRow('chain', 'Best Chain', this.overlayStateBestChainValue),
+      this.createSummaryRow('skull', 'Zombies Killed', this.overlayStateKillsValue),
+    );
+
+    const causeTitle = document.createElement('h2');
+    causeTitle.className = 'overlay-state-panel-title overlay-state-panel-title--danger';
+    causeTitle.textContent = 'Cause Of Death';
+    const causeBadge = document.createElement('div');
+    causeBadge.className = 'overlay-state-cause-badge';
+    this.overlayStateCausePanel.append(
+      causeTitle,
+      causeBadge,
+      this.overlayStateCauseTitle,
+      this.overlayStateCauseBody,
+    );
+
+    this.overlayDialog.append(
       this.overlayTitle,
       this.overlayText,
       this.overlayMeta,
       this.overlayBreakdown,
       this.overlayButton,
     );
+    this.overlayStateActions.append(
+      this.overlayStatePrimaryButton,
+      this.overlayStateSecondaryButton,
+    );
+    this.overlayStateLeft.append(
+      this.overlayStateLogo,
+      this.overlayStateTitle,
+      this.overlayStateSubtitle,
+      this.overlayStateActions,
+      this.overlayStateHint,
+    );
+    this.overlayStateRight.append(
+      this.overlayStateControlsPanel,
+      this.overlayStateSummaryPanel,
+      this.overlayStateCausePanel,
+    );
+    this.overlayState.append(this.overlayStateLeft, this.overlayStateRight);
+    this.overlay.append(this.overlayMenu, this.overlayState, this.overlayDialog);
+    this.overlayMenu.append(menuLeft, menuCenter, menuRight);
+    this.syncMenuAudioButtons();
     this.root.append(
       hud,
       this.laneRequestHud,
@@ -363,30 +622,62 @@ export class UISystem {
     switch (gameState) {
       case 'menu':
         this.overlay.hidden = false;
-        this.overlayTitle.textContent = 'Dead Rush Sidecar';
-        this.overlayText.textContent =
-          'Ride shotgun in the apocalypse. Mouse aim, click to fire, hold A or D to ask for a lane shift, tap A/D to wiggle free from a latch, and react when your driver suddenly does something reckless.';
-        this.overlayButton.textContent = 'Click To Start';
+        this.overlay.dataset.mode = 'menu';
+        this.overlayMenu.hidden = false;
+        this.overlayState.hidden = true;
+        this.overlayDialog.hidden = true;
         break;
       case 'paused':
         this.overlay.hidden = false;
-        this.overlayTitle.textContent = 'Paused';
-        this.overlayText.textContent =
-          'Pointer lock was released. Click back in to get behind the gun again.';
-        this.overlayButton.textContent = 'Resume';
+        this.overlay.dataset.mode = 'state';
+        this.overlayMenu.hidden = true;
+        this.overlayState.hidden = false;
+        this.overlayDialog.hidden = true;
+        this.pauseSubtitle = this.pickRandom(PAUSE_SUBHEADINGS, this.pauseSubtitle);
+        this.overlayState.dataset.kind = 'paused';
+        this.overlayStateTitle.textContent = 'Paused';
+        this.overlayStateSubtitle.textContent = this.pauseSubtitle;
+        this.overlayStatePrimaryButton.textContent = 'Resume Run';
+        this.overlayStateSecondaryButton.textContent = 'Restart Game';
+        this.overlayStateSecondaryButton.hidden = false;
+        this.overlayStateControlsPanel.hidden = false;
+        this.overlayStateSummaryPanel.hidden = true;
+        this.overlayStateCausePanel.hidden = true;
+        this.overlayStateHint.textContent = 'Press Enter to resume';
         break;
       case 'dead':
         this.overlay.hidden = false;
-        this.overlayTitle.textContent = 'Wrecked';
-        this.overlayText.textContent =
-          'The sidecar came apart before you did. Restart and survive the driver longer.';
-        this.overlayButton.textContent = 'Restart';
+        this.overlay.dataset.mode = 'state';
+        this.overlayMenu.hidden = true;
+        this.overlayState.hidden = false;
+        this.overlayDialog.hidden = true;
+        this.deathSubtitle = this.pickRandom(DEATH_SUBHEADINGS, this.deathSubtitle);
+        this.overlayState.dataset.kind = 'dead';
+        this.overlayStateTitle.textContent = 'Game Over';
+        this.overlayStateSubtitle.textContent = this.deathSubtitle;
+        this.overlayStatePrimaryButton.textContent = 'Retry Game';
+        this.overlayStateSecondaryButton.hidden = true;
+        this.overlayStateControlsPanel.hidden = true;
+        this.overlayStateSummaryPanel.hidden = false;
+        this.overlayStateCausePanel.hidden = false;
+        this.overlayStateHint.textContent = 'Press Enter to retry';
         break;
       case 'running':
       default:
         this.overlay.hidden = true;
+        this.overlay.dataset.mode = 'hidden';
         break;
     }
+  }
+
+  setAudioPreferences(preferences: AudioPreferenceState): void {
+    this.audioPreferences = { ...preferences };
+    this.syncMenuAudioButtons();
+  }
+
+  setDeathCause(cause: DeathCausePresentation): void {
+    this.overlayStateCauseTitle.textContent = cause.title;
+    this.overlayStateCauseBody.textContent = cause.body;
   }
 
   update(snapshot: HUDSnapshot): void {
@@ -611,30 +902,26 @@ export class UISystem {
 
   private updateOverlay(snapshot: HUDSnapshot): void {
     if (snapshot.gameState === 'dead') {
-      this.overlayMeta.textContent =
-        `Score ${snapshot.player.score}\n` +
-        `Run Best Chain ${snapshot.reward.bestChain}\n` +
-        `Best Score ${snapshot.reward.bestScore}\n` +
-        `Best Chain ${snapshot.reward.bestChainRecord}`;
-      this.overlayBreakdown.textContent =
-        `Combo Bonus +${snapshot.reward.comboBonusTotal}\n` +
-        `Milestone Bonus +${snapshot.reward.milestoneBonusTotal}\n` +
-        `Explosive Bonus +${snapshot.reward.explosiveBonusTotal}\n` +
-        `Rare Accolades ${snapshot.reward.earnedAccoladesThisRun}`;
-      this.overlayBreakdown.hidden = false;
+      this.overlayStateScoreValue.textContent = `${snapshot.player.score}`;
+      this.overlayStateDistanceValue.textContent = formatDistance(snapshot.player.distance);
+      this.overlayStateTimeValue.textContent = `${snapshot.elapsedSeconds.toFixed(1)}s`;
+      this.overlayStateBestChainValue.textContent = `${snapshot.reward.bestChain}`;
+      this.overlayStateKillsValue.textContent = `${snapshot.reward.zombiesKilled}`;
       return;
     }
 
     if (snapshot.gameState === 'menu') {
-      this.overlayMeta.textContent =
-        `Best Score ${snapshot.reward.bestScore}\n` +
-        `Best Chain ${snapshot.reward.bestChainRecord}\n` +
-        `Last Run ${snapshot.reward.lastRunScore}`;
+      this.overlayMenuStats.textContent =
+        `Best Score  ${snapshot.reward.bestScore}\n` +
+        `Best Chain  ${snapshot.reward.bestChainRecord}\n` +
+        `Last Run  ${snapshot.reward.lastRunScore}`;
+      this.overlayMeta.textContent = '';
       this.overlayBreakdown.hidden = true;
       this.overlayBreakdown.textContent = '';
       return;
     }
 
+    this.overlayMenuStats.textContent = '';
     this.overlayMeta.textContent = '';
     this.overlayBreakdown.hidden = true;
     this.overlayBreakdown.textContent = '';
@@ -973,6 +1260,62 @@ export class UISystem {
     return chip;
   }
 
+  private createMenuCard(title: string): HTMLElement {
+    const card = document.createElement('section');
+    card.className = 'overlay-menu-card';
+
+    const heading = document.createElement('h2');
+    heading.className = 'overlay-menu-card-title';
+    heading.textContent = title;
+
+    card.append(heading);
+    return card;
+  }
+
+  private createMenuControlRow(keyLabel: string, description: string): HTMLElement {
+    const row = document.createElement('div');
+    row.className = 'overlay-menu-control';
+
+    const key = document.createElement('span');
+    key.className = 'overlay-menu-key';
+    key.textContent = keyLabel;
+
+    const label = document.createElement('span');
+    label.className = 'overlay-menu-control-label';
+    label.textContent = description;
+
+    row.append(key, label);
+    return row;
+  }
+
+  private createMenuPoint(text: string): HTMLElement {
+    const point = document.createElement('div');
+    point.className = 'overlay-menu-point';
+    point.textContent = text;
+    return point;
+  }
+
+  private createSummaryRow(
+    icon: 'score' | 'distance' | 'time' | 'chain' | 'skull',
+    label: string,
+    valueNode: HTMLElement,
+  ): HTMLElement {
+    const row = document.createElement('div');
+    row.className = 'overlay-summary-row';
+
+    const iconNode = document.createElement('span');
+    iconNode.className = `overlay-summary-icon overlay-summary-icon--${icon}`;
+    iconNode.setAttribute('aria-hidden', 'true');
+
+    const labelNode = document.createElement('span');
+    labelNode.className = 'overlay-summary-label';
+    labelNode.textContent = label;
+
+    valueNode.classList.add('overlay-summary-value');
+    row.append(iconNode, labelNode, valueNode);
+    return row;
+  }
+
   private getChainTier(reward: RewardState): 'ready' | 'low' | 'mid' | 'high' | 'overdrive' {
     if (reward.chainCount <= 0) {
       return 'ready';
@@ -987,6 +1330,33 @@ export class UISystem {
       return 'mid';
     }
     return 'low';
+  }
+
+  private pickRandom(options: readonly string[], previous: string): string {
+    if (options.length <= 1) {
+      return options[0] ?? previous;
+    }
+
+    let next = previous;
+    while (next === previous) {
+      next = options[Math.floor(Math.random() * options.length)] ?? previous;
+    }
+    return next;
+  }
+
+  private syncMenuAudioButtons(): void {
+    this.overlayMenuSfxToggle.dataset.enabled = this.audioPreferences.sfxEnabled
+      ? 'true'
+      : 'false';
+    this.overlayMenuMusicToggle.dataset.enabled = this.audioPreferences.musicEnabled
+      ? 'true'
+      : 'false';
+    this.overlayMenuSfxToggle.textContent = this.audioPreferences.sfxEnabled
+      ? 'SFX  ON'
+      : 'SFX  OFF';
+    this.overlayMenuMusicToggle.textContent = this.audioPreferences.musicEnabled
+      ? 'MUSIC  ON'
+      : 'MUSIC  OFF';
   }
 
   destroy(): void {

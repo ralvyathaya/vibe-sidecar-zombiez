@@ -222,6 +222,7 @@ export class WorldSystem {
       aimShake: 0,
       cameraShake: 0,
       reaction: 'none',
+      obstacleType: null,
       freezeDuration: 0,
       laneThreats: [],
     };
@@ -255,6 +256,7 @@ export class WorldSystem {
         impact.aimShake = Math.max(impact.aimShake, obstacle.aimShake);
         impact.cameraShake = Math.max(impact.cameraShake, obstacle.aimShake * 0.9);
         impact.reaction = this.getObstacleReaction(obstacle.type);
+        impact.obstacleType = obstacle.type;
         impact.freezeDuration = Math.max(impact.freezeDuration, this.getObstacleFreeze(obstacle.type));
         this.playObstacleImpactSound(obstacle);
 
@@ -510,6 +512,7 @@ export class WorldSystem {
       aimShake: 0.018,
       cameraShake: this.config.driver.engineTroubleCameraShake * 0.55,
       reaction: 'scrape',
+      obstacleType: target.type,
       freezeDuration: 0.05,
       laneThreats: this.getLaneThreats(),
     };

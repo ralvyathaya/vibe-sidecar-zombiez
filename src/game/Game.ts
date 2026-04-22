@@ -25,6 +25,16 @@ import { VehicleRigSystem } from './systems/VehicleRigSystem';
 import { WeaponSystem } from './systems/WeaponSystem';
 import { WorldSystem } from './systems/WorldSystem';
 
+const AUDIO_PREFERENCES_KEY = 'sidecar-of-the-dead.audio-preferences';
+
+type DeathCauseKey =
+  | 'overrun'
+  | 'tank'
+  | 'wreck'
+  | 'barrel'
+  | 'road'
+  | 'unknown';
+
 export class Game {
   private readonly shell = document.createElement('div');
   private readonly rendererSystem: RendererSystem;
@@ -44,9 +54,23 @@ export class Game {
   private readonly stallLoop: LoopingSound;
   private readonly playerPosition = new Vector3();
   private readonly playerForward = new Vector3();
+  private readonly handleOverlayKeyDown = (event: KeyboardEvent) => {
+    if (this.state === 'running') {
+      return;
+    }
+
+    if (event.code !== 'Enter' && event.code !== 'NumpadEnter') {
+      return;
+    }
+
+    event.preventDefault();
+    this.triggerPrimaryAction();
+  };
 
   private state: GameStateType = 'menu';
+  private audioPreferences = this.loadAudioPreferences();
   private suppressUnlockPause = false;
+  private lastDeathCause: DeathCauseKey = 'unknown';
   private roadHandlingPenalty = 0;
   private roadAimShake = 0;
   private roadCameraShake = 0;
@@ -124,15 +148,24 @@ export class Game {
     };
 
     this.uiSystem.onPrimaryAction = () => {
-      if (this.state === 'menu' || this.state === 'dead') {
-        this.resetGame();
-      }
-
-      SoundEffectPool.unlockAudio();
-      this.inputSystem.clearTransientInput();
-      this.setState('running');
-      this.inputSystem.requestPointerLock();
+      this.triggerPrimaryAction();
     };
+    this.uiSystem.onRestartAction = () => {
+      this.triggerRestartAction();
+    };
+    this.uiSystem.onSfxPreferenceChange = (enabled) => {
+      this.audioPreferences.sfxEnabled = enabled;
+      this.saveAudioPreferences();
+      SoundEffectPool.unlockAudio();
+      this.applyAudioPreferences();
+    };
+    this.uiSystem.onMusicPreferenceChange = (enabled) => {
+      this.audioPreferences.musicEnabled = enabled;
+      this.saveAudioPreferences();
+    };
+    this.uiSystem.setAudioPreferences(this.audioPreferences);
+    this.applyAudioPreferences();
+    window.addEventListener('keydown', this.handleOverlayKeyDown);
 
     this.resetGame();
     this.setState('menu');
@@ -144,6 +177,7 @@ export class Game {
 
   destroy(): void {
     this.gameLoop.stop();
+    window.removeEventListener('keydown', this.handleOverlayKeyDown);
     this.uiSystem.destroy();
     this.inputSystem.destroy();
     this.weaponSystem.destroy();
@@ -273,6 +307,7 @@ export class Game {
       this.applyWorldImpact(worldImpact);
       if (worldImpact.damage > 0) {
         this.rewardSystem.breakChainFromDamage();
+        this.lastDeathCause = this.resolveWorldDeathCause(worldImpact);
         this.playerSystem.applyDamage(worldImpact.damage);
       }
 
@@ -417,6 +452,7 @@ export class Game {
     }
 
     this.rewardSystem.breakChainFromDamage();
+    this.lastDeathCause = zombie.type === 'tank' ? 'tank' : 'overrun';
     this.playerSystem.applyDamage(zombie.config.contactDamage, zombie.group.position.x);
     this.enemySystem.despawn(zombie);
   }
@@ -605,11 +641,31 @@ export class Game {
     }
 
     this.rewardSystem.finalizeRun(this.playerSystem.state.score);
+    this.uiSystem.setDeathCause(this.describeDeathCause(this.lastDeathCause));
     this.setState('dead');
     if (this.inputSystem.isPointerLocked()) {
       this.suppressUnlockPause = true;
       void document.exitPointerLock();
     }
+  }
+
+  private triggerPrimaryAction(): void {
+    if (this.state === 'menu' || this.state === 'dead') {
+      this.resetGame();
+    }
+
+    SoundEffectPool.unlockAudio();
+    this.inputSystem.clearTransientInput();
+    this.setState('running');
+    this.inputSystem.requestPointerLock();
+  }
+
+  private triggerRestartAction(): void {
+    this.resetGame();
+    SoundEffectPool.unlockAudio();
+    this.inputSystem.clearTransientInput();
+    this.setState('running');
+    this.inputSystem.requestPointerLock();
   }
 
   private resetGame(): void {
@@ -633,6 +689,7 @@ export class Game {
     this.latchWasActive = false;
     this.frameRideState = null;
     this.lastRideState = null;
+    this.lastDeathCause = 'unknown';
     this.syncStallLoop(false);
   }
 
@@ -649,6 +706,104 @@ export class Game {
       this.engineLoop.setTurnAmount(0);
       this.engineLoop.pause();
       this.syncStallLoop(false);
+    }
+  }
+
+  private applyAudioPreferences(): void {
+    SoundEffectPool.setEffectsEnabled(this.audioPreferences.sfxEnabled);
+    this.engineLoop.setEnabled(this.audioPreferences.sfxEnabled);
+    this.stallLoop.setEnabled(this.audioPreferences.sfxEnabled);
+    this.uiSystem.setAudioPreferences(this.audioPreferences);
+  }
+
+  private loadAudioPreferences(): { sfxEnabled: boolean; musicEnabled: boolean } {
+    try {
+      const stored = window.localStorage.getItem(AUDIO_PREFERENCES_KEY);
+      if (!stored) {
+        return {
+          sfxEnabled: true,
+          musicEnabled: true,
+        };
+      }
+
+      const parsed = JSON.parse(stored) as Partial<{
+        sfxEnabled: boolean;
+        musicEnabled: boolean;
+      }>;
+      return {
+        sfxEnabled: parsed.sfxEnabled ?? true,
+        musicEnabled: parsed.musicEnabled ?? true,
+      };
+    } catch {
+      return {
+        sfxEnabled: true,
+        musicEnabled: true,
+      };
+    }
+  }
+
+  private saveAudioPreferences(): void {
+    try {
+      window.localStorage.setItem(
+        AUDIO_PREFERENCES_KEY,
+        JSON.stringify(this.audioPreferences),
+      );
+    } catch {
+      // Ignore storage failures and keep runtime defaults.
+    }
+  }
+
+  private resolveWorldDeathCause(impact: WorldImpactResult): DeathCauseKey {
+    if (impact.obstacleType === 'barrel' || impact.reaction === 'barrel') {
+      return 'barrel';
+    }
+    if (impact.obstacleType === 'brokenLane' || impact.reaction === 'brokenLane') {
+      return 'road';
+    }
+    if (
+      impact.obstacleType === 'car' ||
+      impact.obstacleType === 'wreck' ||
+      impact.obstacleType === 'barricade' ||
+      impact.obstacleType === 'concreteBlock'
+    ) {
+      return 'wreck';
+    }
+    return 'unknown';
+  }
+
+  private describeDeathCause(cause: DeathCauseKey): { title: string; body: string } {
+    switch (cause) {
+      case 'tank':
+        return {
+          title: 'TANK COLLISION',
+          body: 'The brute reached the bike first. Heavy meat won that argument.',
+        };
+      case 'barrel':
+        return {
+          title: 'BAD BARREL CALL',
+          body: 'Something explosive joined the conversation and ended it badly.',
+        };
+      case 'road':
+        return {
+          title: 'ROAD EATEN',
+          body: 'The asphalt opened up and your sidecar lost the vote.',
+        };
+      case 'wreck':
+        return {
+          title: 'WRECKED OUT',
+          body: 'Hard steel beat reckless optimism. The bike did not recover.',
+        };
+      case 'overrun':
+        return {
+          title: 'OVERRUN',
+          body: 'Too many dead reached the rig at once. They climbed faster than you cleared.',
+        };
+      case 'unknown':
+      default:
+        return {
+          title: 'TOTAL SYSTEM FAILURE',
+          body: 'The run fell apart all at once. The road keeps the exact paperwork.',
+        };
     }
   }
 
