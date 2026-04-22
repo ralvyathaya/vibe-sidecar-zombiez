@@ -57,6 +57,7 @@ export class UISystem {
   private readonly overlayBreakdown = document.createElement('div');
   private readonly overlayButton = document.createElement('button');
   private readonly rewardHud = document.createElement('div');
+  private readonly statsPanel = document.createElement('div');
   private readonly healthFill = document.createElement('div');
   private readonly healthValue = document.createElement('span');
   private readonly ammoPanel = document.createElement('div');
@@ -165,13 +166,16 @@ export class UISystem {
       this.radarDots.push(dot);
     }
 
-    const statsPanel = document.createElement('div');
-    statsPanel.className = 'stats-panel stats-panel--side';
-    this.scoreValue.className = 'stat-chip';
+    this.statsPanel.className = 'stats-panel stats-panel--side';
+    this.scoreValue.className = 'stat-value';
     this.multiplierValue.className = 'stat-chip stat-chip--reward';
-    this.distanceValue.className = 'stat-chip';
-    this.timerValue.className = 'stat-chip';
-    statsPanel.append(this.scoreValue, this.distanceValue, this.timerValue);
+    this.distanceValue.className = 'stat-value';
+    this.timerValue.className = 'stat-value';
+    this.statsPanel.append(
+      this.createStatChip('score', 'Score', this.scoreValue),
+      this.createStatChip('distance', 'Distance', this.distanceValue),
+      this.createStatChip('time', 'Time', this.timerValue),
+    );
     this.chainPanel.className = 'chain-panel';
     this.chainFill.className = 'chain-fill';
     this.chainLabel.className = 'chain-label';
@@ -292,7 +296,7 @@ export class UISystem {
     hudTop.append(this.rewardHud, this.radarPanel);
     this.buffPanel.append(this.adrenalineBuff, this.nitroBuff);
     this.segmentChip.hidden = true;
-    hudMiddle.append(this.eventChip, this.buffPanel, statsPanel);
+    hudMiddle.append(this.eventChip, this.buffPanel, this.statsPanel);
     hudBottom.append(leftPanel, this.ammoPanel);
     hud.append(hudTop, hudMiddle, hudBottom);
 
@@ -431,7 +435,7 @@ export class UISystem {
 
     this.reloadHint.hidden = !snapshot.weapon.showReloadHint;
 
-    this.scoreValue.textContent = `Score ${snapshot.player.score}`;
+    this.scoreValue.textContent = `${snapshot.player.score}`;
     this.multiplierValue.textContent = `Chain x${snapshot.reward.multiplier.toFixed(2)}`;
     this.multiplierValue.dataset.active = snapshot.reward.chainCount > 1 ? 'true' : 'false';
     this.chainPanel.dataset.active = snapshot.reward.chainCount > 0 ? 'true' : 'false';
@@ -440,13 +444,15 @@ export class UISystem {
       snapshot.reward.chainCount > 0
         ? `${snapshot.reward.chainCount} HIT CHAIN`
         : 'Chain Ready';
-    this.distanceValue.textContent = `Distance ${formatDistance(snapshot.player.distance)}`;
-    this.timerValue.textContent = `Time ${snapshot.elapsedSeconds.toFixed(1)}s`;
+    this.distanceValue.textContent = formatDistance(snapshot.player.distance);
+    this.timerValue.textContent = `${snapshot.elapsedSeconds.toFixed(1)}s`;
     this.rewardCallout.textContent = snapshot.reward.recentCallout;
     this.rewardCallout.dataset.visible =
       snapshot.reward.recentCalloutTimer > 0 && snapshot.reward.recentCallout !== ''
         ? 'true'
         : 'false';
+    this.rewardCallout.dataset.combo =
+      /(DOUBLE|TRIPLE|MULTI) KILL/.test(snapshot.reward.recentCallout) ? 'true' : 'false';
     this.accoladeBanner.hidden =
       snapshot.reward.activeAccoladeTimer <= 0 || snapshot.reward.activeAccolade === '';
     this.accoladeBanner.textContent = snapshot.reward.activeAccolade;
@@ -938,6 +944,30 @@ export class UISystem {
       return 'BLACKOUT';
     }
     return '';
+  }
+
+  private createStatChip(
+    kind: 'score' | 'distance' | 'time',
+    label: string,
+    valueNode: HTMLElement,
+  ): HTMLElement {
+    const chip = document.createElement('div');
+    chip.className = `stat-chip stat-chip--${kind}`;
+
+    const icon = document.createElement('span');
+    icon.className = `stat-icon stat-icon--${kind}`;
+    icon.setAttribute('aria-hidden', 'true');
+
+    const body = document.createElement('div');
+    body.className = 'stat-body';
+
+    const labelNode = document.createElement('span');
+    labelNode.className = 'stat-label';
+    labelNode.textContent = label;
+
+    body.append(labelNode, valueNode);
+    chip.append(icon, body);
+    return chip;
   }
 
   destroy(): void {
