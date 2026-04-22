@@ -293,10 +293,10 @@ export class UISystem {
     this.rewardCallout.className = 'reward-callout';
     this.accoladeBanner.className = 'accolade-banner';
 
-    hudTop.append(this.rewardHud, this.radarPanel);
+    hudTop.append(this.rewardHud, this.radarPanel, this.statsPanel);
     this.buffPanel.append(this.adrenalineBuff, this.nitroBuff);
     this.segmentChip.hidden = true;
-    hudMiddle.append(this.eventChip, this.buffPanel, this.statsPanel);
+    hudMiddle.append(this.eventChip, this.buffPanel);
     hudBottom.append(leftPanel, this.ammoPanel);
     hud.append(hudTop, hudMiddle, hudBottom);
 
@@ -438,7 +438,10 @@ export class UISystem {
     this.scoreValue.textContent = `${snapshot.player.score}`;
     this.multiplierValue.textContent = `Chain x${snapshot.reward.multiplier.toFixed(2)}`;
     this.multiplierValue.dataset.active = snapshot.reward.chainCount > 1 ? 'true' : 'false';
+    this.multiplierValue.dataset.tier = this.getChainTier(snapshot.reward);
     this.chainPanel.dataset.active = snapshot.reward.chainCount > 0 ? 'true' : 'false';
+    this.chainPanel.dataset.ready = snapshot.reward.chainCount > 0 ? 'false' : 'true';
+    this.chainPanel.dataset.tier = this.getChainTier(snapshot.reward);
     this.chainFill.style.transform = `scaleX(${snapshot.reward.chainTimerRatio.toFixed(3)})`;
     this.chainLabel.textContent =
       snapshot.reward.chainCount > 0
@@ -968,6 +971,22 @@ export class UISystem {
     body.append(labelNode, valueNode);
     chip.append(icon, body);
     return chip;
+  }
+
+  private getChainTier(reward: RewardState): 'ready' | 'low' | 'mid' | 'high' | 'overdrive' {
+    if (reward.chainCount <= 0) {
+      return 'ready';
+    }
+    if (reward.multiplier >= 3.5 || reward.chainCount >= 12) {
+      return 'overdrive';
+    }
+    if (reward.multiplier >= 2.5 || reward.chainCount >= 8) {
+      return 'high';
+    }
+    if (reward.multiplier >= 1.75 || reward.chainCount >= 4) {
+      return 'mid';
+    }
+    return 'low';
   }
 
   destroy(): void {
