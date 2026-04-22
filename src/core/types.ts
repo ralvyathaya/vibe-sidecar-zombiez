@@ -241,13 +241,6 @@ export interface GameConfig {
       nearFillColor: number;
       nearFillIntensity: number;
       nearFillDistance: number;
-      focusHeadlightColor: number;
-      focusHeadlightIntensity: number;
-      focusHeadlightDistance: number;
-      focusHeadlightAngleDegrees: number;
-      focusHeadlightPenumbra: number;
-      focusHeadlightDecay: number;
-      focusHeadlightTargetPosition: Vec3Tuple;
     };
   };
   ride: {
@@ -281,9 +274,6 @@ export interface GameConfig {
     nitroBoostMultiplier: number;
     nitroSpeedBonus: number;
     nitroLaneChangeMultiplier: number;
-    focusBeamHeatRate: number;
-    focusBeamCoolRate: number;
-    focusBeamRecoveryThreshold: number;
   };
   driver: {
     promptIntervalMin: number;
