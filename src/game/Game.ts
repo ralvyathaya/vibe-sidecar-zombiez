@@ -312,6 +312,7 @@ export class Game {
       );
       this.applyWorldImpact(worldImpact);
       if (worldImpact.damage > 0) {
+        this.driverSystem.notifyObstacleCollision(worldImpact.obstacleType);
         this.rewardSystem.breakChainFromDamage();
         this.lastDeathCause = this.resolveWorldDeathCause(worldImpact);
         this.playerSystem.applyDamage(worldImpact.damage);
@@ -556,6 +557,7 @@ export class Game {
     const latchActive = this.enemySystem.hasLatchedRunner();
     return {
       ...baseRide,
+      supportCue: this.driverSystem.getSupportCue() ?? baseRide.supportCue,
       worldX: this.playerSystem.state.strafeX || baseRide.worldX,
       laneRequestActive: laneRequestState.active,
       laneRequestDirection: laneRequestState.direction,

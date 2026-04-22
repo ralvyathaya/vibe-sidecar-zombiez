@@ -457,7 +457,7 @@ export class WorldSystem {
 
       const proximity = 1 - Math.min(distanceAhead / 80, 1);
       lane.score += obstacle.threatScore * (0.4 + proximity * 1.2);
-      if (obstacle.blocksLane && distanceAhead < 30) {
+      if (obstacle.blocksLane && distanceAhead < this.getLaneReadDistance(obstacle.type)) {
         lane.blocker = true;
         if (
           lane.blockerDistance === null ||
@@ -1948,6 +1948,16 @@ export class WorldSystem {
       return 'barrel' as const;
     }
     return 'none' as const;
+  }
+
+  private getLaneReadDistance(type: ObstacleType): number {
+    if (type === 'car') {
+      return 44;
+    }
+    if (type === 'wreck') {
+      return 34;
+    }
+    return 30;
   }
 
   private getObstacleFreeze(type: ObstacleType): number {

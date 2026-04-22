@@ -92,6 +92,8 @@ export class UISystem {
   private readonly overlayMenuStats = document.createElement('div');
   private readonly overlayMenuSfxToggle = document.createElement('button');
   private readonly overlayMenuMusicToggle = document.createElement('button');
+  private readonly overlayStateSfxToggle = document.createElement('button');
+  private readonly overlayStateMusicToggle = document.createElement('button');
   private readonly overlayDialog = document.createElement('div');
   private readonly overlayState = document.createElement('div');
   private readonly overlayStateLeft = document.createElement('div');
@@ -441,6 +443,10 @@ export class UISystem {
     this.overlayMenuSfxToggle.type = 'button';
     this.overlayMenuMusicToggle.className = 'overlay-menu-toggle';
     this.overlayMenuMusicToggle.type = 'button';
+    this.overlayStateSfxToggle.className = 'overlay-menu-toggle';
+    this.overlayStateSfxToggle.type = 'button';
+    this.overlayStateMusicToggle.className = 'overlay-menu-toggle';
+    this.overlayStateMusicToggle.type = 'button';
     this.overlayButton.addEventListener('click', () => {
       this.onPrimaryAction?.();
     });
@@ -454,16 +460,16 @@ export class UISystem {
       this.onPrimaryAction?.();
     });
     this.overlayMenuSfxToggle.addEventListener('click', () => {
-      const nextValue = !this.audioPreferences.sfxEnabled;
-      this.audioPreferences.sfxEnabled = nextValue;
-      this.syncMenuAudioButtons();
-      this.onSfxPreferenceChange?.(nextValue);
+      this.toggleSfxPreference();
     });
     this.overlayMenuMusicToggle.addEventListener('click', () => {
-      const nextValue = !this.audioPreferences.musicEnabled;
-      this.audioPreferences.musicEnabled = nextValue;
-      this.syncMenuAudioButtons();
-      this.onMusicPreferenceChange?.(nextValue);
+      this.toggleMusicPreference();
+    });
+    this.overlayStateSfxToggle.addEventListener('click', () => {
+      this.toggleSfxPreference();
+    });
+    this.overlayStateMusicToggle.addEventListener('click', () => {
+      this.toggleMusicPreference();
     });
 
     const menuLeft = document.createElement('section');
@@ -530,12 +536,18 @@ export class UISystem {
     const pausedControlsTitle = document.createElement('h2');
     pausedControlsTitle.className = 'overlay-state-panel-title';
     pausedControlsTitle.textContent = 'Controls';
+    const pausedAudioLabel = document.createElement('div');
+    pausedAudioLabel.className = 'overlay-menu-section-label';
+    pausedAudioLabel.textContent = 'Audio';
     this.overlayStateControlsPanel.append(
       pausedControlsTitle,
       this.createMenuControlRow('LMB', 'Fire weapon'),
       this.createMenuControlRow('Mouse', 'Aim sidecar gun'),
       this.createMenuControlRow('A / D Hold', 'Call for a lane change'),
       this.createMenuControlRow('R', 'Reload handgun'),
+      pausedAudioLabel,
+      this.overlayStateSfxToggle,
+      this.overlayStateMusicToggle,
     );
 
     const summaryTitle = document.createElement('h2');
@@ -588,7 +600,7 @@ export class UISystem {
     this.overlayState.append(this.overlayStateLeft, this.overlayStateRight);
     this.overlay.append(this.overlayMenu, this.overlayState, this.overlayDialog);
     this.overlayMenu.append(menuLeft, menuRight);
-    this.syncMenuAudioButtons();
+    this.syncAudioButtons();
     this.root.append(
       hud,
       this.laneRequestHud,
@@ -669,7 +681,7 @@ export class UISystem {
 
   setAudioPreferences(preferences: AudioPreferenceState): void {
     this.audioPreferences = { ...preferences };
-    this.syncMenuAudioButtons();
+    this.syncAudioButtons();
   }
 
   setDeathCause(cause: DeathCausePresentation): void {
@@ -983,13 +995,15 @@ export class UISystem {
     const supportCue = snapshot.ride?.supportCue;
     if (supportCue) {
       const mood =
-        supportCue.intent === 'laneRequestWrong'
+        supportCue.intent === 'obstacleHit' || supportCue.intent === 'laneRequestWrong'
           ? 'panic'
           : supportCue.intent === 'laneRequestDenied'
             ? 'observing'
             : 'calm';
       const speaker =
-        supportCue.intent === 'laneRequestWrong'
+        supportCue.intent === 'obstacleHit'
+          ? 'Driver  Instantly Regretful'
+          : supportCue.intent === 'laneRequestWrong'
           ? 'Driver  Misreading Destiny'
           : supportCue.intent === 'laneRequestDenied'
             ? 'Driver  Dryly Refusing'
@@ -1341,7 +1355,21 @@ export class UISystem {
     return next;
   }
 
-  private syncMenuAudioButtons(): void {
+  private toggleSfxPreference(): void {
+    const nextValue = !this.audioPreferences.sfxEnabled;
+    this.audioPreferences.sfxEnabled = nextValue;
+    this.syncAudioButtons();
+    this.onSfxPreferenceChange?.(nextValue);
+  }
+
+  private toggleMusicPreference(): void {
+    const nextValue = !this.audioPreferences.musicEnabled;
+    this.audioPreferences.musicEnabled = nextValue;
+    this.syncAudioButtons();
+    this.onMusicPreferenceChange?.(nextValue);
+  }
+
+  private syncAudioButtons(): void {
     this.overlayMenuSfxToggle.dataset.enabled = this.audioPreferences.sfxEnabled
       ? 'true'
       : 'false';
@@ -1352,6 +1380,20 @@ export class UISystem {
     this.overlayMenuMusicToggle.dataset.kind = 'music';
     this.overlayMenuSfxToggle.textContent = 'Enable SFX';
     this.overlayMenuMusicToggle.textContent = 'Enable Music';
+    this.overlayStateSfxToggle.dataset.enabled = this.audioPreferences.sfxEnabled
+      ? 'true'
+      : 'false';
+    this.overlayStateMusicToggle.dataset.enabled = this.audioPreferences.musicEnabled
+      ? 'true'
+      : 'false';
+    this.overlayStateSfxToggle.dataset.kind = 'sfx';
+    this.overlayStateMusicToggle.dataset.kind = 'music';
+    this.overlayStateSfxToggle.textContent = this.audioPreferences.sfxEnabled
+      ? 'SFX On'
+      : 'SFX Off';
+    this.overlayStateMusicToggle.textContent = this.audioPreferences.musicEnabled
+      ? 'Music On'
+      : 'Music Off';
   }
 
   destroy(): void {

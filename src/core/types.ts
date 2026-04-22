@@ -28,6 +28,7 @@ export type DriverIntentType =
   | 'floorIt'
   | 'brake'
   | 'engineTrouble'
+  | 'obstacleHit'
   | 'pickupOpportunity'
   | 'laneRequest'
   | 'laneRequestWrong'

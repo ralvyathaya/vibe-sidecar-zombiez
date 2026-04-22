@@ -34,6 +34,7 @@ export class DriverSystem {
   private cycleElapsed = 0;
   private nextForcedEngineTroubleAt = 0;
   private cautiousHoldTimer = 0;
+  private recentLaneChangeTimer = 0;
   private segmentIndex = 0;
   private segment: RunSegment = 'rest';
   private segmentElapsed = 0;
@@ -43,6 +44,7 @@ export class DriverSystem {
   private eventDuration = 0;
   private nitroActive = false;
   private supportCue: DriverPromptState | null = null;
+  private supportCueCooldownTimer = 0;
   private laneThreats: LaneThreatState[] = [];
   private time = 0;
 
@@ -72,6 +74,7 @@ export class DriverSystem {
     this.cycleElapsed = 0;
     this.nextForcedEngineTroubleAt = this.rollForcedEngineTroubleTime();
     this.cautiousHoldTimer = 0;
+    this.recentLaneChangeTimer = 0;
     this.segmentIndex = 0;
     this.segment = this.config.pacing.sequence[0] ?? 'rest';
     this.segmentElapsed = 0;
@@ -81,6 +84,7 @@ export class DriverSystem {
     this.eventDuration = 0;
     this.nitroActive = false;
     this.supportCue = null;
+    this.supportCueCooldownTimer = 0;
     this.laneThreats = this.createFallbackLaneThreats();
     this.time = 0;
   }
@@ -123,7 +127,9 @@ export class DriverSystem {
     this.brakeTimer = Math.max(0, this.brakeTimer - deltaTime);
     this.engineTroubleTimer = Math.max(0, this.engineTroubleTimer - deltaTime);
     this.cautiousHoldTimer = Math.max(0, this.cautiousHoldTimer - deltaTime);
+    this.recentLaneChangeTimer = Math.max(0, this.recentLaneChangeTimer - deltaTime);
     this.nextOpportunityIn = Math.max(0, this.nextOpportunityIn - deltaTime);
+    this.supportCueCooldownTimer = Math.max(0, this.supportCueCooldownTimer - deltaTime);
 
     if (this.engineTroubleTimer <= 0) {
       this.engineTroubleRoughness = 0;
@@ -373,6 +379,33 @@ export class DriverSystem {
     this.promptLockout = Math.max(0, this.promptLockout);
   }
 
+  getSupportCue(): DriverPromptState | null {
+    return this.supportCue;
+  }
+
+  notifyObstacleCollision(obstacleType: LaneThreatState['blockerType']): void {
+    if (!obstacleType || !this.wasTurningRecently() || this.supportCueCooldownTimer > 0) {
+      return;
+    }
+
+    const label =
+      obstacleType === 'car'
+        ? 'Oops. Car.'
+        : obstacleType === 'wreck'
+          ? 'Oops. Wreck.'
+          : obstacleType === 'barricade'
+            ? 'Oops. Barricade.'
+            : obstacleType === 'concreteBlock'
+              ? 'Oops. Concrete.'
+              : 'Oops.';
+    this.setSupportCue('obstacleHit', label, 'driver clipped an obstacle during a lane cut', true);
+    this.supportCueCooldownTimer = this.config.driver.supportCueCooldown;
+    this.cautiousHoldTimer = Math.max(
+      this.cautiousHoldTimer,
+      this.config.driver.cautiousHoldDuration,
+    );
+  }
+
   consumePromptResolution(): DriverPromptResolution | null {
     return null;
   }
@@ -489,6 +522,16 @@ export class DriverSystem {
     }
 
     const currentLane = this.getLaneThreat(this.targetLaneIndex);
+    const escapeLaneExists = this.laneThreats.some(
+      (lane) =>
+        lane.laneIndex !== currentLane.laneIndex &&
+        !lane.brokenLane &&
+        !this.isHardVeto(lane, failureSeverity, false, hasLatch),
+    );
+    if (currentLane.blockerType === 'car' && escapeLaneExists) {
+      return null;
+    }
+
     const blockerDistance = currentLane.blockerDistance ?? Number.POSITIVE_INFINITY;
     const shouldBrake =
       (currentLane.blocker && blockerDistance <= this.config.driver.brakeHazardDistance) ||
@@ -573,6 +616,7 @@ export class DriverSystem {
     const hazardCost =
       (lane.brokenLane ? 0.85 : 0) +
       (this.activeEvent === 'slipperyRoad' ? 0.08 : 0) +
+      this.getBlockerApproachCost(lane) +
       lane.smallCount * 0.08 +
       lane.bruteCount * 1.2;
     const pickupBonus = this.canAutoPickupLane(lane, currentLane, failureSeverity, hasLatch)
@@ -614,7 +658,13 @@ export class DriverSystem {
     hasLatch: boolean,
   ): boolean {
     const blockerDistance = lane.blockerDistance ?? Number.POSITIVE_INFINITY;
-    if (lane.blocker && blockerDistance < this.config.driver.blockerVetoDistance) {
+    const blockerVetoDistance =
+      lane.blockerType === 'car'
+        ? this.config.driver.blockerVetoDistance * 1.7
+        : lane.blockerType === 'wreck'
+          ? this.config.driver.blockerVetoDistance * 1.15
+          : this.config.driver.blockerVetoDistance;
+    if (lane.blocker && blockerDistance < blockerVetoDistance) {
       return true;
     }
 
@@ -699,6 +749,7 @@ export class DriverSystem {
     const nitroMultiplier = this.nitroActive ? this.config.ride.nitroLaneChangeMultiplier : 1;
     this.laneChangeTimer = duration * nitroMultiplier;
     this.laneChangeDurationCurrent = this.laneChangeTimer;
+    this.recentLaneChangeTimer = this.laneChangeTimer + 0.22;
   }
 
   private createPrompt(
@@ -804,7 +855,11 @@ export class DriverSystem {
     intent: DriverIntentType,
     label: string,
     reason: string,
+    force = false,
   ): void {
+    if (!force && this.supportCueCooldownTimer > 0) {
+      return;
+    }
     this.supportCue = this.createPrompt(
       intent,
       label,
@@ -813,6 +868,26 @@ export class DriverSystem {
       'support',
       reason,
     );
+  }
+
+  private getBlockerApproachCost(lane: LaneThreatState): number {
+    if (!lane.blockerType || lane.blockerDistance === null) {
+      return 0;
+    }
+
+    if (lane.blockerType === 'car') {
+      return clamp((46 - lane.blockerDistance) * 0.14, 0, 4.2);
+    }
+
+    if (lane.blockerType === 'wreck') {
+      return clamp((34 - lane.blockerDistance) * 0.08, 0, 1.7);
+    }
+
+    return 0;
+  }
+
+  private wasTurningRecently(): boolean {
+    return this.laneChangeTimer > 0 || this.recentLaneChangeTimer > 0;
   }
 
   private triggerEngineTrouble(): void {
