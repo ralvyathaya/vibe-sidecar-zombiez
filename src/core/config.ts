@@ -9,14 +9,14 @@ export const GAME_CONFIG: GameConfig = {
     fogColor: 0x2a333d,
     fogNear: 15,
     fogFar: 72,
-    exposure: 1.2,
+    exposure: 1.5,
     atmosphere: {
       rest: {
         clearColor: 0x0b1015,
         fogColor: 0x2d3741,
         fogNear: 15,
         fogFar: 76,
-        exposure: 1.22,
+        exposure: 1.5,
         radarStrength: 0.9,
       },
       chaos: {
@@ -24,7 +24,7 @@ export const GAME_CONFIG: GameConfig = {
         fogColor: 0x29323c,
         fogNear: 14,
         fogFar: 70,
-        exposure: 1.16,
+        exposure: 1.45,
         radarStrength: 0.86,
       },
       dark: {
@@ -32,7 +32,7 @@ export const GAME_CONFIG: GameConfig = {
         fogColor: 0x263039,
         fogNear: 13,
         fogFar: 66,
-        exposure: 1.08,
+        exposure: 1.35,
         radarStrength: 0.7,
       },
     },
@@ -116,13 +116,6 @@ export const GAME_CONFIG: GameConfig = {
       nearFillColor: 0xaec8ff,
       nearFillIntensity: 1.45,
       nearFillDistance: 6.8,
-      focusHeadlightColor: 0xffffff,
-      focusHeadlightIntensity: 64,
-      focusHeadlightDistance: 90,
-      focusHeadlightAngleDegrees: 7.5,
-      focusHeadlightPenumbra: 0.95,
-      focusHeadlightDecay: 2,
-      focusHeadlightTargetPosition: [0, -0.62, -82],
     },
   },
   ride: {
@@ -156,9 +149,6 @@ export const GAME_CONFIG: GameConfig = {
     nitroBoostMultiplier: 1.18,
     nitroSpeedBonus: 0.08,
     nitroLaneChangeMultiplier: 0.86,
-    focusBeamHeatRate: 0.44,
-    focusBeamCoolRate: 0.3,
-    focusBeamRecoveryThreshold: 0.42,
   },
   driver: {
     promptIntervalMin: 10,

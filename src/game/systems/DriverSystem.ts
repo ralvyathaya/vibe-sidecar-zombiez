@@ -189,13 +189,17 @@ export class DriverSystem {
         (this.engineTroubleTimer > 0 ? 0.7 + engineTroubleAlpha * 0.65 : 0) +
       slipperyTurnJitter +
       failureSeverity * this.config.player.failureAimShake;
+    const failureCameraStress =
+      clamp((failureSeverity - 0.45) / 0.55, 0, 1) *
+      this.config.vehicle.stage1Rig.failureShakeAmplitude *
+      0.22;
     const cameraShake =
       this.config.driver.floorItCameraShake * floorItAlpha +
       this.config.driver.brakeCameraShake * brakeAlpha +
       this.config.driver.engineTroubleCameraShake *
         (this.engineTroubleTimer > 0 ? 0.72 + engineTroubleAlpha * 0.6 : 0) +
       slipperyTurnJitter * 1.4 +
-      failureSeverity * this.config.vehicle.stage1Rig.failureShakeAmplitude;
+      failureCameraStress;
     return {
       laneIndex: this.laneIndex,
       targetLaneIndex: this.laneToIndex,

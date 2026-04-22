@@ -897,22 +897,30 @@ export class ShotgunWeapon {
 
   private spawnPelletStreak(start: Vector3, direction: Vector3, length: number): void {
     const streak = this.pelletStreaks.find((entry) => !entry.active);
-    if (!streak || length <= 0.05) {
+    if (
+      !streak ||
+      !Number.isFinite(length) ||
+      length <= 0.05 ||
+      !this.isFiniteVector(direction) ||
+      direction.lengthSq() <= 0.000001
+    ) {
       return;
     }
 
     streak.active = true;
     streak.life = this.config.shotgun.pelletTraceDuration;
     streak.maxLife = this.config.shotgun.pelletTraceDuration;
-    streak.direction.set(0, 0, 0);
+    streak.direction.copy(direction).normalize();
     streak.speed = 0;
     streak.group.visible = true;
+    streak.beam.visible = true;
+    streak.glow.visible = true;
     // Start slightly forward from the muzzle tip so the burst reads from the
     // barrel itself and stays out of the player's face.
     streak.group.position
       .copy(start)
-      .addScaledVector(direction, this.config.shotgun.pelletTraceMuzzleForward);
-    streak.group.quaternion.setFromUnitVectors(EFFECT_FORWARD_AXIS, direction);
+      .addScaledVector(streak.direction, this.config.shotgun.pelletTraceMuzzleForward);
+    streak.group.quaternion.setFromUnitVectors(EFFECT_FORWARD_AXIS, streak.direction);
     streak.beam.position.set(length * 0.5, 0, 0);
     streak.glow.position.set(length * 0.5, 0, 0);
     streak.beam.scale.set(length, 0.09, 0.09);
@@ -953,6 +961,16 @@ export class ShotgunWeapon {
         continue;
       }
 
+      if (
+        !Number.isFinite(streak.life) ||
+        !Number.isFinite(streak.maxLife) ||
+        streak.maxLife <= 0 ||
+        !this.isFiniteVector(streak.group.position)
+      ) {
+        this.deactivatePelletStreak(streak);
+        continue;
+      }
+
       streak.life -= deltaTime;
       streak.group.position.z += scrollDistance;
       if (streak.life <= 0) {
@@ -960,7 +978,7 @@ export class ShotgunWeapon {
         continue;
       }
 
-      const alpha = streak.life / streak.maxLife;
+      const alpha = clamp(streak.life / streak.maxLife, 0, 1);
       const beamAlpha = alpha * alpha;
       (streak.beam.material as MeshBasicMaterial).opacity = 1 * beamAlpha;
       (streak.glow.material as MeshBasicMaterial).opacity = 0.5 * alpha;
@@ -1001,9 +1019,20 @@ export class ShotgunWeapon {
     streak.speed = 0;
     streak.direction.set(0, 0, 0);
     streak.group.visible = false;
+    streak.group.quaternion.identity();
     streak.group.position.set(0, 0, 999);
+    streak.beam.visible = false;
+    streak.glow.visible = false;
+    streak.beam.position.set(0, 0, 0);
+    streak.glow.position.set(0, 0, 0);
+    streak.beam.scale.set(0.001, 0.001, 0.001);
+    streak.glow.scale.set(0.001, 0.001, 0.001);
     (streak.beam.material as MeshBasicMaterial).opacity = 0;
     (streak.glow.material as MeshBasicMaterial).opacity = 0;
+  }
+
+  private isFiniteVector(target: Vector3): boolean {
+    return Number.isFinite(target.x) && Number.isFinite(target.y) && Number.isFinite(target.z);
   }
 
   private clearImpactBursts(): void {

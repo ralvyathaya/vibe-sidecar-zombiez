@@ -819,7 +819,7 @@ export class UISystem {
       return {
         key: 'event:critical-failure',
         mood: 'panic',
-        label: 'The bike is writing its will. Clear me a lane.',
+        label: 'Critical damage. The bike is falling apart. Clear me a lane.',
         speaker: 'Driver  Speaking To Machinery',
         intent: 'critical',
         showTimer: false,
