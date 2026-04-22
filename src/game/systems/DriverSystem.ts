@@ -30,6 +30,9 @@ export class DriverSystem {
   private brakeTimer = 0;
   private engineTroubleTimer = 0;
   private engineTroubleRoughness = 0;
+  private engineTroubleTriggeredThisCycle = false;
+  private cycleElapsed = 0;
+  private nextForcedEngineTroubleAt = 0;
   private cautiousHoldTimer = 0;
   private segmentIndex = 0;
   private segment: RunSegment = 'rest';
@@ -65,6 +68,9 @@ export class DriverSystem {
     this.brakeTimer = 0;
     this.engineTroubleTimer = 0;
     this.engineTroubleRoughness = 0;
+    this.engineTroubleTriggeredThisCycle = false;
+    this.cycleElapsed = 0;
+    this.nextForcedEngineTroubleAt = this.rollForcedEngineTroubleTime();
     this.cautiousHoldTimer = 0;
     this.segmentIndex = 0;
     this.segment = this.config.pacing.sequence[0] ?? 'rest';
@@ -106,6 +112,7 @@ export class DriverSystem {
     }
     this.previousEvent = this.activeEvent;
     this.nitroActive = nitroActive;
+    this.cycleElapsed += deltaTime;
     this.segmentElapsed += deltaTime;
     this.advanceSegmentIfNeeded();
 
@@ -387,6 +394,17 @@ export class DriverSystem {
       return;
     }
 
+    const forcedEngineTrouble = this.isForcedEngineTroubleDue(hasLatch);
+    const engineTroubleCandidate = this.getEngineTroubleCandidate(
+      failureSeverity,
+      hasLatch,
+      forcedEngineTrouble,
+    );
+    if (forcedEngineTrouble && engineTroubleCandidate) {
+      this.triggerEngineTrouble();
+      return;
+    }
+
     const floorItCandidate = this.getFloorItCandidate(failureSeverity, hasLatch);
     if (floorItCandidate) {
       this.floorItTimer = this.config.driver.floorItDuration;
@@ -403,23 +421,12 @@ export class DriverSystem {
       return;
     }
 
-    const engineTroubleCandidate = this.getEngineTroubleCandidate(failureSeverity, hasLatch);
     if (engineTroubleCandidate) {
-      this.floorItTimer = 0;
-      this.brakeTimer = 0;
-      this.engineTroubleRoughness = 0;
-      this.engineTroubleTimer = this.config.driver.engineTroubleDuration;
-      this.setSupportCue(
-        'engineTrouble',
-        'The engine has developed a personality.',
-        'the bike is stumbling under stress',
-      );
-      this.promptLockout = this.config.driver.promptEffectLockout;
-      this.nextPromptIn = this.rollPromptTimer();
+      this.triggerEngineTrouble();
       return;
     }
 
-    this.nextPromptIn = 2.5;
+    this.nextPromptIn = forcedEngineTrouble ? 1.1 : 1.8;
   }
 
   private updateLaneChoice(failureSeverity: number, hasLatch: boolean): void {
@@ -529,6 +536,7 @@ export class DriverSystem {
   private getEngineTroubleCandidate(
     failureSeverity: number,
     hasLatch: boolean,
+    forced = false,
   ): LaneThreatState | null {
     if (hasLatch || this.activeEvent === 'berserkWave') {
       return null;
@@ -536,16 +544,20 @@ export class DriverSystem {
 
     const currentLane = this.getLaneThreat(this.targetLaneIndex);
     const blockerDistance = currentLane.blockerDistance ?? Number.POSITIVE_INFINITY;
-    const stressedEnough =
-      failureSeverity >= this.config.driver.engineTroubleFailureThreshold ||
-      (this.segment === 'chaos' && failureSeverity >= 0.28 && currentLane.score >= 1.1);
     const fairWindow =
       !currentLane.blocker &&
       blockerDistance > 18 &&
       !currentLane.brokenLane &&
       currentLane.bruteCount === 0;
+    const stressedEnough =
+      failureSeverity >= this.config.driver.engineTroubleFailureThreshold ||
+      (this.segment === 'chaos' && failureSeverity >= 0.28 && currentLane.score >= 1.1);
 
-    return stressedEnough && fairWindow ? currentLane : null;
+    if (!fairWindow) {
+      return null;
+    }
+
+    return forced || stressedEnough ? currentLane : null;
   }
 
   private getLaneDriveScore(
@@ -668,6 +680,11 @@ export class DriverSystem {
     this.segmentIndex = (this.segmentIndex + 1) % this.config.pacing.sequence.length;
     this.segment = this.config.pacing.sequence[this.segmentIndex] ?? 'rest';
     this.segmentElapsed = 0;
+    if (this.segmentIndex === 0) {
+      this.cycleElapsed = 0;
+      this.engineTroubleTriggeredThisCycle = false;
+      this.nextForcedEngineTroubleAt = this.rollForcedEngineTroubleTime();
+    }
   }
 
   private startLaneChange(nextLaneIndex: number, duration: number): void {
@@ -798,6 +815,34 @@ export class DriverSystem {
     );
   }
 
+  private triggerEngineTrouble(): void {
+    this.floorItTimer = 0;
+    this.brakeTimer = 0;
+    this.engineTroubleRoughness = randomRange(0.03, 0.16);
+    this.engineTroubleTimer = randomRange(
+      this.config.driver.engineTroubleForcedDuration,
+      this.config.driver.engineTroubleDuration,
+    );
+    this.engineTroubleTriggeredThisCycle = true;
+    this.nextForcedEngineTroubleAt = this.rollForcedEngineTroubleTime();
+    this.setSupportCue(
+      'engineTrouble',
+      'The bike just coughed up bad intentions.',
+      'the bike is stumbling under stress',
+    );
+    this.promptLockout = this.config.driver.promptEffectLockout;
+    this.nextPromptIn = this.rollPromptTimer();
+  }
+
+  private isForcedEngineTroubleDue(hasLatch: boolean): boolean {
+    return (
+      !hasLatch &&
+      this.activeEvent !== 'berserkWave' &&
+      !this.engineTroubleTriggeredThisCycle &&
+      this.cycleElapsed >= this.nextForcedEngineTroubleAt
+    );
+  }
+
   private createFallbackLaneThreats(): LaneThreatState[] {
     return this.config.world.laneCenters.map((_, laneIndex) => ({
       laneIndex,
@@ -821,6 +866,10 @@ export class DriverSystem {
       this.config.driver.promptIntervalMin,
       this.config.driver.promptIntervalMax,
     );
+  }
+
+  private rollForcedEngineTroubleTime(): number {
+    return randomRange(22, 34);
   }
 
   private rollOpportunityTimer(): number {

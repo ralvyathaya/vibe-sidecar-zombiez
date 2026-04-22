@@ -45,6 +45,8 @@ export class PickupSystem {
   private bazookaLoadPromise: Promise<void> | null = null;
   private nextSpawnZ = -110;
   private scriptedBazookaSpawned = false;
+  private criticalMedkitTimer = -1;
+  private criticalMedkitCooldown = 0;
 
   constructor(
     private readonly scene: Scene,
@@ -70,6 +72,8 @@ export class PickupSystem {
       this.config.pickups.spawnMaxZ,
     );
     this.scriptedBazookaSpawned = false;
+    this.criticalMedkitTimer = -1;
+    this.criticalMedkitCooldown = 0;
 
     for (const pickup of this.pickups) {
       this.deactivate(pickup);
@@ -90,6 +94,9 @@ export class PickupSystem {
     const weaponUnlocked = devWeapons || elapsedSeconds >= this.config.pickups.unlockTimeSeconds;
     const supportUnlocked =
       devWeapons || elapsedSeconds >= this.config.pickups.supportUnlockTimeSeconds;
+    this.criticalMedkitCooldown = Math.max(0, this.criticalMedkitCooldown - deltaTime);
+    const bazookaUnlocked =
+      devWeapons || elapsedSeconds >= this.config.pickups.bazookaUnlockTimeSeconds;
 
     for (const pickup of this.pickups) {
       if (!pickup.active) {
@@ -133,12 +140,19 @@ export class PickupSystem {
       }
     }
 
+    this.updateCriticalMedkitRescue(
+      deltaTime,
+      playerX,
+      elapsedSeconds,
+      loadout,
+      player,
+      bazookaUnlocked,
+    );
+
     if (!weaponUnlocked && !supportUnlocked) {
       return events;
     }
 
-    const bazookaUnlocked =
-      devWeapons || elapsedSeconds >= this.config.pickups.bazookaUnlockTimeSeconds;
     if (
       bazookaUnlocked &&
       !this.scriptedBazookaSpawned &&
@@ -305,10 +319,18 @@ export class PickupSystem {
     bazookaUnlocked: boolean,
     elapsedSeconds: number,
     forcedKind?: PickupType,
+    options?: {
+      laneIndex?: number;
+      zPosition?: number;
+      consumeSpacing?: boolean;
+    },
   ): void {
-    const laneIndex = randomInt(0, this.config.world.laneCenters.length - 1);
+    const laneIndex =
+      options?.laneIndex ?? randomInt(0, this.config.world.laneCenters.length - 1);
     const laneCenter = this.config.world.laneCenters[laneIndex] ?? 0;
     const activeSupportCount = this.getActiveSupportCount();
+    const spawnZ = options?.zPosition ?? this.nextSpawnZ;
+    const consumeSpacing = options?.consumeSpacing ?? true;
     let kind: PickupType;
     if (forcedKind) {
       kind = forcedKind;
@@ -343,7 +365,7 @@ export class PickupSystem {
     pickup.lane = laneIndex;
     pickup.laneLocalX = laneCenter + randomRange(-0.25, 0.25);
     pickup.mesh.visible = true;
-    this.groundToRoad(pickup, this.nextSpawnZ, elapsedSeconds);
+    this.groundToRoad(pickup, spawnZ, elapsedSeconds);
     pickup.mesh.rotation.set(0, randomRange(-0.3, 0.3), 0);
     pickup.spinSpeed = randomRange(0.8, 1.35);
     pickup.bobOffset = Math.random() * Math.PI * 2;
@@ -358,10 +380,12 @@ export class PickupSystem {
       pickup.nitroVariant.visible = false;
       (pickup.glow.material as MeshBasicMaterial).color.setHex(0xffca6e);
       (pickup.beacon.material as MeshBasicMaterial).color.setHex(0xffca6e);
-      this.nextSpawnZ -= randomRange(
-        this.config.pickups.shotgunPickupSpacingMin,
-        this.config.pickups.shotgunPickupSpacingMax,
-      );
+      if (consumeSpacing) {
+        this.nextSpawnZ -= randomRange(
+          this.config.pickups.shotgunPickupSpacingMin,
+          this.config.pickups.shotgunPickupSpacingMax,
+        );
+      }
       return;
     }
 
@@ -376,10 +400,12 @@ export class PickupSystem {
       pickup.nitroVariant.visible = false;
       (pickup.glow.material as MeshBasicMaterial).color.setHex(0xff8d5b);
       (pickup.beacon.material as MeshBasicMaterial).color.setHex(0xff8d5b);
-      this.nextSpawnZ -= randomRange(
-        this.config.pickups.bazookaPickupSpacingMin,
-        this.config.pickups.bazookaPickupSpacingMax,
-      );
+      if (consumeSpacing) {
+        this.nextSpawnZ -= randomRange(
+          this.config.pickups.bazookaPickupSpacingMin,
+          this.config.pickups.bazookaPickupSpacingMax,
+        );
+      }
       return;
     }
 
@@ -394,10 +420,12 @@ export class PickupSystem {
       pickup.nitroVariant.visible = false;
       (pickup.glow.material as MeshBasicMaterial).color.setHex(0x8dffad);
       (pickup.beacon.material as MeshBasicMaterial).color.setHex(0x8dffad);
-      this.nextSpawnZ -= randomRange(
-        this.config.pickups.supportPickupSpacingMin,
-        this.config.pickups.supportPickupSpacingMax,
-      );
+      if (consumeSpacing) {
+        this.nextSpawnZ -= randomRange(
+          this.config.pickups.supportPickupSpacingMin,
+          this.config.pickups.supportPickupSpacingMax,
+        );
+      }
       return;
     }
 
@@ -412,10 +440,12 @@ export class PickupSystem {
       pickup.nitroVariant.visible = true;
       (pickup.glow.material as MeshBasicMaterial).color.setHex(0xffd67a);
       (pickup.beacon.material as MeshBasicMaterial).color.setHex(0xffd67a);
-      this.nextSpawnZ -= randomRange(
-        this.config.pickups.supportPickupSpacingMin,
-        this.config.pickups.supportPickupSpacingMax,
-      );
+      if (consumeSpacing) {
+        this.nextSpawnZ -= randomRange(
+          this.config.pickups.supportPickupSpacingMin,
+          this.config.pickups.supportPickupSpacingMax,
+        );
+      }
       return;
     }
 
@@ -432,10 +462,12 @@ export class PickupSystem {
     pickup.nitroVariant.visible = false;
     (pickup.glow.material as MeshBasicMaterial).color.setHex(0x9cff8d);
     (pickup.beacon.material as MeshBasicMaterial).color.setHex(0x9cff8d);
-    this.nextSpawnZ -= randomRange(
-      this.config.pickups.ammoCrateSpacingMin,
-      this.config.pickups.ammoCrateSpacingMax,
-    );
+    if (consumeSpacing) {
+      this.nextSpawnZ -= randomRange(
+        this.config.pickups.ammoCrateSpacingMin,
+        this.config.pickups.ammoCrateSpacingMax,
+      );
+    }
   }
 
   private deactivate(pickup: PickupRecord): void {
@@ -470,6 +502,90 @@ export class PickupSystem {
 
   private hasActiveKind(kind: PickupType): boolean {
     return this.pickups.some((pickup) => pickup.active && pickup.kind === kind);
+  }
+
+  private updateCriticalMedkitRescue(
+    deltaTime: number,
+    playerX: number,
+    elapsedSeconds: number,
+    loadout: LoadoutState,
+    player: PlayerState,
+    bazookaUnlocked: boolean,
+  ): void {
+    if (!player.alive) {
+      this.criticalMedkitTimer = -1;
+      return;
+    }
+
+    const healthRatio = player.health / Math.max(player.maxHealth, 1);
+    const isCritical = healthRatio <= this.config.ride.criticalHealthThreshold;
+    if (!isCritical) {
+      this.criticalMedkitTimer = -1;
+      return;
+    }
+
+    if (this.hasActiveKind('medkit')) {
+      this.criticalMedkitTimer = -1;
+      return;
+    }
+
+    if (this.criticalMedkitCooldown > 0) {
+      this.criticalMedkitTimer = -1;
+      return;
+    }
+
+    if (this.criticalMedkitTimer < 0) {
+      this.criticalMedkitTimer = randomRange(
+        this.config.pickups.criticalMedkitGraceMin,
+        this.config.pickups.criticalMedkitGraceMax,
+      );
+      return;
+    }
+
+    this.criticalMedkitTimer = Math.max(0, this.criticalMedkitTimer - deltaTime);
+    if (this.criticalMedkitTimer > 0) {
+      return;
+    }
+
+    const slot = this.pickups.find((entry) => !entry.active);
+    if (!slot) {
+      this.criticalMedkitTimer = 0.8;
+      return;
+    }
+
+    const laneIndex = this.resolveLaneIndex(playerX);
+    const rescueZ = randomRange(-58, -42);
+    this.spawn(
+      slot,
+      loadout,
+      player,
+      bazookaUnlocked,
+      elapsedSeconds,
+      'medkit',
+      {
+        laneIndex,
+        zPosition: rescueZ,
+        consumeSpacing: false,
+      },
+    );
+    this.criticalMedkitCooldown = this.config.pickups.criticalMedkitCooldown;
+    this.criticalMedkitTimer = -1;
+  }
+
+  private resolveLaneIndex(playerX: number): number {
+    let bestIndex = 0;
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    for (let index = 0; index < this.config.world.laneCenters.length; index += 1) {
+      const laneCenter = this.config.world.laneCenters[index] ?? 0;
+      const distance = Math.abs(playerX - laneCenter);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = index;
+      }
+    }
+
+    return bestIndex;
   }
 
   private createAmmoCrateVariant(): Group {

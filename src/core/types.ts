@@ -608,6 +608,9 @@ export interface GameConfig {
     medkitEarliestSeconds: number;
     medkitHeal: number;
     medkitLowHealthBias: number;
+    criticalMedkitGraceMin: number;
+    criticalMedkitGraceMax: number;
+    criticalMedkitCooldown: number;
     adrenalineDuration: number;
     nitroDuration: number;
     nitroEarliestSeconds: number;

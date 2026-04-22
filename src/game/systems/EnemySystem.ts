@@ -44,9 +44,9 @@ const PARTICLE_SHARD_GEOMETRY = new BoxGeometry(0.12, 0.12, 0.12);
 const ROAD_SPLAT_GEOMETRY = new CircleGeometry(1, 10);
 const HIT_FLASH_COLOR = 0x5a1405;
 const NEAR_VISIBILITY_COLOR = 0x10161d;
-const BERSERK_AURA_COLOR = 0x280606;
-const BERSERK_SPEED_MULTIPLIER = 1.12;
-const BERSERK_AURA_INTENSITY = 0.09;
+const BERSERK_AURA_COLOR = 0x551010;
+const BERSERK_SPEED_MULTIPLIER = 1.2;
+const BERSERK_AURA_INTENSITY = 0.16;
 
 type HumanoidAssets = {
   template: Group;
@@ -1403,7 +1403,8 @@ export class EnemySystem {
       (zombie.state === 'alive' ? 0.18 : 0.08);
     const berserkAura =
       this.activeEvent === 'berserkWave' && zombie.state === 'alive'
-        ? BERSERK_AURA_INTENSITY
+        ? BERSERK_AURA_INTENSITY +
+          (Math.sin(distanceToPlayer * 1.2 + zombie.poolId * 0.9) * 0.5 + 0.5) * 0.05
         : 0;
     const emissiveStrength =
       zombie.hitFlash * (zombie.activeModelType ? 0.85 : 0.55) + nearVisibility + berserkAura;
