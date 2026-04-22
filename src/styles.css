@@ -887,24 +887,75 @@ body {
   box-shadow: 0 12px 26px rgba(0, 0, 0, 0.16);
 }
 
+.event-chip {
+  position: absolute;
+  left: 50%;
+  top: 21%;
+  min-height: 0;
+  min-width: 0;
+  max-width: min(82vw, 760px);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: clamp(1.6rem, 4.8vw, 3.8rem);
+  font-weight: 400;
+  font-family: var(--font-display);
+  letter-spacing: 0.14em;
+  line-height: 0.96;
+  text-align: center;
+  text-shadow:
+    -1px -1px 0 rgba(10, 8, 8, 0.82),
+    1px -1px 0 rgba(10, 8, 8, 0.82),
+    -1px 1px 0 rgba(10, 8, 8, 0.82),
+    1px 1px 0 rgba(10, 8, 8, 0.82),
+    0 0 18px rgba(0, 0, 0, 0.34);
+  -webkit-text-stroke: 1px rgba(8, 7, 7, 0.7);
+  transform: translate(-50%, -50%) scale(0.94);
+  opacity: 0;
+  transition: opacity 140ms ease, transform 140ms ease;
+  z-index: 7;
+}
+
+.event-chip[data-visible="true"] {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
 .event-chip[hidden],
 .buff-panel[hidden] {
   display: none;
 }
 
 .event-chip[data-event="berserkWave"] {
-  color: #ffd0c7;
-  border-color: rgba(255, 132, 108, 0.24);
+  color: #ff4f43;
+  text-shadow:
+    -1px -1px 0 rgba(14, 8, 8, 0.9),
+    1px -1px 0 rgba(14, 8, 8, 0.9),
+    -1px 1px 0 rgba(14, 8, 8, 0.9),
+    1px 1px 0 rgba(14, 8, 8, 0.9),
+    0 0 22px rgba(255, 70, 56, 0.32);
 }
 
 .event-chip[data-event="slipperyRoad"] {
-  color: #d6f0ff;
-  border-color: rgba(145, 215, 255, 0.24);
+  color: #9fe5ff;
+  text-shadow:
+    -1px -1px 0 rgba(8, 12, 14, 0.9),
+    1px -1px 0 rgba(8, 12, 14, 0.9),
+    -1px 1px 0 rgba(8, 12, 14, 0.9),
+    1px 1px 0 rgba(8, 12, 14, 0.9),
+    0 0 22px rgba(120, 213, 255, 0.26);
 }
 
 .event-chip[data-event="blackoutStretch"] {
-  color: #cfd9ff;
-  border-color: rgba(171, 186, 255, 0.22);
+  color: #d5ddf4;
+  text-shadow:
+    -1px -1px 0 rgba(6, 8, 10, 0.92),
+    1px -1px 0 rgba(6, 8, 10, 0.92),
+    -1px 1px 0 rgba(6, 8, 10, 0.92),
+    1px 1px 0 rgba(6, 8, 10, 0.92),
+    0 0 20px rgba(180, 194, 255, 0.2);
 }
 
 .buff-panel {
@@ -1303,6 +1354,13 @@ body {
     top: 74px;
     font-size: 0.68rem;
     max-width: calc(100vw - 24px);
+  }
+
+  .event-chip {
+    top: 19%;
+    max-width: min(90vw, 620px);
+    font-size: clamp(1.3rem, 7vw, 2.5rem);
+    letter-spacing: 0.12em;
   }
 
   .lane-request-hud,

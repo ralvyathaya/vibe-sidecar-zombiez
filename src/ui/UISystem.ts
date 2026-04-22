@@ -456,9 +456,12 @@ export class UISystem {
         : 'false';
     this.accoladeBanner.dataset.tone = snapshot.reward.activeAccoladeTone;
 
-    this.eventChip.hidden = !snapshot.ride || snapshot.ride.activeEvent === 'none';
-    this.eventChip.textContent = this.getEventLabel(snapshot.ride?.activeEvent ?? 'none');
-    this.eventChip.dataset.event = snapshot.ride?.activeEvent ?? 'none';
+    const activeEvent = snapshot.ride?.activeEvent ?? 'none';
+    const eventVisible = Boolean(snapshot.ride) && activeEvent !== 'none';
+    this.eventChip.hidden = !eventVisible;
+    this.eventChip.textContent = this.getEventLabel(activeEvent);
+    this.eventChip.dataset.event = activeEvent;
+    this.eventChip.dataset.visible = eventVisible ? 'true' : 'false';
     this.buffPanel.hidden = snapshot.player.nitroTimer <= 0;
     this.adrenalineBuff.hidden = true;
     this.nitroBuff.hidden = snapshot.player.nitroTimer <= 0;
