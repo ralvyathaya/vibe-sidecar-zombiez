@@ -639,6 +639,16 @@ export interface GameConfig {
       tripleKill: number;
       multiKill: number;
     };
+    accolades: {
+      displayDuration: number;
+      soundCooldown: number;
+      tankDownCooldown: number;
+      latchClearCooldown: number;
+      roadWipeKillCount: number;
+      roadWipeExplosiveKillCount: number;
+      survivalTimes: number[];
+      chainThresholds: number[];
+    };
     audio: {
       rewardPath: string;
       rewardVolume: number;
@@ -696,8 +706,11 @@ export interface RewardEvent {
   zombieType: ZombieType;
   killCount: number;
   wasExplosive: boolean;
+  clearedLatch: boolean;
   distanceToPlayer: number;
 }
+
+export type RewardAccoladeTone = 'none' | 'rare' | 'tank' | 'wipe' | 'survive' | 'clutch';
 
 export interface RewardState {
   chainCount: number;
@@ -710,6 +723,10 @@ export interface RewardState {
   explosiveBonusTotal: number;
   recentCallout: string;
   recentCalloutTimer: number;
+  activeAccolade: string;
+  activeAccoladeTimer: number;
+  activeAccoladeTone: RewardAccoladeTone;
+  earnedAccoladesThisRun: number;
   bestScore: number;
   bestChainRecord: number;
   lastRunScore: number;

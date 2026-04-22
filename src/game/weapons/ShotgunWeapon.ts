@@ -513,6 +513,7 @@ export class ShotgunWeapon {
             zombieType: kill.zombieType,
             killCount: 1,
             wasExplosive: false,
+            clearedLatch: Boolean(hitLatched && enemyHit === hitLatched),
             distanceToPlayer: player.getPosition(this.playerPosition).distanceTo(kill.position),
           });
         }
@@ -532,6 +533,7 @@ export class ShotgunWeapon {
               zombieType: kill.zombieType,
               killCount: kills.length,
               wasExplosive: true,
+              clearedLatch: false,
               distanceToPlayer: playerPosition.distanceTo(kill.position),
             });
           }

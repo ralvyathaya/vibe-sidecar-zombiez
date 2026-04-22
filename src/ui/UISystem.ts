@@ -58,7 +58,6 @@ export class UISystem {
   private readonly rewardHud = document.createElement('div');
   private readonly healthFill = document.createElement('div');
   private readonly healthValue = document.createElement('span');
-  private readonly healthState = document.createElement('span');
   private readonly ammoPanel = document.createElement('div');
   private readonly weaponHeader = document.createElement('div');
   private readonly weaponIcon = document.createElement('img');
@@ -77,6 +76,7 @@ export class UISystem {
   private readonly distanceValue = document.createElement('span');
   private readonly timerValue = document.createElement('span');
   private readonly rewardCallout = document.createElement('div');
+  private readonly accoladeBanner = document.createElement('div');
   private readonly radarPanel = document.createElement('div');
   private readonly radarTrack = document.createElement('div');
   private readonly radarContactLayer = document.createElement('div');
@@ -174,21 +174,16 @@ export class UISystem {
     const leftPanel = document.createElement('div');
     leftPanel.className = 'hud-panel hud-panel--health';
 
-    const healthLabel = document.createElement('span');
-    healthLabel.className = 'panel-label';
-    healthLabel.textContent = 'Health';
-
     const healthHeader = document.createElement('div');
     healthHeader.className = 'health-header';
     this.healthValue.className = 'panel-value';
-    this.healthState.className = 'health-state';
-    healthHeader.append(this.healthValue, this.healthState);
+    healthHeader.append(this.healthValue);
 
     const healthBar = document.createElement('div');
     healthBar.className = 'health-bar';
     this.healthFill.className = 'health-fill';
     healthBar.append(this.healthFill);
-    leftPanel.append(healthLabel, healthHeader, healthBar);
+    leftPanel.append(healthHeader, healthBar);
 
     this.ammoPanel.className = 'hud-panel hud-panel--ammo';
     const ammoLabel = document.createElement('span');
@@ -253,7 +248,7 @@ export class UISystem {
     this.driverPortrait.decoding = 'async';
     this.driverPrompt.className = 'driver-prompt';
     this.driverPromptSpeaker.className = 'driver-prompt-speaker';
-    this.driverPromptSpeaker.textContent = 'Driver  Left Seat';
+    this.driverPromptSpeaker.hidden = true;
     this.driverPromptLabel.className = 'driver-prompt-label';
     this.driverPromptTimer.className = 'driver-prompt-timer';
     this.driverPromptTimerFill.className = 'driver-prompt-timer-fill';
@@ -285,6 +280,7 @@ export class UISystem {
     this.reloadLabel.textContent = 'to reload';
     this.reloadHint.append(this.reloadHintTextBefore, this.reloadKey, this.reloadLabel);
     this.rewardCallout.className = 'reward-callout';
+    this.accoladeBanner.className = 'accolade-banner';
 
     hudTop.append(this.rewardHud, this.radarPanel);
     this.buffPanel.append(this.adrenalineBuff, this.nitroBuff);
@@ -334,6 +330,7 @@ export class UISystem {
       this.laneRequestHud,
       this.driverPanel,
       this.latchWarning,
+      this.accoladeBanner,
       this.rewardCallout,
       this.reloadHint,
       this.crosshair,
@@ -389,24 +386,12 @@ export class UISystem {
     this.tankWarningCooldown = Math.max(0, this.tankWarningCooldown - deltaTime);
     const healthRatio = Math.max(0, snapshot.player.health / snapshot.player.maxHealth);
     this.healthFill.style.transform = `scaleX(${healthRatio})`;
-    this.healthValue.textContent = `${Math.ceil(snapshot.player.health)} / ${snapshot.player.maxHealth}`;
+    this.healthValue.textContent = `${Math.ceil(snapshot.player.health)} HP`;
     const healthHue = Math.max(4, Math.round(healthRatio * 118));
     const healthColor = `hsl(${healthHue} 82% 50%)`;
     const healthAccent = `hsl(${Math.min(healthHue + 16, 128)} 78% 62%)`;
     this.healthFill.style.background = `linear-gradient(90deg, ${healthColor} 0%, ${healthAccent} 100%)`;
     this.healthFill.style.boxShadow = `0 0 22px hsla(${healthHue} 90% 56% / 0.42)`;
-    this.healthState.textContent =
-      snapshot.ride?.failureSeverity && snapshot.ride.failureSeverity >= 0.9
-        ? 'Driver Panicking'
-        : snapshot.ride?.failureSeverity && snapshot.ride.failureSeverity >= 0.45
-          ? 'Driver Rattled'
-          : healthRatio > 0.65
-            ? 'Stable'
-            : healthRatio > 0.3
-              ? 'Shaken'
-              : 'Near Death';
-    this.healthState.style.color =
-      healthRatio > 0.65 ? '#8fe08d' : healthRatio > 0.3 ? '#ffb15f' : '#ff6652';
 
     const ammoState = snapshot.weapon.reloading
       ? 'reloading'
@@ -454,6 +439,14 @@ export class UISystem {
       snapshot.reward.recentCalloutTimer > 0 && snapshot.reward.recentCallout !== ''
         ? 'true'
         : 'false';
+    this.accoladeBanner.hidden =
+      snapshot.reward.activeAccoladeTimer <= 0 || snapshot.reward.activeAccolade === '';
+    this.accoladeBanner.textContent = snapshot.reward.activeAccolade;
+    this.accoladeBanner.dataset.visible =
+      snapshot.reward.activeAccoladeTimer > 0 && snapshot.reward.activeAccolade !== ''
+        ? 'true'
+        : 'false';
+    this.accoladeBanner.dataset.tone = snapshot.reward.activeAccoladeTone;
 
     this.eventChip.hidden = !snapshot.ride || snapshot.ride.activeEvent === 'none';
     this.eventChip.textContent = this.getEventLabel(snapshot.ride?.activeEvent ?? 'none');
@@ -605,7 +598,8 @@ export class UISystem {
       this.overlayBreakdown.textContent =
         `Combo Bonus +${snapshot.reward.comboBonusTotal}\n` +
         `Milestone Bonus +${snapshot.reward.milestoneBonusTotal}\n` +
-        `Explosive Bonus +${snapshot.reward.explosiveBonusTotal}`;
+        `Explosive Bonus +${snapshot.reward.explosiveBonusTotal}\n` +
+        `Rare Accolades ${snapshot.reward.earnedAccoladesThisRun}`;
       this.overlayBreakdown.hidden = false;
       return;
     }

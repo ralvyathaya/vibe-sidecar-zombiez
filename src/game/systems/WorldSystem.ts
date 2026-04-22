@@ -122,8 +122,11 @@ export class WorldSystem {
 
   private time = 0;
   private currentSegment: RunSegment = 'rest';
-  private nextObstacleZ = -34;
+  private nextObstacleZ = -28;
   private nextBarrelEligibleZ = -86;
+  private pendingGateSpawnZ: number | null = null;
+  private pendingGateType: ObstacleType | null = null;
+  private pendingGateLanes: number[] = [];
 
   constructor(
     private readonly scene: Scene,
@@ -153,8 +156,11 @@ export class WorldSystem {
   reset(): void {
     this.time = 0;
     this.currentSegment = 'rest';
-    this.nextObstacleZ = -34;
+    this.nextObstacleZ = -28;
     this.nextBarrelEligibleZ = -86;
+    this.pendingGateSpawnZ = null;
+    this.pendingGateType = null;
+    this.pendingGateLanes = [];
     this.obstacleImpactSound.stopAll();
     this.barrelExplosionSound.stopAll();
     this.positionChunks();
@@ -1195,18 +1201,20 @@ export class WorldSystem {
   }
 
   private recycleObstacle(obstacle: ObstacleRecord): void {
-    const spawnZ = this.nextObstacleZ;
     obstacle.active = true;
     obstacle.hasHitPlayer = false;
 
+    const gateSlot = this.consumePendingGateSlot();
+    const spawnZ = gateSlot?.spawnZ ?? this.nextObstacleZ;
     const barrelChance =
       this.currentSegment === 'chaos'
         ? this.config.world.barrel.spawnChance * 1.2
         : this.config.world.barrel.spawnChance;
-    const canSpawnBarrel = spawnZ <= this.nextBarrelEligibleZ && Math.random() < barrelChance;
+    const canSpawnBarrel =
+      !gateSlot && spawnZ <= this.nextBarrelEligibleZ && Math.random() < barrelChance;
 
-    let type = canSpawnBarrel ? 'barrel' : this.chooseHazardType();
-    let laneIndex = this.pickLaneIndexForType(type, spawnZ);
+    let type = gateSlot?.type ?? (canSpawnBarrel ? 'barrel' : this.chooseHazardType());
+    let laneIndex = gateSlot?.laneIndex ?? this.pickLaneIndexForType(type, spawnZ);
 
     if (this.wouldSealAllLanes(type, laneIndex, spawnZ)) {
       type = this.currentSegment === 'chaos' ? 'brokenLane' : 'barrel';
@@ -1215,16 +1223,23 @@ export class WorldSystem {
 
     obstacle.lane = laneIndex;
     obstacle.laneLocalX =
-      (this.config.world.laneCenters[laneIndex] ?? 0) + randomRange(-0.22, 0.22);
+      (this.config.world.laneCenters[laneIndex] ?? 0) +
+      randomRange(
+        gateSlot ? -0.08 : -0.22,
+        gateSlot ? 0.08 : 0.22,
+      );
     this.applyObstacleType(obstacle, type);
     this.groundToRoad(obstacle.mesh, obstacle.laneLocalX, spawnZ);
 
-    const density = this.config.pacing.hazardDensity[this.currentSegment];
-    const spacing = randomRange(
-      this.config.world.obstacleSpacingMin,
-      this.config.world.obstacleSpacingMax,
-    ) / density;
-    this.nextObstacleZ -= spacing;
+    if (!this.pendingGateLanes.length) {
+      const density = this.config.pacing.hazardDensity[this.currentSegment];
+      const spacing = randomRange(
+        this.config.world.obstacleSpacingMin,
+        this.config.world.obstacleSpacingMax,
+      ) / density;
+      this.nextObstacleZ -= spacing;
+      this.tryQueueRoadGate();
+    }
 
     if (type === 'barrel') {
       this.nextBarrelEligibleZ =
@@ -1239,11 +1254,14 @@ export class WorldSystem {
     const chaosBonus = this.currentSegment === 'chaos' ? 0.32 : 0;
     const darkBonus = this.currentSegment === 'dark' ? 0.16 : 0;
     const weights: Array<{ type: ObstacleType; weight: number }> = [
-      { type: 'barricade', weight: this.config.world.barricade.spawnWeight + chaosBonus * 0.4 },
-      { type: 'concreteBlock', weight: this.config.world.concreteBlock.spawnWeight + darkBonus * 0.15 },
-      { type: 'car', weight: 1.08 + chaosBonus * 0.9 },
-      { type: 'wreck', weight: 0.82 + chaosBonus * 0.55 },
-      { type: 'brokenLane', weight: this.config.world.brokenLane.spawnWeight + chaosBonus * 0.24 },
+      { type: 'barricade', weight: this.config.world.barricade.spawnWeight + chaosBonus * 0.5 },
+      {
+        type: 'concreteBlock',
+        weight: this.config.world.concreteBlock.spawnWeight + chaosBonus * 0.22 + darkBonus * 0.15,
+      },
+      { type: 'car', weight: 0.76 + chaosBonus * 0.42 },
+      { type: 'wreck', weight: 0.58 + chaosBonus * 0.24 },
+      { type: 'brokenLane', weight: this.config.world.brokenLane.spawnWeight + chaosBonus * 0.08 },
     ];
     const totalWeight = weights.reduce((sum, entry) => sum + entry.weight, 0);
     let roll = Math.random() * totalWeight;
@@ -1256,6 +1274,77 @@ export class WorldSystem {
     }
 
     return 'brokenLane';
+  }
+
+  private consumePendingGateSlot():
+    | { spawnZ: number; type: ObstacleType; laneIndex: number }
+    | null {
+    if (
+      this.pendingGateSpawnZ === null ||
+      this.pendingGateType === null ||
+      this.pendingGateLanes.length === 0
+    ) {
+      return null;
+    }
+
+    const laneIndex = this.pendingGateLanes.shift();
+    if (laneIndex === undefined) {
+      this.pendingGateSpawnZ = null;
+      this.pendingGateType = null;
+      return null;
+    }
+
+    const result = {
+      spawnZ: this.pendingGateSpawnZ,
+      type: this.pendingGateType,
+      laneIndex,
+    };
+
+    if (this.pendingGateLanes.length === 0) {
+      this.pendingGateSpawnZ = null;
+      this.pendingGateType = null;
+    }
+
+    return result;
+  }
+
+  private tryQueueRoadGate(): void {
+    if (this.pendingGateLanes.length > 0 || this.nextObstacleZ > -42) {
+      return;
+    }
+
+    const chance =
+      this.currentSegment === 'chaos'
+        ? 0.3
+        : this.currentSegment === 'dark'
+          ? 0.2
+          : 0.12;
+    if (Math.random() >= chance) {
+      return;
+    }
+
+    const laneIndices = this.config.world.laneCenters.map((_, index) => index);
+    const safeLane = [...laneIndices].sort(
+      (left, right) =>
+        this.getSpawnLanePressure(left, this.nextObstacleZ, true) -
+        this.getSpawnLanePressure(right, this.nextObstacleZ, true),
+    )[0];
+    if (safeLane === undefined || this.getSpawnLanePressure(safeLane, this.nextObstacleZ, true) > 0) {
+      return;
+    }
+
+    const blockedLanes = laneIndices.filter((laneIndex) => laneIndex !== safeLane);
+    if (
+      blockedLanes.some((laneIndex) =>
+        this.wouldSealAllLanes('barricade', laneIndex, this.nextObstacleZ),
+      )
+    ) {
+      return;
+    }
+
+    this.pendingGateSpawnZ = this.nextObstacleZ;
+    this.pendingGateType = Math.random() < 0.65 ? 'barricade' : 'concreteBlock';
+    this.pendingGateLanes = blockedLanes;
   }
 
   private applyObstacleType(obstacle: ObstacleRecord, type: ObstacleType): void {

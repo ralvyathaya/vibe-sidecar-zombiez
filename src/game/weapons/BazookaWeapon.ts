@@ -639,6 +639,7 @@ export class BazookaWeapon {
           zombieType: kill.zombieType,
           killCount: kills.length,
           wasExplosive: true,
+          clearedLatch: false,
           distanceToPlayer: playerPosition.distanceTo(kill.position),
         })),
       );

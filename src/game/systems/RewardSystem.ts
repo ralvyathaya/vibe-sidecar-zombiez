@@ -1,4 +1,9 @@
-import type { GameConfig, RewardEvent, RewardState } from '../../core/types';
+import type {
+  GameConfig,
+  RewardAccoladeTone,
+  RewardEvent,
+  RewardState,
+} from '../../core/types';
 import { randomRange } from '../../core/utils';
 import { SoundEffectPool } from '../audio/SoundEffectPool';
 
@@ -12,10 +17,15 @@ export class RewardSystem {
   private readonly state: RewardState;
   private readonly rewardSound: SoundEffectPool;
   private readonly recentKillTimes: number[] = [];
+  private readonly awardedChainAccolades = new Set<number>();
+  private readonly awardedSurvivalAccolades = new Set<number>();
   private elapsedSeconds = 0;
   private nextFixedMilestoneIndex = 0;
   private nextRepeatingMilestoneTime = 0;
   private finalizedRun = false;
+  private rewardSoundCooldown = 0;
+  private tankAccoladeAvailableAt = 0;
+  private latchAccoladeAvailableAt = 0;
 
   constructor(private readonly config: GameConfig) {
     this.state = this.createInitialState();
@@ -35,11 +45,16 @@ export class RewardSystem {
   resetRun(): void {
     this.elapsedSeconds = 0;
     this.recentKillTimes.length = 0;
+    this.awardedChainAccolades.clear();
+    this.awardedSurvivalAccolades.clear();
     this.nextFixedMilestoneIndex = 0;
     this.nextRepeatingMilestoneTime =
       this.config.rewards.milestoneTimes[this.config.rewards.milestoneTimes.length - 1] +
       this.config.rewards.repeatingMilestoneEvery;
     this.finalizedRun = false;
+    this.rewardSoundCooldown = 0;
+    this.tankAccoladeAvailableAt = 0;
+    this.latchAccoladeAvailableAt = 0;
     this.state.chainCount = 0;
     this.state.chainTimer = 0;
     this.state.chainTimerRatio = 0;
@@ -50,6 +65,10 @@ export class RewardSystem {
     this.state.explosiveBonusTotal = 0;
     this.state.recentCallout = '';
     this.state.recentCalloutTimer = 0;
+    this.state.activeAccolade = '';
+    this.state.activeAccoladeTimer = 0;
+    this.state.activeAccoladeTone = 'none';
+    this.state.earnedAccoladesThisRun = 0;
     this.state.bestScore = this.readStoredNumber(STORAGE_KEYS.bestScore);
     this.state.bestChainRecord = this.readStoredNumber(STORAGE_KEYS.bestChain);
     this.state.lastRunScore = this.readStoredNumber(STORAGE_KEYS.lastRunScore);
@@ -61,6 +80,12 @@ export class RewardSystem {
     if (this.state.recentCalloutTimer <= 0) {
       this.state.recentCallout = '';
     }
+    this.state.activeAccoladeTimer = Math.max(0, this.state.activeAccoladeTimer - deltaTime);
+    if (this.state.activeAccoladeTimer <= 0) {
+      this.state.activeAccolade = '';
+      this.state.activeAccoladeTone = 'none';
+    }
+    this.rewardSoundCooldown = Math.max(0, this.rewardSoundCooldown - deltaTime);
 
     if (this.state.chainCount > 0) {
       this.state.chainTimer = Math.max(0, this.state.chainTimer - deltaTime);
@@ -95,7 +120,6 @@ export class RewardSystem {
 
     let awardedScore = 0;
     let dangerBonus = 0;
-    let cueLevel: 'none' | 'minor' | 'major' | 'peak' = 'none';
 
     for (const event of events) {
       this.extendChain();
@@ -136,17 +160,14 @@ export class RewardSystem {
       awardedScore += this.config.rewards.bonuses.multiKill;
       this.state.comboBonusTotal += this.config.rewards.bonuses.multiKill;
       callout = `MULTI KILL +${this.config.rewards.bonuses.multiKill}`;
-      cueLevel = 'peak';
     } else if (currentTripleCount >= 3 && previousTripleCount < 3) {
       awardedScore += this.config.rewards.bonuses.tripleKill;
       this.state.comboBonusTotal += this.config.rewards.bonuses.tripleKill;
       callout = `TRIPLE KILL +${this.config.rewards.bonuses.tripleKill}`;
-      cueLevel = 'major';
     } else if (currentDoubleCount >= 2 && previousDoubleCount < 2) {
       awardedScore += this.config.rewards.bonuses.doubleKill;
       this.state.comboBonusTotal += this.config.rewards.bonuses.doubleKill;
       callout = `DOUBLE KILL +${this.config.rewards.bonuses.doubleKill}`;
-      cueLevel = 'major';
     }
 
     const explosiveKillCount = events.filter((event) => event.wasExplosive).length;
@@ -158,26 +179,19 @@ export class RewardSystem {
       if (!callout) {
         callout = `EXPLOSIVE BONUS +${explosiveBonus}`;
       }
-      cueLevel = this.promoteCue(cueLevel, explosiveKillCount >= 3 ? 'major' : 'minor');
     }
 
     if (!callout && dangerBonus > 0) {
       callout = `DANGER KILL +${dangerBonus}`;
     }
 
-    if (this.state.multiplier > startingMultiplier) {
-      cueLevel = this.promoteCue(
-        cueLevel,
-        this.state.multiplier >= 2 ? 'major' : 'minor',
-      );
-    }
-
     if (callout) {
       this.setCallout(callout, this.config.rewards.calloutDuration);
     }
 
-    if (cueLevel !== 'none') {
-      this.playRewardCue(cueLevel);
+    const accolade = this.pickAccolade(events, explosiveKillCount, eventTime, startingMultiplier);
+    if (accolade) {
+      this.triggerAccolade(accolade.label, accolade.tone);
     }
 
     return awardedScore;
@@ -227,7 +241,7 @@ export class RewardSystem {
       this.state.milestoneBonusTotal += milestoneValue;
       awardedScore += milestoneValue;
       this.setCallout(`${milestoneTime}s SURVIVED +${milestoneValue}`);
-      this.playRewardCue('milestone');
+      this.tryAwardSurvivalAccolade(milestoneTime);
     }
 
     while (elapsedSeconds >= this.nextRepeatingMilestoneTime) {
@@ -236,7 +250,7 @@ export class RewardSystem {
       this.setCallout(
         `${this.nextRepeatingMilestoneTime}s SURVIVED +${this.config.rewards.repeatingMilestoneValue}`,
       );
-      this.playRewardCue('milestone');
+      this.tryAwardSurvivalAccolade(this.nextRepeatingMilestoneTime);
       this.nextRepeatingMilestoneTime += this.config.rewards.repeatingMilestoneEvery;
     }
 
@@ -295,36 +309,125 @@ export class RewardSystem {
     this.state.recentCalloutTimer = duration;
   }
 
-  private promoteCue(
-    current: 'none' | 'minor' | 'major' | 'peak',
-    next: 'minor' | 'major' | 'peak',
-  ): 'minor' | 'major' | 'peak' {
-    const order = { none: 0, minor: 1, major: 2, peak: 3 } as const;
-    if (current === 'none') {
-      return next;
+  private pickAccolade(
+    events: RewardEvent[],
+    explosiveKillCount: number,
+    eventTime: number,
+    startingMultiplier: number,
+  ): { label: string; tone: Exclude<RewardAccoladeTone, 'none'> } | null {
+    const roadWipeKillCount = Math.max(
+      events.length,
+      ...events.map((event) => event.killCount),
+      0,
+    );
+    if (
+      roadWipeKillCount >= this.config.rewards.accolades.roadWipeKillCount ||
+      explosiveKillCount >= this.config.rewards.accolades.roadWipeExplosiveKillCount
+    ) {
+      return {
+        label: explosiveKillCount >= this.config.rewards.accolades.roadWipeExplosiveKillCount
+          ? 'ROAD WIPE'
+          : 'HIGHWAY CLEANER',
+        tone: 'wipe',
+      };
     }
-    return order[next] > order[current] ? next : current;
+
+    if (
+      events.some((event) => event.clearedLatch) &&
+      eventTime >= this.latchAccoladeAvailableAt
+    ) {
+      this.latchAccoladeAvailableAt =
+        eventTime + this.config.rewards.accolades.latchClearCooldown;
+      return {
+        label: 'SIDECAR SAVED',
+        tone: 'clutch',
+      };
+    }
+
+    if (
+      events.some((event) => event.zombieType === 'tank') &&
+      eventTime >= this.tankAccoladeAvailableAt
+    ) {
+      this.tankAccoladeAvailableAt =
+        eventTime + this.config.rewards.accolades.tankDownCooldown;
+      return {
+        label: 'TANK DOWN',
+        tone: 'tank',
+      };
+    }
+
+    if (this.state.multiplier > startingMultiplier) {
+      const newThreshold = [...this.config.rewards.accolades.chainThresholds]
+        .sort((left, right) => right - left)
+        .find(
+          (threshold) =>
+            this.state.chainCount >= threshold && !this.awardedChainAccolades.has(threshold),
+        );
+      if (newThreshold !== undefined) {
+        this.awardedChainAccolades.add(newThreshold);
+        return {
+          label: newThreshold >= 25 ? 'DEATH MACHINE' : 'LOCKED IN',
+          tone: 'rare',
+        };
+      }
+    }
+
+    return null;
   }
 
-  private playRewardCue(kind: 'minor' | 'major' | 'peak' | 'milestone'): void {
+  private triggerAccolade(
+    label: string,
+    tone: Exclude<RewardAccoladeTone, 'none'>,
+  ): void {
+    this.state.activeAccolade = label;
+    this.state.activeAccoladeTimer = this.config.rewards.accolades.displayDuration;
+    this.state.activeAccoladeTone = tone;
+    this.state.earnedAccoladesThisRun += 1;
+    this.playRewardCue(tone);
+  }
+
+  private tryAwardSurvivalAccolade(survivalTime: number): void {
+    if (
+      !this.config.rewards.accolades.survivalTimes.includes(survivalTime) ||
+      this.awardedSurvivalAccolades.has(survivalTime)
+    ) {
+      return;
+    }
+
+    this.awardedSurvivalAccolades.add(survivalTime);
+    this.triggerAccolade(
+      survivalTime >= 90 ? 'UNREASONABLY ALIVE' : 'STILL BREATHING',
+      'survive',
+    );
+  }
+
+  private playRewardCue(kind: Exclude<RewardAccoladeTone, 'none'>): void {
+    if (this.rewardSoundCooldown > 0) {
+      return;
+    }
+
     let volume = this.config.rewards.audio.rewardVolume;
     let playbackRate = 1;
 
-    if (kind === 'minor') {
-      volume *= 0.9;
-      playbackRate = randomRange(0.94, 0.99);
-    } else if (kind === 'major') {
+    if (kind === 'tank') {
       volume *= 1.08;
-      playbackRate = randomRange(1.01, 1.08);
-    } else if (kind === 'peak') {
-      volume *= 1.22;
-      playbackRate = randomRange(1.08, 1.16);
+      playbackRate = randomRange(0.9, 0.97);
+    } else if (kind === 'wipe') {
+      volume *= 1.18;
+      playbackRate = randomRange(1.02, 1.09);
+    } else if (kind === 'survive') {
+      volume *= 1.02;
+      playbackRate = randomRange(0.88, 0.95);
+    } else if (kind === 'clutch') {
+      volume *= 1.1;
+      playbackRate = randomRange(0.98, 1.04);
     } else {
-      volume *= 0.98;
+      volume *= 1.04;
       playbackRate = randomRange(0.9, 0.97);
     }
 
     this.rewardSound.play(volume, playbackRate);
+    this.rewardSoundCooldown = this.config.rewards.accolades.soundCooldown;
   }
 
   private createInitialState(): RewardState {
@@ -339,6 +442,10 @@ export class RewardSystem {
       explosiveBonusTotal: 0,
       recentCallout: '',
       recentCalloutTimer: 0,
+      activeAccolade: '',
+      activeAccoladeTimer: 0,
+      activeAccoladeTone: 'none',
+      earnedAccoladesThisRun: 0,
       bestScore: 0,
       bestChainRecord: 0,
       lastRunScore: 0,

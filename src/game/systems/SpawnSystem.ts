@@ -7,19 +7,20 @@ export class SpawnSystem {
   segment: RunSegment = 'rest';
   activeEvent: RunEventType = 'none';
 
-  private nextSpawnIn = 0.7;
+  private nextSpawnIn = 0.2;
   private runnerCooldown = 0;
   private nextEventIn = 0;
   private eventTimer = 0;
   private eventDuration = 0;
   private lastEvent: Exclude<RunEventType, 'none'> | null = null;
   private scriptedBerserkTriggered = false;
+  private openingForcedWalkerSpawns = 3;
 
   constructor(private readonly config: GameConfig) {}
 
   reset(): void {
     this.elapsedSeconds = 0;
-    this.nextSpawnIn = 0.7;
+    this.nextSpawnIn = 0.2;
     this.segment = 'rest';
     this.activeEvent = 'none';
     this.runnerCooldown = 0;
@@ -28,6 +29,7 @@ export class SpawnSystem {
     this.eventDuration = 0;
     this.lastEvent = null;
     this.scriptedBerserkTriggered = false;
+    this.openingForcedWalkerSpawns = 3;
   }
 
   notifyLatchResolved(): void {
@@ -57,7 +59,7 @@ export class SpawnSystem {
     }
 
     const ramp = Math.min(this.elapsedSeconds / this.config.spawn.rampDuration, 1);
-    const spawnInterval = lerp(
+    const baseSpawnInterval = lerp(
       this.config.spawn.intervalStart,
       this.config.spawn.intervalEnd,
       ramp,
@@ -66,16 +68,21 @@ export class SpawnSystem {
       (this.activeEvent === 'berserkWave'
         ? this.config.pacing.events.berserkSpawnMultiplier
         : 1);
+    const spawnInterval = this.getScriptedSpawnInterval(baseSpawnInterval);
     this.nextSpawnIn = spawnInterval;
 
     const batchBonusChance =
       this.config.spawn.batchChance +
       this.config.pacing.batchChanceBonus[segment] +
       (this.activeEvent === 'berserkWave' ? this.config.pacing.events.berserkBatchBonus : 0) +
-      ramp * 0.18;
+      ramp * 0.18 +
+      this.getOpeningBatchBonusChance();
     const berserkExtraSpawn =
       this.activeEvent === 'berserkWave' && Math.random() < 0.42 ? 1 : 0;
-    const batchSize = 1 + (Math.random() < batchBonusChance ? 1 : 0) + berserkExtraSpawn;
+    const guaranteedOpeningSpawn =
+      this.elapsedSeconds >= 3 && this.elapsedSeconds < 12 && Math.random() < 0.58 ? 1 : 0;
+    const batchSize =
+      1 + (Math.random() < batchBonusChance ? 1 : 0) + berserkExtraSpawn + guaranteedOpeningSpawn;
     const availableLanes = [...this.config.world.laneCenters];
 
     for (let index = 0; index < batchSize; index += 1) {
@@ -85,10 +92,8 @@ export class SpawnSystem {
 
       const laneIndex = randomInt(0, availableLanes.length - 1);
       const laneX = availableLanes.splice(laneIndex, 1)[0] ?? 0;
-      const spawnZ = randomRange(
-        this.config.enemies.spawnMinZ,
-        this.config.enemies.spawnMaxZ,
-      ) - index * randomRange(5, 9);
+      const { minZ, maxZ, spacingMin, spacingMax } = this.getSpawnWindow();
+      const spawnZ = randomRange(minZ, maxZ) - index * randomRange(spacingMin, spacingMax);
 
       const zombieType = this.pickZombieType(ramp);
       if (
@@ -111,7 +116,8 @@ export class SpawnSystem {
 
     const laneGroupChance =
       this.config.spawn.laneGroupChance +
-      (this.activeEvent === 'berserkWave' ? 0.18 : 0);
+      (this.activeEvent === 'berserkWave' ? 0.18 : 0) +
+      (this.elapsedSeconds < 14 ? 0.16 : this.elapsedSeconds < 30 ? 0.08 : 0);
     if (
       (segment === 'chaos' || this.activeEvent === 'berserkWave') &&
       Math.random() < laneGroupChance &&
@@ -125,11 +131,16 @@ export class SpawnSystem {
 
   // The ramp keeps early seconds readable, then layers faster threats and tanks later.
   private pickZombieType(ramp: number): ZombieType {
+    if (this.openingForcedWalkerSpawns > 0 && this.elapsedSeconds < 8) {
+      this.openingForcedWalkerSpawns -= 1;
+      return 'walker';
+    }
+
     const weights: Array<{ type: ZombieType; weight: number }> = [
       {
         type: 'walker',
         weight:
-          (this.elapsedSeconds < 20 ? 1.62 : this.elapsedSeconds < 55 ? 1.3 : 1.12) -
+          (this.elapsedSeconds < 12 ? 1.9 : this.elapsedSeconds < 20 ? 1.68 : this.elapsedSeconds < 55 ? 1.3 : 1.12) -
           ramp * 0.12 +
           (this.segment === 'rest' ? 0.18 : this.segment === 'dark' ? 0.04 : -0.04) +
           (this.activeEvent === 'berserkWave' ? 0.16 : 0),
@@ -166,6 +177,62 @@ export class SpawnSystem {
     }
 
     return 'walker';
+  }
+
+  private getScriptedSpawnInterval(baseSpawnInterval: number): number {
+    if (this.elapsedSeconds < 8) {
+      return Math.min(baseSpawnInterval, 0.52);
+    }
+    if (this.elapsedSeconds < 12) {
+      return Math.min(baseSpawnInterval, 0.62);
+    }
+    if (this.elapsedSeconds < 30) {
+      return Math.min(baseSpawnInterval, baseSpawnInterval * 0.88);
+    }
+    return baseSpawnInterval;
+  }
+
+  private getOpeningBatchBonusChance(): number {
+    if (this.elapsedSeconds < 8) {
+      return 0.22;
+    }
+    if (this.elapsedSeconds < 18) {
+      return 0.14;
+    }
+    if (this.elapsedSeconds < 30) {
+      return 0.08;
+    }
+    return 0;
+  }
+
+  private getSpawnWindow(): {
+    minZ: number;
+    maxZ: number;
+    spacingMin: number;
+    spacingMax: number;
+  } {
+    if (this.elapsedSeconds < 6) {
+      return {
+        minZ: -94,
+        maxZ: -78,
+        spacingMin: 4,
+        spacingMax: 6.2,
+      };
+    }
+    if (this.elapsedSeconds < 12) {
+      return {
+        minZ: -100,
+        maxZ: -84,
+        spacingMin: 4.4,
+        spacingMax: 7,
+      };
+    }
+    return {
+      minZ: this.config.enemies.spawnMinZ,
+      maxZ: this.config.enemies.spawnMaxZ,
+      spacingMin: 5,
+      spacingMax: 9,
+    };
   }
 
   private updateEvents(deltaTime: number): void {
