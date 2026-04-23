@@ -440,7 +440,7 @@ export class UISystem {
     latchBar.append(this.latchFill);
     this.latchKeys.className = 'latch-keys';
     this.latchKeysPrompt.className = 'latch-keys-prompt';
-    this.latchKeysPrompt.textContent = 'Tap fast to shake it loose';
+    this.latchKeysPrompt.textContent = 'Alternate A / D fast to shake it loose';
     this.latchKeysRow.className = 'latch-keys-row';
     this.latchKeyA.className = 'latch-key';
     this.latchKeyA.textContent = 'A';
@@ -787,7 +787,7 @@ export class UISystem {
     this.root.dataset.touchControls = enabled ? 'true' : 'false';
     this.latchKeysPrompt.textContent = enabled
       ? 'Tap anywhere fast to shake it loose'
-      : 'Tap fast to shake it loose';
+      : 'Alternate A / D fast to shake it loose';
     this.latchKeysRow.hidden = enabled;
     this.latchKeyA.textContent = enabled ? 'LEFT' : 'A';
     this.latchKeyD.textContent = enabled ? 'RIGHT' : 'D';

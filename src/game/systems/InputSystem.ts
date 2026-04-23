@@ -147,9 +147,6 @@ export class InputSystem {
 
   setTouchWiggleEnabled(enabled: boolean): void {
     this.touchWiggleEnabled = enabled;
-    if (!enabled) {
-      this.wigglePulse = 0;
-    }
   }
 
   getLaneRequestState(

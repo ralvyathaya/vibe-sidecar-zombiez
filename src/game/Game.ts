@@ -490,6 +490,7 @@ export class Game {
 
   private updateLatchState(deltaTime: number): void {
     if (!this.enemySystem.hasLatchedRunner()) {
+      this.inputSystem.consumeWigglePulse();
       this.latchEscapeProgress = approach(this.latchEscapeProgress, 0, deltaTime * 2.2);
       return;
     }
