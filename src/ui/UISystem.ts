@@ -24,6 +24,8 @@ const WEAPON_ART: Record<WeaponStatus['weaponType'], string> = {
 };
 
 const MENU_LOGO = '/ui/menu/logo-game.png';
+const MENU_LOGO_SMALL = '/ui/menu/logo-game-small.png';
+const MENU_LOGO_SRCSET = `${MENU_LOGO_SMALL} 368w, ${MENU_LOGO} 737w`;
 
 const PAUSE_SUBHEADINGS = [
   'The driver is pretending this pause was tactical.',
@@ -486,6 +488,8 @@ export class UISystem {
     this.overlayButton.className = 'overlay-button';
     this.overlayStateLogo.className = 'overlay-state-logo';
     this.overlayStateLogo.src = MENU_LOGO;
+    this.overlayStateLogo.srcset = MENU_LOGO_SRCSET;
+    this.overlayStateLogo.sizes = '(max-width: 900px) 28vw, 260px';
     this.overlayStateLogo.alt = 'Sidecar of the Dead';
     this.overlayStateLogo.decoding = 'async';
     this.overlayStateTitle.className = 'overlay-state-title';
@@ -504,6 +508,8 @@ export class UISystem {
     this.overlayStateCauseBody.className = 'overlay-state-cause-body';
     this.overlayMenuLogo.className = 'overlay-menu-logo';
     this.overlayMenuLogo.src = MENU_LOGO;
+    this.overlayMenuLogo.srcset = MENU_LOGO_SRCSET;
+    this.overlayMenuLogo.sizes = '(max-width: 900px) 30vw, 286px';
     this.overlayMenuLogo.alt = 'Sidecar of the Dead';
     this.overlayMenuLogo.decoding = 'async';
     this.overlayMenuStartButton.className = 'overlay-menu-start';
