@@ -178,6 +178,10 @@ export class Game {
       this.inputSystem.setVirtualLaneHeld(direction, active);
     };
     this.uiSystem.onMobileLaneTap = (direction) => {
+      if (this.enemySystem.hasLatchedRunner()) {
+        this.inputSystem.queueWigglePulse();
+        return;
+      }
       this.inputSystem.queueVirtualWiggle(direction);
     };
     this.uiSystem.onMobileReload = () => {
@@ -185,6 +189,11 @@ export class Game {
     };
     this.uiSystem.onMobileFireHeldChange = (active) => {
       this.inputSystem.setVirtualFireHeld(active);
+    };
+    this.uiSystem.onMobileScreenTap = () => {
+      if (this.enemySystem.hasLatchedRunner()) {
+        this.inputSystem.queueWigglePulse();
+      }
     };
     this.uiSystem.setAudioPreferences(this.audioPreferences);
     this.uiSystem.setTouchControlsEnabled(this.inputSystem.usesTouchControls());
@@ -236,6 +245,9 @@ export class Game {
         pickupHints,
       );
       const latchActive = this.enemySystem.hasLatchedRunner();
+      this.inputSystem.setTouchWiggleEnabled(
+        this.inputSystem.usesTouchControls() && latchActive,
+      );
       const laneRequestBlocked = latchActive || this.driverSystem.hasActivePrompt();
       const laneRequestDirection = this.inputSystem.consumeLaneRequest(
         GAME_CONFIG.driver.laneRequestHoldDuration,
@@ -753,6 +765,7 @@ export class Game {
         GAME_CONFIG.vehicle.enginePlaybackRate,
       );
     } else {
+      this.inputSystem.setTouchWiggleEnabled(false);
       this.inputSystem.releaseVirtualControls();
       this.engineLoop.setDriveState(0, 0);
       this.engineLoop.setTurnAmount(0);

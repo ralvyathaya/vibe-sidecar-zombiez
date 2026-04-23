@@ -21,6 +21,7 @@ export class InputSystem {
   private actionQQueued = false;
   private actionEQueued = false;
   private wigglePulse = 0;
+  private touchWiggleEnabled = false;
   private lastLeanTapCode = '';
   private lastLeanTapTime = 0;
   private laneRequestDirection: -1 | 0 | 1 = 0;
@@ -144,6 +145,13 @@ export class InputSystem {
     return pulse;
   }
 
+  setTouchWiggleEnabled(enabled: boolean): void {
+    this.touchWiggleEnabled = enabled;
+    if (!enabled) {
+      this.wigglePulse = 0;
+    }
+  }
+
   getLaneRequestState(
     holdDurationSeconds: number,
     blocked = false,
@@ -179,6 +187,10 @@ export class InputSystem {
   queueVirtualWiggle(direction: -1 | 1): void {
     const code = direction < 0 ? 'KeyA' : 'KeyD';
     this.registerLeanTap(code);
+  }
+
+  queueWigglePulse(): void {
+    this.wigglePulse += 0.34;
   }
 
   setVirtualFireHeld(active: boolean): void {
@@ -264,7 +276,16 @@ export class InputSystem {
   }
 
   private handleTouchStart(event: TouchEvent): void {
-    if (!this.touchControlsEnabled || this.aimTouchId !== null) {
+    if (!this.touchControlsEnabled) {
+      return;
+    }
+
+    if (this.touchWiggleEnabled) {
+      this.queueWigglePulse();
+      event.preventDefault();
+    }
+
+    if (this.aimTouchId !== null) {
       return;
     }
 

@@ -83,6 +83,7 @@ export class UISystem {
   onMobileLaneTap?: (direction: -1 | 1) => void;
   onMobileReload?: () => void;
   onMobileFireHeldChange?: (active: boolean) => void;
+  onMobileScreenTap?: () => void;
 
   private readonly root = document.createElement('div');
   private readonly overlay = document.createElement('div');
@@ -398,6 +399,17 @@ export class UISystem {
     this.mobileControlsLeft.append(this.mobileLeftButton, this.mobileRightButton);
     this.mobileControlsRight.append(this.mobileReloadButton, this.mobileFireButton);
     this.mobileControls.append(this.mobileControlsLeft, this.mobileControlsRight);
+    this.mobileControls.addEventListener(
+      'pointerdown',
+      (event) => {
+        const target = event.target instanceof Element ? event.target : null;
+        if (target?.closest('.mobile-control--lane')) {
+          return;
+        }
+        this.onMobileScreenTap?.();
+      },
+      { capture: true },
+    );
     this.driverPanel.className = 'driver-panel';
     this.driverPortraitFrame.className = 'driver-portrait-frame';
     this.driverPortrait.className = 'driver-portrait';
@@ -774,8 +786,9 @@ export class UISystem {
     this.mobileControlsEnabled = enabled;
     this.root.dataset.touchControls = enabled ? 'true' : 'false';
     this.latchKeysPrompt.textContent = enabled
-      ? 'Tap left / right fast to shake it loose'
+      ? 'Tap anywhere fast to shake it loose'
       : 'Tap fast to shake it loose';
+    this.latchKeysRow.hidden = enabled;
     this.latchKeyA.textContent = enabled ? 'LEFT' : 'A';
     this.latchKeyD.textContent = enabled ? 'RIGHT' : 'D';
     if (this.menuReloadControlRow) {

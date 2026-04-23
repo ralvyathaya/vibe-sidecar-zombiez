@@ -2482,7 +2482,8 @@ body {
 
 @media (max-width: 900px) {
   .hud {
-    padding: 14px;
+    padding: 10px;
+    gap: 8px;
   }
 
   .overlay {
@@ -2577,39 +2578,45 @@ body {
   }
 
   .hud-middle {
-    padding-top: 10px;
+    padding-top: 6px;
     justify-content: center;
     flex-wrap: wrap;
   }
 
   .hud-bottom {
-    flex-direction: column;
-    align-items: stretch;
+    flex-direction: row;
+    align-items: end;
   }
 
-  .hud-panel--health,
+  .hud-panel--health {
+    width: min(150px, 32vw);
+  }
+
   .hud-panel--ammo {
     width: auto;
-  }
-
-  .hud-panel--ammo {
     margin-bottom: 52px;
   }
 
   .radar-panel {
-    order: 1;
-    width: min(92vw, 440px);
+    order: initial;
+    width: min(38vw, 300px);
   }
 
   .hud-top {
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
+    display: grid;
+    grid-template-columns: max-content minmax(120px, 1fr) max-content;
+    align-items: start;
+    gap: 8px;
   }
 
   .reward-hud {
-    order: 2;
-    width: 100%;
+    order: initial;
+    width: auto;
+    min-width: 0;
+    max-width: 168px;
+    align-items: flex-start;
+    gap: 5px;
+    justify-self: start;
   }
 
   .stats-panel {
@@ -2619,11 +2626,13 @@ body {
   }
 
   .stats-panel--side {
-    order: 3;
+    order: initial;
     min-width: 0;
     flex-direction: column;
     width: auto;
     align-items: flex-end;
+    gap: 4px;
+    justify-self: end;
   }
 
   .reward-callout {
@@ -2633,15 +2642,68 @@ body {
   }
 
   .stat-chip--score {
-    width: 186px;
+    width: 152px;
   }
 
   .stat-chip--distance {
-    width: 154px;
+    width: 128px;
   }
 
   .stat-chip--time {
-    width: 132px;
+    width: 108px;
+  }
+
+  .stats-panel--side .stat-chip {
+    grid-template-columns: 24px 1fr;
+    min-height: 34px;
+    padding: 6px 10px 6px 7px;
+  }
+
+  .stats-panel--side .stat-icon {
+    width: 16px;
+    height: 16px;
+  }
+
+  .stats-panel--side .stat-label {
+    font-size: 0.42rem;
+    letter-spacing: 0.18em;
+  }
+
+  .stats-panel--side .stat-value {
+    font-size: 0.74rem;
+  }
+
+  .stat-chip--reward {
+    min-height: 32px;
+    padding: 0 10px;
+    border-radius: 10px;
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
+  }
+
+  .chain-panel {
+    width: auto;
+    min-height: 28px;
+    padding: 0 9px;
+    border-radius: 9px;
+  }
+
+  .chain-fill {
+    inset: 3px;
+    border-radius: 7px;
+  }
+
+  .chain-label {
+    min-height: 28px;
+    gap: 5px;
+    font-size: 0.5rem;
+    letter-spacing: 0.12em;
+  }
+
+  .chain-label::before {
+    width: 12px;
+    height: 12px;
+    flex-basis: 12px;
   }
 
   .event-chip {
@@ -2652,8 +2714,7 @@ body {
   }
 
   .lane-request-hud,
-  .driver-panel,
-  .latch-warning {
+  .driver-panel {
     width: calc(100vw - 24px);
   }
 
@@ -2716,7 +2777,8 @@ body {
   }
 
   .latch-warning {
-    top: 156px;
+    top: 118px;
+    width: min(300px, calc(100vw - 24px));
   }
 }
 
@@ -2783,6 +2845,54 @@ body {
 
   .overlay-state-logo {
     width: clamp(92px, min(24vw, 26vh), 160px);
+  }
+
+  .latch-warning {
+    top: 102px;
+    width: min(280px, calc(100vw - 20px));
+    padding: 8px 10px 10px;
+  }
+
+  .latch-label {
+    font-size: 0.56rem;
+    letter-spacing: 0.1em;
+  }
+
+  .latch-keys {
+    margin-top: 7px;
+    gap: 5px;
+  }
+
+  .latch-keys-prompt {
+    font-size: 0.46rem;
+    letter-spacing: 0.12em;
+  }
+
+  .mobile-controls {
+    gap: 8px;
+    padding: 0 10px;
+  }
+
+  .mobile-controls-group {
+    gap: 8px;
+  }
+
+  .mobile-control--lane {
+    width: 62px;
+    height: 62px;
+    font-size: 0.52rem;
+  }
+
+  .mobile-control--reload {
+    width: 72px;
+    height: 42px;
+    font-size: 0.48rem;
+  }
+
+  .mobile-control--fire {
+    width: 82px;
+    height: 82px;
+    font-size: 0.62rem;
   }
 
   .overlay-menu-copy,
