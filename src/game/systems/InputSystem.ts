@@ -1,4 +1,5 @@
 import { Vector2 } from 'three';
+import { GAME_CONFIG } from '../../core/config';
 
 export interface LaneRequestInputState {
   active: boolean;
@@ -22,8 +23,6 @@ export class InputSystem {
   private actionEQueued = false;
   private wigglePulse = 0;
   private touchWiggleEnabled = false;
-  private lastLeanTapCode = '';
-  private lastLeanTapTime = 0;
   private laneRequestDirection: -1 | 0 | 1 = 0;
   private laneRequestStartedAt = 0;
   private laneRequestTriggered = false;
@@ -181,13 +180,12 @@ export class InputSystem {
     this.setVirtualKey(code, active);
   }
 
-  queueVirtualWiggle(direction: -1 | 1): void {
-    const code = direction < 0 ? 'KeyA' : 'KeyD';
-    this.registerLeanTap(code);
+  queueVirtualWiggle(_direction: -1 | 1): void {
+    this.registerLeanTap();
   }
 
   queueWigglePulse(): void {
-    this.wigglePulse += 0.34;
+    this.wigglePulse += GAME_CONFIG.player.wigglePulse;
   }
 
   setVirtualFireHeld(active: boolean): void {
@@ -236,8 +234,8 @@ export class InputSystem {
       return;
     }
 
-    if (event.code === 'KeyA' || event.code === 'KeyD') {
-      this.registerLeanTap(event.code);
+    if ((event.code === 'KeyA' || event.code === 'KeyD') && !event.repeat) {
+      this.registerLeanTap();
     }
   }
 
@@ -384,7 +382,7 @@ export class InputSystem {
 
       this.virtualKeys.add(code);
       if (code === 'KeyA' || code === 'KeyD') {
-        this.registerLeanTap(code);
+        this.registerLeanTap();
       }
       return;
     }
@@ -401,14 +399,8 @@ export class InputSystem {
     }
   }
 
-  private registerLeanTap(code: string): void {
-    const now = performance.now();
-    const oppositeKey = code === 'KeyA' ? 'KeyD' : 'KeyA';
-    if (this.lastLeanTapCode === oppositeKey && now - this.lastLeanTapTime <= 280) {
-      this.wigglePulse += 0.34;
-    }
-    this.lastLeanTapCode = code;
-    this.lastLeanTapTime = now;
+  private registerLeanTap(): void {
+    this.queueWigglePulse();
   }
 
   private resetLaneRequestState(): void {
