@@ -1,7 +1,22 @@
 import { WebSocket, WebSocketServer } from 'ws';
+import http from 'node:http';
 
 const port = Number.parseInt(process.env.PORT ?? '8787', 10);
-const wss = new WebSocketServer({ port });
+const server = http.createServer((request, response) => {
+  if (request.url === '/health') {
+    response.writeHead(200, { 'content-type': 'text/plain' });
+    response.end('ok');
+    return;
+  }
+
+  response.writeHead(200, { 'content-type': 'application/json' });
+  response.end(JSON.stringify({
+    ok: true,
+    service: 'sidecar-coop-relay',
+    rooms: rooms.size,
+  }));
+});
+const wss = new WebSocketServer({ server });
 const rooms = new Map();
 
 const makeRoomCode = () => {
@@ -141,4 +156,6 @@ wss.on('connection', (socket) => {
   });
 });
 
-console.log(`Sidecar co-op relay listening on ws://localhost:${port}`);
+server.listen(port, '0.0.0.0', () => {
+  console.log(`Sidecar co-op relay listening on 0.0.0.0:${port}`);
+});
