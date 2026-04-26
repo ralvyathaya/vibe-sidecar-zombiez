@@ -3,6 +3,7 @@ import http from 'node:http';
 
 const port = Number.parseInt(process.env.PORT ?? '8787', 10);
 const rooms = new Map();
+let shuttingDown = false;
 
 const server = http.createServer((request, response) => {
   if (request.url === '/health') {
@@ -178,6 +179,31 @@ process.on('unhandledRejection', (error) => {
   console.error('Relay unhandled rejection.', error);
   process.exit(1);
 });
+
+const shutdown = (signal) => {
+  if (shuttingDown) {
+    return;
+  }
+  shuttingDown = true;
+  console.log(`Relay received ${signal}; closing sockets.`);
+
+  for (const socket of wss.clients) {
+    socket.close(1001, 'Relay shutting down');
+  }
+
+  server.close(() => {
+    console.log('Relay HTTP server closed.');
+    process.exit(0);
+  });
+
+  setTimeout(() => {
+    console.warn('Relay shutdown timed out; forcing exit.');
+    process.exit(0);
+  }, 5000).unref();
+};
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
 server.listen(port, '0.0.0.0', () => {
   console.log(`Sidecar co-op relay listening on 0.0.0.0:${port}`);
