@@ -2,6 +2,8 @@ import { WebSocket, WebSocketServer } from 'ws';
 import http from 'node:http';
 
 const port = Number.parseInt(process.env.PORT ?? '8787', 10);
+const rooms = new Map();
+
 const server = http.createServer((request, response) => {
   if (request.url === '/health') {
     response.writeHead(200, { 'content-type': 'text/plain' });
@@ -17,7 +19,6 @@ const server = http.createServer((request, response) => {
   }));
 });
 const wss = new WebSocketServer({ server });
-const rooms = new Map();
 
 const makeRoomCode = () => {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -70,6 +71,8 @@ const detachPeer = (socket) => {
 };
 
 wss.on('connection', (socket) => {
+  console.log(`Relay socket connected. activeRooms=${rooms.size}`);
+
   socket.on('message', (rawData) => {
     let message;
     try {
@@ -154,6 +157,26 @@ wss.on('connection', (socket) => {
   socket.on('close', () => {
     detachPeer(socket);
   });
+
+  socket.on('error', (error) => {
+    console.warn('Relay socket error.', error);
+    detachPeer(socket);
+  });
+});
+
+server.on('error', (error) => {
+  console.error('Relay HTTP server failed.', error);
+  process.exitCode = 1;
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('Relay uncaught exception.', error);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (error) => {
+  console.error('Relay unhandled rejection.', error);
+  process.exit(1);
 });
 
 server.listen(port, '0.0.0.0', () => {
