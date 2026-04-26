@@ -102,6 +102,7 @@ export const GAME_CONFIG: GameConfig = {
         gunnerArm: ['gunner', 'police', 'arm'],
         gunnerHand: ['gunner', 'police', 'hand', 'weapon', 'pistol', 'shotgun', 'bazooka'],
       },
+      localDriverHiddenNodePatterns: ['l_arm_driver'],
       localGunnerHiddenNodePatterns: ['police_body', 'police_arms'],
       posePulseDuration: 0.18,
       driverFirePoseDegrees: [8, 0, -10],

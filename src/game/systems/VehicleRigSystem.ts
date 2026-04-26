@@ -114,6 +114,7 @@ export class VehicleRigSystem {
   private readonly baseFov: number;
   private readonly runtimeProfile = getRuntimePerformanceProfile();
   private readonly wheelBindings: WheelBinding[] = [];
+  private readonly localDriverHiddenBindings: VisibilityBinding[] = [];
   private readonly localGunnerHiddenBindings: VisibilityBinding[] = [];
   private readonly wheelBounds = new Box3();
   private readonly wheelSize = new Vector3();
@@ -869,20 +870,38 @@ export class VehicleRigSystem {
   }
 
   private bindLocalPovHiddenNodes(model: Object3D): void {
+    this.localDriverHiddenBindings.length = 0;
     this.localGunnerHiddenBindings.length = 0;
-    const patterns = this.config.vehicle.stage1Rig.localGunnerHiddenNodePatterns;
-    const matches = this.findNodesByPatterns(model, patterns);
-    for (const node of matches) {
+
+    const driverPatterns = this.config.vehicle.stage1Rig.localDriverHiddenNodePatterns;
+    const driverMatches = this.findNodesByPatterns(model, driverPatterns);
+    for (const node of driverMatches) {
+      this.localDriverHiddenBindings.push({
+        node,
+        baseVisible: node.visible,
+      });
+    }
+
+    const gunnerPatterns = this.config.vehicle.stage1Rig.localGunnerHiddenNodePatterns;
+    const gunnerMatches = this.findNodesByPatterns(model, gunnerPatterns);
+    for (const node of gunnerMatches) {
       this.localGunnerHiddenBindings.push({
         node,
         baseVisible: node.visible,
       });
     }
 
+    if (this.localDriverHiddenBindings.length === 0) {
+      console.warn(
+        'Vehicle GLB has no local driver arm nodes to hide; first-person overlap may remain.',
+        driverPatterns,
+      );
+    }
+
     if (this.localGunnerHiddenBindings.length === 0) {
       console.warn(
         'Vehicle GLB has no local gunner avatar nodes to hide; first-person overlap may remain.',
-        patterns,
+        gunnerPatterns,
       );
     }
   }
@@ -979,8 +998,13 @@ export class VehicleRigSystem {
   }
 
   private applyPovVisibility(): void {
+    const hideDriverArmForLocalPov = this.activeRole === 'driver';
     const hideGunnerArmsForLocalPov = this.activeRole === 'gunner';
     this.modelRoot.visible = true;
+
+    for (const binding of this.localDriverHiddenBindings) {
+      binding.node.visible = hideDriverArmForLocalPov ? false : binding.baseVisible;
+    }
 
     for (const binding of this.localGunnerHiddenBindings) {
       binding.node.visible = hideGunnerArmsForLocalPov ? false : binding.baseVisible;

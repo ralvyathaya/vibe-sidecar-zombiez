@@ -299,6 +299,7 @@ export interface GameConfig {
       wheelSpinMultiplier: number;
       wheelNodePatterns: string[];
       poseNodePatterns: VehiclePoseNodePatternConfig;
+      localDriverHiddenNodePatterns: string[];
       localGunnerHiddenNodePatterns: string[];
       posePulseDuration: number;
       driverFirePoseDegrees: Vec3Tuple;
