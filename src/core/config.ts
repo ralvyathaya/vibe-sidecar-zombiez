@@ -93,7 +93,7 @@ export const GAME_CONFIG: GameConfig = {
           cameraLookAtOffset: [0, 0, 0],
         },
       },
-      wheelSpinAxis: 'x',
+      wheelSpinAxis: 'z',
       wheelSpinMultiplier: 3.7,
       wheelNodePatterns: ['wheel', 'tire', 'tyre', 'roda', 'ban'],
       poseNodePatterns: {
@@ -154,7 +154,7 @@ export const GAME_CONFIG: GameConfig = {
     },
     gunner_handgun: {
       path: '/models/viewmodels/police+handgun.glb',
-      position: [0, -0.35, -0.75],
+      position: [0, -0.35, -0.45],
       rotationDegrees: [0, -85, 0],
       scale: 1,
       muzzleOffset: [0.18, 0.02, -0.1],
