@@ -16,7 +16,13 @@ import {
   Vector2,
   Vector3,
 } from 'three';
-import type { DebugTransformSnapshot, GameConfig, Vec3Tuple, WeaponStatus } from '../../core/types';
+import type {
+  DebugTransformSnapshot,
+  FpsViewmodelKey,
+  GameConfig,
+  Vec3Tuple,
+  WeaponStatus,
+} from '../../core/types';
 import { approach, clamp, randomRange } from '../../core/utils';
 import { SoundEffectPool } from '../audio/SoundEffectPool';
 import type { EnemySystem } from '../systems/EnemySystem';
@@ -47,6 +53,11 @@ type TracerEffect = {
 };
 
 export class PistolWeapon {
+  private static readonly DEFAULT_VIEWMODEL_KEY: Extract<
+    FpsViewmodelKey,
+    'driver_pistol' | 'gunner_handgun'
+  > = 'gunner_handgun';
+
   private readonly viewmodelRoot = new Group();
   private readonly contentRoot = new Group();
   private readonly worldEffectsRoot = new Group();
@@ -92,8 +103,13 @@ export class PistolWeapon {
   private readonly playerPosition = new Vector3();
   private readonly traceEnd = new Vector3();
   private readonly traceDirection = new Vector3();
+  private readonly viewmodelVariants = new Map<FpsViewmodelKey, Object3D>();
 
   private loadedScene: Object3D | null = null;
+  private currentViewmodelKey: Extract<
+    FpsViewmodelKey,
+    'driver_pistol' | 'gunner_handgun'
+  > = PistolWeapon.DEFAULT_VIEWMODEL_KEY;
   private slideTarget: AnimatedTarget | null = null;
   private magazineTarget: AnimatedTarget | null = null;
   private cooldown = 0;
@@ -106,14 +122,17 @@ export class PistolWeapon {
   private fireKick = 0;
   private slideOffset = 0;
   private debugViewmodelScale = 1;
+  private firePulse = 0;
+  private firingTimer = 0;
 
   constructor(
     private readonly camera: Camera,
     private readonly config: GameConfig,
   ) {
-    const [rotX, rotY, rotZ] = this.config.weapon.viewmodel.rotationDegrees;
-    this.basePosition = new Vector3(...this.config.weapon.viewmodel.position);
-    this.debugViewmodelScale = this.config.weapon.viewmodel.scale;
+    const viewmodel = this.getCurrentFpsConfig();
+    const [rotX, rotY, rotZ] = viewmodel.rotationDegrees;
+    this.basePosition = new Vector3(...viewmodel.position);
+    this.debugViewmodelScale = viewmodel.scale;
     this.gunshotSound = new SoundEffectPool(this.config.weapon.audio.gunshotPath, {
       poolSize: 4,
       volume: this.config.weapon.audio.gunshotVolume,
@@ -161,8 +180,9 @@ export class PistolWeapon {
     this.camera.parent?.add(this.worldEffectsRoot);
 
     this.createTracerPool();
+    this.muzzleAnchor.position.set(...viewmodel.muzzleOffset);
     this.applyViewmodelPose(false);
-    void this.loadViewmodel();
+    void this.loadViewmodel(this.currentViewmodelKey);
   }
 
   reset(player: PlayerSystem): void {
@@ -172,6 +192,7 @@ export class PistolWeapon {
     this.muzzleFlashTimer = 0;
     this.hitConfirmTimer = 0;
     this.dryFireTimer = 0;
+    this.firingTimer = 0;
     this.fireKick = 0;
     this.slideOffset = 0;
     this.muzzleFlash.visible = false;
@@ -234,6 +255,33 @@ export class PistolWeapon {
     this.viewmodelRoot.visible = equipped;
   }
 
+  setFpsViewmodelKey(
+    key: Extract<FpsViewmodelKey, 'driver_pistol' | 'gunner_handgun'>,
+  ): void {
+    if (this.currentViewmodelKey === key) {
+      this.applyFpsViewmodelConfig(key);
+      return;
+    }
+
+    this.currentViewmodelKey = key;
+    this.applyFpsViewmodelConfig(key);
+    const cached = this.viewmodelVariants.get(key);
+    if (cached) {
+      this.mountModel(cached);
+      return;
+    }
+
+    void this.loadViewmodel(key);
+  }
+
+  getFirePulse(): number {
+    return this.firePulse;
+  }
+
+  isRecentlyFiring(): boolean {
+    return this.firingTimer > 0;
+  }
+
   cancelReload(player: PlayerSystem): void {
     player.state.reloading = false;
     this.reloadTimer = 0;
@@ -292,14 +340,16 @@ export class PistolWeapon {
   }
 
   resetDebugViewmodelTransform(): DebugTransformSnapshot {
-    const [rotX, rotY, rotZ] = this.config.weapon.viewmodel.rotationDegrees;
-    this.basePosition.set(...this.config.weapon.viewmodel.position);
+    const viewmodel = this.getCurrentFpsConfig();
+    const [rotX, rotY, rotZ] = viewmodel.rotationDegrees;
+    this.basePosition.set(...viewmodel.position);
     this.baseRotation.set(
       MathUtils.degToRad(rotX),
       MathUtils.degToRad(rotY),
       MathUtils.degToRad(rotZ),
     );
-    this.debugViewmodelScale = this.config.weapon.viewmodel.scale;
+    this.debugViewmodelScale = viewmodel.scale;
+    this.muzzleAnchor.position.set(...viewmodel.muzzleOffset);
     this.applyViewmodelPose(false);
     return this.getDebugViewmodelTransform();
   }
@@ -308,6 +358,11 @@ export class PistolWeapon {
     this.camera.remove(this.viewmodelRoot);
     this.worldEffectsRoot.removeFromParent();
     this.disposeObject(this.loadedScene);
+    for (const scene of this.viewmodelVariants.values()) {
+      if (scene !== this.loadedScene) {
+        this.disposeObject(scene);
+      }
+    }
     this.disposeObject(this.fallbackSlideAnchor);
     this.disposeObject(this.fallbackMagazineAnchor);
     this.disposeTracerPool();
@@ -320,22 +375,26 @@ export class PistolWeapon {
     this.reloadSound.destroy();
   }
 
-  private async loadViewmodel(): Promise<void> {
+  private async loadViewmodel(key: FpsViewmodelKey): Promise<void> {
     try {
       const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
       const loader = new GLTFLoader();
-      const gltf = await loader.loadAsync(this.config.weapon.viewmodel.assetPath);
-      this.mountModel(gltf.scene);
+      const gltf = await loader.loadAsync(this.config.fpsViewmodels[key].path);
+      this.viewmodelVariants.set(key, gltf.scene);
+      if (this.currentViewmodelKey === key) {
+        this.mountModel(gltf.scene);
+      }
     } catch (error) {
-      console.warn('Failed to load pistol GLB, using a lightweight fallback.', error);
-      this.mountModel(this.createEmergencyFallbackModel());
+      console.warn(`Failed to load pistol FPS viewmodel ${key}, using a lightweight fallback.`, error);
+      if (this.currentViewmodelKey === key) {
+        this.mountModel(this.createEmergencyFallbackModel());
+      }
     }
   }
 
   private mountModel(model: Object3D): void {
     if (this.loadedScene) {
       this.contentRoot.remove(this.loadedScene);
-      this.disposeObject(this.loadedScene);
     }
 
     this.fallbackSlideAnchor.clear();
@@ -348,13 +407,9 @@ export class PistolWeapon {
     const box = new Box3().setFromObject(model);
     const size = box.getSize(new Vector3());
     const center = box.getCenter(new Vector3());
-    const gripPivot = new Vector3(
-      center.x,
-      box.min.y + size.y * 0.36,
-      box.max.z - size.z * 0.18,
-    );
+    const gripPivot = new Vector3(0, 0, 0);
 
-    model.position.set(-gripPivot.x, -gripPivot.y, -gripPivot.z);
+    model.position.set(0, 0, 0);
     this.contentRoot.add(model);
     this.loadedScene = model;
 
@@ -380,6 +435,11 @@ export class PistolWeapon {
   }
 
   private prepareModel(model: Object3D): void {
+    if (model.userData.sidecarPrepared === true) {
+      return;
+    }
+    model.userData.sidecarPrepared = true;
+
     model.traverse((object) => {
       object.frustumCulled = false;
 
@@ -435,11 +495,7 @@ export class PistolWeapon {
       box.min.y + size.y * 0.56,
       center.z,
     ).sub(gripPivot);
-    const [muzzleOffsetX, muzzleOffsetY, muzzleOffsetZ] =
-      this.config.weapon.viewmodel.muzzleOffset;
-    muzzlePosition.x += muzzleOffsetX;
-    muzzlePosition.y += muzzleOffsetY;
-    muzzlePosition.z += muzzleOffsetZ;
+    muzzlePosition.set(...this.getCurrentFpsConfig().muzzleOffset);
     this.muzzleAnchor.position.copy(muzzlePosition);
     this.muzzleAnchor.rotation.set(0, 0, 0);
 
@@ -621,6 +677,8 @@ export class PistolWeapon {
     rewards: RewardSystem,
   ): void {
     this.cooldown = 1 / this.config.weapon.fireRate;
+    this.firePulse += 1;
+    this.firingTimer = this.config.weapon.viewmodel.muzzleFlashDuration;
     this.muzzleFlashTimer = this.config.weapon.viewmodel.muzzleFlashDuration;
     this.muzzleFlash.visible = true;
     player.state.ammoInMagazine -= 1;
@@ -751,6 +809,7 @@ export class PistolWeapon {
   // The loader prefers real slide/magazine nodes, then falls back to proxy anchors if the GLB is a single mesh.
   private updatePresentation(deltaTime: number, reloading: boolean): void {
     this.muzzleFlashTimer = Math.max(0, this.muzzleFlashTimer - deltaTime);
+    this.firingTimer = Math.max(0, this.firingTimer - deltaTime);
     this.fireKick = approach(
       this.fireKick,
       0,
@@ -829,6 +888,24 @@ export class PistolWeapon {
 
   private toTuple(vector: Vector3): Vec3Tuple {
     return [vector.x, vector.y, vector.z];
+  }
+
+  private applyFpsViewmodelConfig(key: FpsViewmodelKey): void {
+    const viewmodel = this.config.fpsViewmodels[key];
+    const [rotX, rotY, rotZ] = viewmodel.rotationDegrees;
+    this.basePosition.set(...viewmodel.position);
+    this.baseRotation.set(
+      MathUtils.degToRad(rotX),
+      MathUtils.degToRad(rotY),
+      MathUtils.degToRad(rotZ),
+    );
+    this.debugViewmodelScale = viewmodel.scale;
+    this.muzzleAnchor.position.set(...viewmodel.muzzleOffset);
+    this.applyViewmodelPose(false);
+  }
+
+  private getCurrentFpsConfig() {
+    return this.config.fpsViewmodels[this.currentViewmodelKey];
   }
 
   private resolveUniformScale(scale: Vec3Tuple): number {

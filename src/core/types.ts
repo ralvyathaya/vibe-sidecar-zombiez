@@ -13,6 +13,12 @@ export type ZombieType = 'walker' | 'runner' | 'tank';
 export type HumanoidZombieType = 'walker' | 'runner' | 'tank';
 export type ZombieLifecycleState = 'inactive' | 'alive' | 'dying';
 export type WeaponKind = 'pistol' | 'shotgun' | 'bazooka';
+export type NetworkWeaponKind = 'handgun' | 'shotgun' | 'bazooka';
+export type FpsViewmodelKey =
+  | 'driver_pistol'
+  | 'gunner_handgun'
+  | 'gunner_shotgun'
+  | 'gunner_bazooka';
 export type AmmoRoundStyle = 'bullet' | 'shell' | 'rocket';
 export type PickupType =
   | 'shotgun'
@@ -56,7 +62,12 @@ export type DebugTransformTarget =
   | 'pistolViewmodel'
   | 'shotgunViewmodel'
   | 'bazookaViewmodel'
+  | 'driverPistolViewmodel'
+  | 'gunnerHandgunViewmodel'
+  | 'gunnerShotgunViewmodel'
+  | 'gunnerBazookaViewmodel'
   | 'armsAnchor';
+export type VehicleWheelSpinAxis = 'x' | 'y' | 'z';
 export type CoopConnectionState =
   | 'offline'
   | 'connecting'
@@ -117,6 +128,21 @@ export interface VehicleRigRoleProfile {
   seatPivotPosition: Vec3Tuple;
   cameraOffset: Vec3Tuple;
   cameraLookAtOffset?: Vec3Tuple;
+}
+
+export interface FpsViewmodelConfig {
+  path: string;
+  position: Vec3Tuple;
+  rotationDegrees: Vec3Tuple;
+  scale: number;
+  muzzleOffset: Vec3Tuple;
+}
+
+export interface VehiclePoseNodePatternConfig {
+  driverArm: string[];
+  driverHand: string[];
+  gunnerArm: string[];
+  gunnerHand: string[];
 }
 
 export interface DebugTransformSnapshot {
@@ -269,6 +295,15 @@ export interface GameConfig {
       seatPivotPosition: Vec3Tuple;
       cameraOffset: Vec3Tuple;
       roleProfiles: Record<GameplayRole, VehicleRigRoleProfile>;
+      wheelSpinAxis: VehicleWheelSpinAxis;
+      wheelSpinMultiplier: number;
+      wheelNodePatterns: string[];
+      poseNodePatterns: VehiclePoseNodePatternConfig;
+      posePulseDuration: number;
+      driverFirePoseDegrees: Vec3Tuple;
+      gunnerFirePoseDegrees: Vec3Tuple;
+      driverWorldMuzzleOffset: Vec3Tuple;
+      gunnerWorldMuzzleOffset: Vec3Tuple;
       lookDownReveal: Vec3Tuple;
       swayAmplitude: Vec3Tuple;
       swayFrequency: number;
@@ -306,6 +341,7 @@ export interface GameConfig {
       nearFillDistance: number;
     };
   };
+  fpsViewmodels: Record<FpsViewmodelKey, FpsViewmodelConfig>;
   ride: {
     lowHealthThreshold: number;
     criticalHealthThreshold: number;
@@ -822,6 +858,9 @@ export interface CoopSessionState {
 export interface RemoteInputFrame {
   sequence: number;
   role: CoopRole;
+  currentWeapon: NetworkWeaponKind;
+  isFiring: boolean;
+  firePulse: number;
   laneAxis: -1 | 0 | 1;
   accelerateHeld: boolean;
   brakeHeld: boolean;
@@ -835,12 +874,20 @@ export interface RemoteInputFrame {
   sentAt: number;
 }
 
+export interface RemotePresentationState {
+  role: CoopRole;
+  currentWeapon: NetworkWeaponKind;
+  isFiring: boolean;
+  firePulse: number;
+}
+
 export interface CoopSnapshot {
   gameState: GameStateType;
   elapsedSeconds: number;
   player: Pick<PlayerState, 'health' | 'distance' | 'score' | 'alive' | 'laneIndex'>;
   reward: Pick<RewardState, 'chainCount' | 'multiplier' | 'zombiesKilled' | 'bestChain'>;
   stats: CoopRunStats;
+  presentation: RemotePresentationState;
 }
 
 export interface LoadoutState {
