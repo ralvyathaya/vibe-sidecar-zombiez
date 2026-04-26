@@ -299,11 +299,14 @@ export interface GameConfig {
       wheelSpinMultiplier: number;
       wheelNodePatterns: string[];
       poseNodePatterns: VehiclePoseNodePatternConfig;
+      localGunnerHiddenNodePatterns: string[];
       posePulseDuration: number;
       driverFirePoseDegrees: Vec3Tuple;
       gunnerFirePoseDegrees: Vec3Tuple;
       driverWorldMuzzleOffset: Vec3Tuple;
       gunnerWorldMuzzleOffset: Vec3Tuple;
+      gunnerLookDownModelOffset: Vec3Tuple;
+      gunnerLookDownModelOffsetStartDegrees: number;
       lookDownReveal: Vec3Tuple;
       swayAmplitude: Vec3Tuple;
       swayFrequency: number;

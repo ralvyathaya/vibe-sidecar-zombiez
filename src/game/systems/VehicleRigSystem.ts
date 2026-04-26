@@ -47,6 +47,11 @@ type PoseBinding = {
   baseVisible: boolean;
 };
 
+type VisibilityBinding = {
+  node: Object3D;
+  baseVisible: boolean;
+};
+
 type WorldFireFlash = {
   group: Group;
   material: MeshBasicMaterial;
@@ -109,6 +114,7 @@ export class VehicleRigSystem {
   private readonly baseFov: number;
   private readonly runtimeProfile = getRuntimePerformanceProfile();
   private readonly wheelBindings: WheelBinding[] = [];
+  private readonly localGunnerHiddenBindings: VisibilityBinding[] = [];
   private readonly wheelBounds = new Box3();
   private readonly wheelSize = new Vector3();
   private readonly poseBindings: Record<
@@ -512,6 +518,14 @@ export class VehicleRigSystem {
     const running = gameState === 'running';
     const lookDown = MathUtils.clamp(this.cameraPitch.rotation.x, 0, MathUtils.degToRad(40));
     const lookDownAlpha = lookDown / MathUtils.degToRad(40);
+    const gunnerModelAvoidanceAlpha =
+      this.activeRole === 'gunner'
+        ? MathUtils.smoothstep(
+            lookDown,
+            MathUtils.degToRad(rig.gunnerLookDownModelOffsetStartDegrees),
+            MathUtils.degToRad(40),
+          )
+        : 0;
     const turnSign = Math.abs(this.camera.rotation.z) > 0.001 ? -Math.sign(this.camera.rotation.z) : 0;
     const laneDirection = ride ? Math.sign(ride.targetLaneIndex - ride.laneIndex) : 0;
     const laneTravel = ride ? Math.sin(ride.laneChangeAlpha * Math.PI) : 0;
@@ -599,6 +613,11 @@ export class VehicleRigSystem {
     );
 
     this.seatPivot.position.copy(activeSeatPivotPosition);
+    this.modelRoot.position.set(
+      this.baseModelPosition.x + rig.gunnerLookDownModelOffset[0] * gunnerModelAvoidanceAlpha,
+      this.baseModelPosition.y + rig.gunnerLookDownModelOffset[1] * gunnerModelAvoidanceAlpha,
+      this.baseModelPosition.z + rig.gunnerLookDownModelOffset[2] * gunnerModelAvoidanceAlpha,
+    );
     this.cameraYaw.position.set(
       activeCameraOffset.x + this.lookDownReveal.x * lookDownAlpha,
       activeCameraOffset.y + this.lookDownReveal.y * lookDownAlpha,
@@ -788,6 +807,7 @@ export class VehicleRigSystem {
 
     this.prepareModel(model);
     this.bindWheelNodes(model);
+    this.bindLocalPovHiddenNodes(model);
     this.bindPoseNodes(model);
     model.position.copy(this.baseModelPosition);
     model.rotation.set(
@@ -843,6 +863,25 @@ export class VehicleRigSystem {
     if (this.wheelBindings.length === 0) {
       console.warn(
         'Vehicle GLB loaded without fuzzy wheel/tire nodes; wheel spin disabled.',
+        patterns,
+      );
+    }
+  }
+
+  private bindLocalPovHiddenNodes(model: Object3D): void {
+    this.localGunnerHiddenBindings.length = 0;
+    const patterns = this.config.vehicle.stage1Rig.localGunnerHiddenNodePatterns;
+    const matches = this.findNodesByPatterns(model, patterns);
+    for (const node of matches) {
+      this.localGunnerHiddenBindings.push({
+        node,
+        baseVisible: node.visible,
+      });
+    }
+
+    if (this.localGunnerHiddenBindings.length === 0) {
+      console.warn(
+        'Vehicle GLB has no local gunner avatar nodes to hide; first-person overlap may remain.',
         patterns,
       );
     }
@@ -941,6 +980,12 @@ export class VehicleRigSystem {
 
   private applyPovVisibility(): void {
     const hideGunnerArmsForLocalPov = this.activeRole === 'gunner';
+    this.modelRoot.visible = true;
+
+    for (const binding of this.localGunnerHiddenBindings) {
+      binding.node.visible = hideGunnerArmsForLocalPov ? false : binding.baseVisible;
+    }
+
     for (const binding of [
       this.poseBindings.gunner.arm,
       this.poseBindings.gunner.hand,
