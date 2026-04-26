@@ -44,6 +44,7 @@ type WheelBinding = {
 type PoseBinding = {
   node: Object3D;
   baseRotation: Euler;
+  baseVisible: boolean;
 };
 
 type WorldFireFlash = {
@@ -399,6 +400,7 @@ export class VehicleRigSystem {
     this.activeRole = role;
     this.seatPivot.position.copy(this.getActiveSeatPivotPosition());
     this.cameraYaw.position.copy(this.getActiveCameraOffset());
+    this.applyPovVisibility();
   }
 
   getRoleCameraTransform(role: GameplayRole): DebugTransformSnapshot {
@@ -490,6 +492,7 @@ export class VehicleRigSystem {
     (this.headlightGlow.material as SpriteMaterial).opacity = 0.05;
     this.setWheelBlurOpacity(0);
     this.updatePosePulses(0);
+    this.applyPovVisibility();
     this.vehicleRig.visible = true;
     this.applyWheelSpin();
   }
@@ -873,6 +876,7 @@ export class VehicleRigSystem {
     return {
       node,
       baseRotation: node.rotation.clone(),
+      baseVisible: node.visible,
     };
   }
 
@@ -932,6 +936,20 @@ export class VehicleRigSystem {
         : 0;
       this.applyRoleFirePose(role, poseAlpha);
       this.updateWorldFireFlash(role, this.muzzleTimers[role] / duration);
+    }
+  }
+
+  private applyPovVisibility(): void {
+    const hideGunnerArmsForLocalPov = this.activeRole === 'gunner';
+    for (const binding of [
+      this.poseBindings.gunner.arm,
+      this.poseBindings.gunner.hand,
+    ]) {
+      if (!binding) {
+        continue;
+      }
+
+      binding.node.visible = hideGunnerArmsForLocalPov ? false : binding.baseVisible;
     }
   }
 
