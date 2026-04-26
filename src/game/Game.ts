@@ -289,6 +289,14 @@ export class Game {
     };
     this.networkSystem.onRemoteInput = (frame) => {
       this.inputSystem.applyRemoteInputFrame(frame);
+      this.vehicleRigSystem.triggerRemoteFire(frame.role, frame.currentWeapon, frame.firePulse);
+    };
+    this.networkSystem.onRemoteSnapshot = (snapshot) => {
+      this.vehicleRigSystem.triggerRemoteFire(
+        snapshot.presentation.role,
+        snapshot.presentation.currentWeapon,
+        snapshot.presentation.firePulse,
+      );
     };
     this.networkSystem.onRemoteStart = (seed) => {
       this.startRunFromNetwork(seed);
@@ -333,8 +341,9 @@ export class Game {
 
     if (this.state === 'running') {
       const simulationDelta = this.consumeSimulationDelta(deltaTime);
+      const outboundPresentation = this.weaponSystem.getPresentationState(this.coopSession.role);
       this.networkSystem.sendInput(
-        this.inputSystem.createLocalInputFrame(this.coopSession.role),
+        this.inputSystem.createLocalInputFrame(this.coopSession.role, outboundPresentation),
       );
       this.handleContextActions();
       this.updatePickupRiskEffects(deltaTime);
@@ -433,6 +442,12 @@ export class Game {
         this.enemySystem,
         this.worldSystem,
         this.rewardSystem,
+      );
+      const localPresentation = this.weaponSystem.getPresentationState(this.coopSession.role);
+      this.vehicleRigSystem.triggerRemoteFire(
+        localPresentation.role,
+        localPresentation.currentWeapon,
+        localPresentation.firePulse,
       );
       this.updateGunnerStats(preWeaponStatus.ammoInMagazine, preWeaponKills);
 
@@ -726,6 +741,7 @@ export class Game {
         bestChain: reward.bestChain,
       },
       stats: { ...this.coopStats },
+      presentation: this.weaponSystem.getPresentationState(this.coopSession.role),
     };
     this.networkSystem.sendSnapshot(snapshot);
   }
@@ -1179,6 +1195,26 @@ export class Game {
         'bazookaViewmodel',
         'Bazooka Viewmodel',
         'Bazooka position, rotation, and scale under the FPS camera.',
+      ),
+      driverPistolViewmodel: this.createWeaponDebugBinding(
+        'driverPistolViewmodel',
+        'Driver Pistol Viewmodel',
+        'Driver FPS GLB transform under the camera.',
+      ),
+      gunnerHandgunViewmodel: this.createWeaponDebugBinding(
+        'gunnerHandgunViewmodel',
+        'Gunner Handgun Viewmodel',
+        'Police handgun FPS GLB transform under the camera.',
+      ),
+      gunnerShotgunViewmodel: this.createWeaponDebugBinding(
+        'gunnerShotgunViewmodel',
+        'Gunner Shotgun Viewmodel',
+        'Police shotgun FPS GLB transform under the camera.',
+      ),
+      gunnerBazookaViewmodel: this.createWeaponDebugBinding(
+        'gunnerBazookaViewmodel',
+        'Gunner Bazooka Viewmodel',
+        'Police bazooka FPS GLB transform under the camera.',
       ),
       armsAnchor: {
         label: 'Arms Anchor',

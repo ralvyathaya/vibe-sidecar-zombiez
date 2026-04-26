@@ -1,6 +1,11 @@
 import { Vector2 } from 'three';
 import { GAME_CONFIG } from '../../core/config';
-import type { ControlProfile, CoopRole, RemoteInputFrame } from '../../core/types';
+import type {
+  ControlProfile,
+  CoopRole,
+  RemoteInputFrame,
+  RemotePresentationState,
+} from '../../core/types';
 
 export interface LaneRequestInputState {
   active: boolean;
@@ -119,11 +124,21 @@ export class InputSystem {
     }
   }
 
-  createLocalInputFrame(role = this.localRole): RemoteInputFrame {
+  createLocalInputFrame(
+    role = this.localRole,
+    presentation: Omit<RemotePresentationState, 'role'> = {
+      currentWeapon: 'handgun',
+      isFiring: false,
+      firePulse: 0,
+    },
+  ): RemoteInputFrame {
     const localLaneAxis = this.getLocalStrafeAxis();
     return {
       sequence: this.localFrameSequence++,
       role,
+      currentWeapon: presentation.currentWeapon,
+      isFiring: presentation.isFiring,
+      firePulse: presentation.firePulse,
       laneAxis: this.canProfileDrive(this.localProfile) ? localLaneAxis : 0,
       accelerateHeld: this.canProfileDrive(this.localProfile) && this.hasLocalKey('KeyW'),
       brakeHeld: this.canProfileDrive(this.localProfile) && this.hasLocalKey('KeyS'),

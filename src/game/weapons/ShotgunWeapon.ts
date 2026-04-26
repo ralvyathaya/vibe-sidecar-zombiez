@@ -1,6 +1,5 @@
 import {
   AdditiveBlending,
-  Box3,
   BoxGeometry,
   Camera,
   Color,
@@ -133,14 +132,17 @@ export class ShotgunWeapon {
   private cycleActive = false;
   private pendingDelaySound = false;
   private debugViewmodelScale = 1;
+  private firePulse = 0;
+  private firingTimer = 0;
 
   constructor(
     private readonly camera: Camera,
     private readonly config: GameConfig,
   ) {
-    const [rotX, rotY, rotZ] = this.config.shotgun.viewmodel.rotationDegrees;
-    this.basePosition = new Vector3(...this.config.shotgun.viewmodel.position);
-    this.debugViewmodelScale = this.config.shotgun.viewmodel.scale;
+    const viewmodel = this.config.fpsViewmodels.gunner_shotgun;
+    const [rotX, rotY, rotZ] = viewmodel.rotationDegrees;
+    this.basePosition = new Vector3(...viewmodel.position);
+    this.debugViewmodelScale = viewmodel.scale;
     this.baseRotation.set(
       MathUtils.degToRad(rotX),
       MathUtils.degToRad(rotY),
@@ -185,6 +187,7 @@ export class ShotgunWeapon {
     this.viewmodelFillLight.position.set(-0.1, 0.09, 0.2);
     // Keep the shotgun flash anchored to the real muzzle tip so the sprite,
     // the blast meshes, and the pellet feedback all originate from one place.
+    this.muzzleAnchor.position.set(...viewmodel.muzzleOffset);
     this.muzzleAnchor.add(this.muzzleFlash);
     this.contentRoot.add(
       this.viewmodelKeyLight,
@@ -209,6 +212,7 @@ export class ShotgunWeapon {
     this.ammo = 0;
     this.muzzleFlashTimer = 0;
     this.hitConfirmTimer = 0;
+    this.firingTimer = 0;
     this.fireKick = 0;
     this.pumpOffset = 0;
     this.pumpDelayTimer = 0;
@@ -339,6 +343,14 @@ export class ShotgunWeapon {
     };
   }
 
+  getFirePulse(): number {
+    return this.firePulse;
+  }
+
+  isRecentlyFiring(): boolean {
+    return this.firingTimer > 0;
+  }
+
   getDebugViewmodelTransform(): DebugTransformSnapshot {
     return this.createDebugSnapshot(
       this.basePosition,
@@ -359,14 +371,16 @@ export class ShotgunWeapon {
   }
 
   resetDebugViewmodelTransform(): DebugTransformSnapshot {
-    const [rotX, rotY, rotZ] = this.config.shotgun.viewmodel.rotationDegrees;
-    this.basePosition.set(...this.config.shotgun.viewmodel.position);
+    const viewmodel = this.config.fpsViewmodels.gunner_shotgun;
+    const [rotX, rotY, rotZ] = viewmodel.rotationDegrees;
+    this.basePosition.set(...viewmodel.position);
     this.baseRotation.set(
       MathUtils.degToRad(rotX),
       MathUtils.degToRad(rotY),
       MathUtils.degToRad(rotZ),
     );
-    this.debugViewmodelScale = this.config.shotgun.viewmodel.scale;
+    this.debugViewmodelScale = viewmodel.scale;
+    this.muzzleAnchor.position.set(...viewmodel.muzzleOffset);
     this.applyViewmodelPose();
     return this.getDebugViewmodelTransform();
   }
@@ -397,7 +411,7 @@ export class ShotgunWeapon {
     try {
       const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
       const loader = new GLTFLoader();
-      const gltf = await loader.loadAsync(this.config.shotgun.viewmodel.assetPath);
+      const gltf = await loader.loadAsync(this.config.fpsViewmodels.gunner_shotgun.path);
       this.mountModel(gltf.scene);
     } catch (error) {
       console.warn('Failed to load shotgun GLB, using fallback viewmodel.', error);
@@ -412,34 +426,20 @@ export class ShotgunWeapon {
     }
 
     this.prepareModel(model);
-    const box = new Box3().setFromObject(model);
-    const size = box.getSize(new Vector3());
-    const center = box.getCenter(new Vector3());
-    const gripPivot = new Vector3(
-      center.x + size.x * 0.1,
-      box.min.y + size.y * 0.32,
-      center.z,
-    );
-
-    model.position.set(-gripPivot.x, -gripPivot.y, -gripPivot.z);
+    model.position.set(0, 0, 0);
     this.contentRoot.add(model);
     this.loadedScene = model;
-
-    const muzzlePosition = new Vector3(
-      box.min.x + size.x * 0.01,
-      box.min.y + size.y * 0.595,
-      center.z,
-    ).sub(gripPivot);
-    const [muzzleOffsetX, muzzleOffsetY, muzzleOffsetZ] = this.config.shotgun.viewmodel.muzzleOffset;
-    muzzlePosition.x += muzzleOffsetX;
-    muzzlePosition.y += muzzleOffsetY;
-    muzzlePosition.z += muzzleOffsetZ;
-    this.muzzleAnchor.position.copy(muzzlePosition);
+    this.muzzleAnchor.position.set(...this.config.fpsViewmodels.gunner_shotgun.muzzleOffset);
 
     this.applyViewmodelPose();
   }
 
   private prepareModel(model: Object3D): void {
+    if (model.userData.sidecarPrepared === true) {
+      return;
+    }
+    model.userData.sidecarPrepared = true;
+
     model.traverse((object) => {
       object.frustumCulled = false;
       const maybeMesh = object as Mesh;
@@ -486,6 +486,8 @@ export class ShotgunWeapon {
     this.activeSpinDuration = this.resolvedSpinDuration;
     this.cooldown = this.getCycleDuration();
     this.ammo = Math.max(0, this.ammo - 1);
+    this.firePulse += 1;
+    this.firingTimer = this.config.shotgun.viewmodel.muzzleFlashDuration;
     this.cycleActive = true;
     this.pendingDelaySound = true;
     this.muzzleFlashTimer = this.config.shotgun.viewmodel.muzzleFlashDuration;
@@ -645,6 +647,7 @@ export class ShotgunWeapon {
   }
 
   private updatePresentation(deltaTime: number): void {
+    this.firingTimer = Math.max(0, this.firingTimer - deltaTime);
     this.fireKick = approach(this.fireKick, 0, deltaTime * this.config.shotgun.viewmodel.recoilRecovery);
 
     if (this.pumpDelayTimer > 0) {

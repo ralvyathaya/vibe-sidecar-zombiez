@@ -25,6 +25,7 @@ const WEAPON_ART: Record<WeaponStatus['weaponType'], string> = {
   shotgun: '/ui/weapons/shotgun.png',
   bazooka: '/ui/weapons/bazooka.png',
 };
+const GUNNER_HANDGUN_HUD_ART = '/ui/Layer 1.png';
 
 const MENU_LOGO = '/ui/menu/logo-game.png';
 const MENU_LOGO_SMALL = '/ui/menu/logo-game-small.png';
@@ -983,7 +984,7 @@ export class UISystem {
     this.setDataset(this.ammoValue, 'state', ammoState);
     this.setDataset(this.ammoReserve, 'state', ammoState);
     this.setDataset(this.weaponIcon, 'weapon', snapshot.weapon.weaponType);
-    this.setImageSource(this.weaponIcon, WEAPON_ART[snapshot.weapon.weaponType]);
+    this.setImageSource(this.weaponIcon, this.getWeaponHudArt(snapshot));
     this.setText(this.weaponName, snapshot.weapon.weaponLabel);
     this.setText(this.ammoValue, `${snapshot.weapon.ammoInMagazine}`);
     this.setText(this.ammoReserve, snapshot.weapon.reserveAmmoText);
@@ -1663,6 +1664,15 @@ export class UISystem {
 
   private formatRoleLabel(role: GameplayRole): string {
     return role === 'driver' ? 'Driver' : 'Gunner';
+  }
+
+  private getWeaponHudArt(snapshot: HUDSnapshot): string {
+    const isDriver = snapshot.coopSession.activeProfile === 'driver';
+    if (!isDriver && snapshot.weapon.weaponType === 'pistol') {
+      return GUNNER_HANDGUN_HUD_ART;
+    }
+
+    return WEAPON_ART[snapshot.weapon.weaponType];
   }
 
   private setMenuPlayMode(mode: MenuPlayMode, emit = true): void {

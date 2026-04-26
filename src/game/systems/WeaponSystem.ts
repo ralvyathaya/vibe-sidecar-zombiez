@@ -4,7 +4,9 @@ import type {
   DebugTransformTarget,
   GameConfig,
   LoadoutState,
+  NetworkWeaponKind,
   PickupEvent,
+  RemotePresentationState,
   WeaponPolicy,
   WeaponKind,
   WeaponStatus,
@@ -40,6 +42,7 @@ export class WeaponSystem {
     this.activeWeapon = 'pistol';
     this.shotgunUnlocked = false;
     this.bazookaRestoreWeapon = 'pistol';
+    this.applyPistolViewmodelPolicy();
     this.bazookaWeapon.reset();
     this.bazookaWeapon.setEquipped(false);
     this.pistolWeapon.reset(player);
@@ -189,10 +192,12 @@ export class WeaponSystem {
 
   setWeaponPolicy(policy: WeaponPolicy, player?: PlayerSystem): void {
     if (this.weaponPolicy === policy) {
+      this.applyPistolViewmodelPolicy();
       return;
     }
 
     this.weaponPolicy = policy;
+    this.applyPistolViewmodelPolicy();
     if (policy === 'pistolOnly' && player) {
       this.shotgunUnlocked = false;
       this.shotgunWeapon.setAmmo(0);
@@ -202,14 +207,28 @@ export class WeaponSystem {
     }
   }
 
+  getPresentationState(role: RemotePresentationState['role']): RemotePresentationState {
+    const activeWeapon = this.weaponPolicy === 'pistolOnly' ? 'pistol' : this.activeWeapon;
+    return {
+      role,
+      currentWeapon: this.toNetworkWeaponKind(activeWeapon),
+      isFiring: this.isActiveWeaponRecentlyFiring(activeWeapon),
+      firePulse: this.getActiveWeaponFirePulse(activeWeapon),
+    };
+  }
+
   getDebugViewmodelTransform(target: DebugTransformTarget): DebugTransformSnapshot | null {
-    if (target === 'pistolViewmodel') {
+    if (
+      target === 'pistolViewmodel' ||
+      target === 'driverPistolViewmodel' ||
+      target === 'gunnerHandgunViewmodel'
+    ) {
       return this.pistolWeapon.getDebugViewmodelTransform();
     }
-    if (target === 'shotgunViewmodel') {
+    if (target === 'shotgunViewmodel' || target === 'gunnerShotgunViewmodel') {
       return this.shotgunWeapon.getDebugViewmodelTransform();
     }
-    if (target === 'bazookaViewmodel') {
+    if (target === 'bazookaViewmodel' || target === 'gunnerBazookaViewmodel') {
       return this.bazookaWeapon.getDebugViewmodelTransform();
     }
     return null;
@@ -219,27 +238,35 @@ export class WeaponSystem {
     target: DebugTransformTarget,
     snapshot: DebugTransformSnapshot,
   ): void {
-    if (target === 'pistolViewmodel') {
+    if (
+      target === 'pistolViewmodel' ||
+      target === 'driverPistolViewmodel' ||
+      target === 'gunnerHandgunViewmodel'
+    ) {
       this.pistolWeapon.setDebugViewmodelTransform(snapshot);
       return;
     }
-    if (target === 'shotgunViewmodel') {
+    if (target === 'shotgunViewmodel' || target === 'gunnerShotgunViewmodel') {
       this.shotgunWeapon.setDebugViewmodelTransform(snapshot);
       return;
     }
-    if (target === 'bazookaViewmodel') {
+    if (target === 'bazookaViewmodel' || target === 'gunnerBazookaViewmodel') {
       this.bazookaWeapon.setDebugViewmodelTransform(snapshot);
     }
   }
 
   resetDebugViewmodelTransform(target: DebugTransformTarget): DebugTransformSnapshot | null {
-    if (target === 'pistolViewmodel') {
+    if (
+      target === 'pistolViewmodel' ||
+      target === 'driverPistolViewmodel' ||
+      target === 'gunnerHandgunViewmodel'
+    ) {
       return this.pistolWeapon.resetDebugViewmodelTransform();
     }
-    if (target === 'shotgunViewmodel') {
+    if (target === 'shotgunViewmodel' || target === 'gunnerShotgunViewmodel') {
       return this.shotgunWeapon.resetDebugViewmodelTransform();
     }
-    if (target === 'bazookaViewmodel') {
+    if (target === 'bazookaViewmodel' || target === 'gunnerBazookaViewmodel') {
       return this.bazookaWeapon.resetDebugViewmodelTransform();
     }
     return null;
@@ -251,6 +278,12 @@ export class WeaponSystem {
     this.shotgunWeapon.setEquipped(false);
     this.pistolWeapon.setEquipped(true);
     player.state.reloading = false;
+  }
+
+  private applyPistolViewmodelPolicy(): void {
+    this.pistolWeapon.setFpsViewmodelKey(
+      this.weaponPolicy === 'pistolOnly' ? 'driver_pistol' : 'gunner_handgun',
+    );
   }
 
   private equipShotgun(player: PlayerSystem): void {
@@ -305,5 +338,29 @@ export class WeaponSystem {
     }
 
     return 'pistol';
+  }
+
+  private toNetworkWeaponKind(weapon: WeaponKind): NetworkWeaponKind {
+    return weapon === 'pistol' ? 'handgun' : weapon;
+  }
+
+  private getActiveWeaponFirePulse(weapon: WeaponKind): number {
+    if (weapon === 'bazooka') {
+      return this.bazookaWeapon.getFirePulse();
+    }
+    if (weapon === 'shotgun') {
+      return this.shotgunWeapon.getFirePulse();
+    }
+    return this.pistolWeapon.getFirePulse();
+  }
+
+  private isActiveWeaponRecentlyFiring(weapon: WeaponKind): boolean {
+    if (weapon === 'bazooka') {
+      return this.bazookaWeapon.isRecentlyFiring();
+    }
+    if (weapon === 'shotgun') {
+      return this.shotgunWeapon.isRecentlyFiring();
+    }
+    return this.pistolWeapon.isRecentlyFiring();
   }
 }

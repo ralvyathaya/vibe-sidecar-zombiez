@@ -21,16 +21,16 @@ import {
   Vector3,
 } from 'three';
 import type {
+  CoopRole,
   DebugTransformSnapshot,
   GameConfig,
   GameStateType,
   GameplayRole,
+  NetworkWeaponKind,
   RideState,
   Vec3Tuple,
 } from '../../core/types';
 import { approach, getRuntimePerformanceProfile } from '../../core/utils';
-
-type WheelSpinAxis = 'x' | 'y' | 'z';
 
 type WheelBinding = {
   node: Object3D;
@@ -41,10 +41,19 @@ type WheelBinding = {
   }>;
 };
 
+type PoseBinding = {
+  node: Object3D;
+  baseRotation: Euler;
+};
+
+type WorldFireFlash = {
+  group: Group;
+  material: MeshBasicMaterial;
+  mesh: Mesh;
+  light: PointLight;
+};
+
 export class VehicleRigSystem {
-  private static readonly WHEEL_SPIN_AXIS: WheelSpinAxis = 'x';
-  private static readonly WHEEL_SPIN_MULTIPLIER = 3.7;
-  private static readonly WHEEL_NODE_NAMES = ['wheel_front', 'wheel_rear', 'wheel_sidecar'] as const;
   private static readonly WHEEL_BLUR_MIN_SPEED = 3.8;
   private static readonly WHEEL_BLUR_MAX_OPACITY = 1.0;
   private static readonly WHEEL_BLUR_THICKNESS_OFFSET = 0.02;
@@ -75,6 +84,10 @@ export class VehicleRigSystem {
   private readonly hotspotTexture: CanvasTexture;
   private readonly glowTexture: CanvasTexture;
   private readonly wheelBlurTexture: CanvasTexture;
+  private readonly worldFireFlashes: Record<GameplayRole, WorldFireFlash> = {
+    driver: this.createWorldFireFlash('DriverWorldMuzzleFlash'),
+    gunner: this.createWorldFireFlash('GunnerWorldMuzzleFlash'),
+  };
   private readonly baseRigOffset = new Vector3();
   private readonly baseModelPosition = new Vector3();
   private readonly baseModelRotation = new Vector3();
@@ -97,6 +110,25 @@ export class VehicleRigSystem {
   private readonly wheelBindings: WheelBinding[] = [];
   private readonly wheelBounds = new Box3();
   private readonly wheelSize = new Vector3();
+  private readonly poseBindings: Record<
+    GameplayRole,
+    { arm: PoseBinding | null; hand: PoseBinding | null }
+  > = {
+    driver: { arm: null, hand: null },
+    gunner: { arm: null, hand: null },
+  };
+  private readonly poseTimers: Record<GameplayRole, number> = {
+    driver: 0,
+    gunner: 0,
+  };
+  private readonly muzzleTimers: Record<GameplayRole, number> = {
+    driver: 0,
+    gunner: 0,
+  };
+  private readonly lastFirePulse: Record<GameplayRole, number> = {
+    driver: 0,
+    gunner: 0,
+  };
   private loadedScene: Object3D | null = null;
   private activeRole: GameplayRole = 'gunner';
   private currentFov = 72;
@@ -414,6 +446,10 @@ export class VehicleRigSystem {
     this.hitShake = 0;
     this.lastHitFlash = 0;
     this.wheelSpinAngle = 0;
+    this.poseTimers.driver = 0;
+    this.poseTimers.gunner = 0;
+    this.muzzleTimers.driver = 0;
+    this.muzzleTimers.gunner = 0;
     this.vehicleRig.position.set(0, 0, 0);
     this.vehicleRig.rotation.set(0, 0, 0);
     this.obstructionShakeGroup.position.set(0, 0, 0);
@@ -453,6 +489,7 @@ export class VehicleRigSystem {
     (this.headlightSideSpillRight.material as MeshBasicMaterial).opacity = 0;
     (this.headlightGlow.material as SpriteMaterial).opacity = 0.05;
     this.setWheelBlurOpacity(0);
+    this.updatePosePulses(0);
     this.vehicleRig.visible = true;
     this.applyWheelSpin();
   }
@@ -499,11 +536,9 @@ export class VehicleRigSystem {
     const failureSwayY = Math.cos(this.time * 3.5) * failureStress * rig.failureShakeAmplitude * 0.34;
     const failureYaw = Math.sin(this.time * 2.9) * failureStress * 0.004;
     const failureRoll = Math.cos(this.time * 3.8) * failureStress * MathUtils.degToRad(0.42);
-    this.wheelSpinAngle +=
-      deltaTime *
-      wheelForwardSpeed *
-      VehicleRigSystem.WHEEL_SPIN_MULTIPLIER;
+    this.wheelSpinAngle += deltaTime * wheelForwardSpeed * rig.wheelSpinMultiplier;
     this.applyWheelSpin();
+    this.updatePosePulses(deltaTime);
     this.setWheelBlurOpacity(
       wheelBlurStrength * VehicleRigSystem.WHEEL_BLUR_MAX_OPACITY,
     );
@@ -667,10 +702,37 @@ export class VehicleRigSystem {
     }
   }
 
+  triggerRemoteFire(
+    role: CoopRole,
+    _currentWeapon: NetworkWeaponKind,
+    firePulse: number,
+  ): void {
+    if (firePulse <= 0) {
+      return;
+    }
+
+    const presentationRole: GameplayRole = role === 'driver' ? 'driver' : 'gunner';
+    if (this.lastFirePulse[presentationRole] === firePulse) {
+      return;
+    }
+
+    this.lastFirePulse[presentationRole] = firePulse;
+    const duration = this.config.vehicle.stage1Rig.posePulseDuration;
+    this.poseTimers[presentationRole] = duration;
+    this.muzzleTimers[presentationRole] = Math.min(duration, 0.12);
+    this.worldFireFlashes[presentationRole].group.visible = true;
+  }
+
   destroy(): void {
     this.vehicleRig.removeFromParent();
+    this.worldFireFlashes.driver.group.removeFromParent();
+    this.worldFireFlashes.gunner.group.removeFromParent();
     this.disposeObject(this.loadedScene);
     this.wheelBlurTexture.dispose();
+    for (const flash of Object.values(this.worldFireFlashes)) {
+      flash.mesh.geometry.dispose();
+      flash.material.dispose();
+    }
   }
 
   private getActiveSeatPivotPosition(): Vector3 {
@@ -715,12 +777,15 @@ export class VehicleRigSystem {
 
   private mountModel(model: Object3D): void {
     if (this.loadedScene) {
+      this.worldFireFlashes.driver.group.removeFromParent();
+      this.worldFireFlashes.gunner.group.removeFromParent();
       this.modelRoot.remove(this.loadedScene);
       this.disposeObject(this.loadedScene);
     }
 
     this.prepareModel(model);
     this.bindWheelNodes(model);
+    this.bindPoseNodes(model);
     model.position.copy(this.baseModelPosition);
     model.rotation.set(
       this.baseModelRotation.x,
@@ -762,23 +827,71 @@ export class VehicleRigSystem {
 
   private bindWheelNodes(model: Object3D): void {
     this.wheelBindings.length = 0;
-    for (const wheelName of VehicleRigSystem.WHEEL_NODE_NAMES) {
-      const node =
-        model.getObjectByName(wheelName) ?? this.findNodeByNameInsensitive(model, wheelName);
-      if (!node) {
-        continue;
-      }
-
+    const patterns = this.config.vehicle.stage1Rig.wheelNodePatterns;
+    const matches = this.findNodesByPatterns(model, patterns);
+    for (const node of matches) {
       this.wheelBindings.push({
         node,
         baseRotation: node.rotation.clone(),
         blurMeshes: this.createWheelBlurMeshes(node),
       });
     }
+
+    if (this.wheelBindings.length === 0) {
+      console.warn(
+        'Vehicle GLB loaded without fuzzy wheel/tire nodes; wheel spin disabled.',
+        patterns,
+      );
+    }
+  }
+
+  private bindPoseNodes(model: Object3D): void {
+    const patterns = this.config.vehicle.stage1Rig.poseNodePatterns;
+    this.poseBindings.driver.arm = this.capturePoseBinding(
+      this.findBestNodeByPatterns(model, patterns.driverArm, 'driver arm'),
+    );
+    this.poseBindings.driver.hand = this.capturePoseBinding(
+      this.findBestNodeByPatterns(model, patterns.driverHand, 'driver hand'),
+    );
+    this.poseBindings.gunner.arm = this.capturePoseBinding(
+      this.findBestNodeByPatterns(model, patterns.gunnerArm, 'gunner arm'),
+    );
+    this.poseBindings.gunner.hand = this.capturePoseBinding(
+      this.findBestNodeByPatterns(model, patterns.gunnerHand, 'gunner hand'),
+    );
+
+    this.attachWorldFireFlash('driver');
+    this.attachWorldFireFlash('gunner');
+    this.updatePosePulses(0);
+  }
+
+  private capturePoseBinding(node: Object3D | null): PoseBinding | null {
+    if (!node) {
+      return null;
+    }
+
+    return {
+      node,
+      baseRotation: node.rotation.clone(),
+    };
+  }
+
+  private attachWorldFireFlash(role: GameplayRole): void {
+    const flash = this.worldFireFlashes[role];
+    flash.group.removeFromParent();
+    const hand = this.poseBindings[role].hand?.node;
+    const parent = hand ?? this.modelRoot;
+    parent.add(flash.group);
+    flash.group.position.set(
+      ...(role === 'driver'
+        ? this.config.vehicle.stage1Rig.driverWorldMuzzleOffset
+        : this.config.vehicle.stage1Rig.gunnerWorldMuzzleOffset),
+    );
+    flash.group.visible = false;
   }
 
   private applyWheelSpin(): void {
-    const axis = VehicleRigSystem.WHEEL_SPIN_AXIS;
+    const axis = this.config.vehicle.stage1Rig.wheelSpinAxis;
     for (const binding of this.wheelBindings) {
       binding.node.rotation.set(
         binding.baseRotation.x,
@@ -809,10 +922,60 @@ export class VehicleRigSystem {
     }
   }
 
+  private updatePosePulses(deltaTime: number): void {
+    for (const role of ['driver', 'gunner'] as const) {
+      const duration = Math.max(0.001, this.config.vehicle.stage1Rig.posePulseDuration);
+      this.poseTimers[role] = Math.max(0, this.poseTimers[role] - deltaTime);
+      this.muzzleTimers[role] = Math.max(0, this.muzzleTimers[role] - deltaTime);
+      const poseAlpha = this.poseTimers[role] > 0
+        ? MathUtils.smoothstep(this.poseTimers[role] / duration, 0, 1)
+        : 0;
+      this.applyRoleFirePose(role, poseAlpha);
+      this.updateWorldFireFlash(role, this.muzzleTimers[role] / duration);
+    }
+  }
+
+  private applyRoleFirePose(role: GameplayRole, alpha: number): void {
+    const poseDegrees =
+      role === 'driver'
+        ? this.config.vehicle.stage1Rig.driverFirePoseDegrees
+        : this.config.vehicle.stage1Rig.gunnerFirePoseDegrees;
+    const pose = [
+      MathUtils.degToRad(poseDegrees[0]) * alpha,
+      MathUtils.degToRad(poseDegrees[1]) * alpha,
+      MathUtils.degToRad(poseDegrees[2]) * alpha,
+    ] as const;
+
+    for (const binding of [
+      this.poseBindings[role].arm,
+      this.poseBindings[role].hand,
+    ]) {
+      if (!binding) {
+        continue;
+      }
+
+      binding.node.rotation.set(
+        binding.baseRotation.x + pose[0],
+        binding.baseRotation.y + pose[1],
+        binding.baseRotation.z + pose[2],
+      );
+    }
+  }
+
+  private updateWorldFireFlash(role: GameplayRole, rawAlpha: number): void {
+    const flash = this.worldFireFlashes[role];
+    const alpha = MathUtils.clamp(rawAlpha, 0, 1);
+    flash.group.visible = alpha > 0.01;
+    flash.group.rotation.z += 0.85;
+    flash.mesh.scale.setScalar(0.18 + alpha * 0.22);
+    flash.material.opacity = alpha * 0.85;
+    flash.light.intensity = alpha * 2.8;
+  }
+
   private createWheelBlurMeshes(node: Object3D): Array<{ mesh: Mesh; baseRotation: Euler }> {
     this.wheelBounds.setFromObject(node);
     this.wheelBounds.getSize(this.wheelSize);
-    const axis = VehicleRigSystem.WHEEL_SPIN_AXIS;
+    const axis = this.config.vehicle.stage1Rig.wheelSpinAxis;
     const diameter =
       axis === 'x'
         ? Math.max(this.wheelSize.y, this.wheelSize.z)
@@ -865,19 +1028,81 @@ export class VehicleRigSystem {
     return blurMeshes;
   }
 
-  private findNodeByNameInsensitive(root: Object3D, targetName: string): Object3D | null {
-    const normalizedTarget = targetName.toLowerCase();
-    let match: Object3D | null = null;
+  private createWorldFireFlash(name: string): WorldFireFlash {
+    const material = new MeshBasicMaterial({
+      color: 0xffb55f,
+      transparent: true,
+      opacity: 0,
+      blending: AdditiveBlending,
+      depthWrite: false,
+      depthTest: false,
+      side: DoubleSide,
+    });
+    const mesh = new Mesh(new PlaneGeometry(0.48, 0.24), material);
+    mesh.renderOrder = 12;
+    const light = new PointLight(0xffa45c, 0, 4, 2);
+    const group = new Group();
+    group.name = name;
+    group.visible = false;
+    group.add(mesh, light);
+    return { group, material, mesh, light };
+  }
+
+  private findNodesByPatterns(root: Object3D, patterns: string[]): Object3D[] {
+    const normalizedPatterns = this.normalizePatterns(patterns);
+    const matches: Object3D[] = [];
     root.traverse((object) => {
-      if (match || !object.name) {
+      if (!object.name) {
         return;
       }
 
-      if (object.name.toLowerCase() === normalizedTarget) {
-        match = object;
+      const name = object.name.toLowerCase();
+      if (normalizedPatterns.some((pattern) => name.includes(pattern))) {
+        matches.push(object);
       }
     });
-    return match;
+    return matches;
+  }
+
+  private findBestNodeByPatterns(
+    root: Object3D,
+    patterns: string[],
+    label: string,
+  ): Object3D | null {
+    const normalizedPatterns = this.normalizePatterns(patterns);
+    let bestMatch: Object3D | null = null;
+    let bestScore = 0;
+
+    root.traverse((object) => {
+      if (!object.name) {
+        return;
+      }
+
+      const name = object.name.toLowerCase();
+      let score = 0;
+      for (const pattern of normalizedPatterns) {
+        if (name.includes(pattern)) {
+          score += 1;
+        }
+      }
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestMatch = object;
+      }
+    });
+
+    if (!bestMatch) {
+      console.warn(`Vehicle GLB missing fuzzy ${label} node; firing pose fallback is disabled.`, patterns);
+    }
+
+    return bestMatch;
+  }
+
+  private normalizePatterns(patterns: string[]): string[] {
+    return patterns
+      .map((pattern) => pattern.trim().toLowerCase())
+      .filter((pattern) => pattern.length > 0);
   }
 
   private disposeObject(root: Object3D | null): void {

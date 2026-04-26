@@ -395,6 +395,9 @@ export class PistolWeapon {
   private mountModel(model: Object3D): void {
     if (this.loadedScene) {
       this.contentRoot.remove(this.loadedScene);
+      if (!this.isCachedViewmodel(this.loadedScene)) {
+        this.disposeObject(this.loadedScene);
+      }
     }
 
     this.fallbackSlideAnchor.clear();
@@ -906,6 +909,15 @@ export class PistolWeapon {
 
   private getCurrentFpsConfig() {
     return this.config.fpsViewmodels[this.currentViewmodelKey];
+  }
+
+  private isCachedViewmodel(scene: Object3D): boolean {
+    for (const cached of this.viewmodelVariants.values()) {
+      if (cached === scene) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private resolveUniformScale(scale: Vec3Tuple): number {

@@ -1,6 +1,5 @@
 import {
   AdditiveBlending,
-  Box3,
   BoxGeometry,
   Camera,
   Color,
@@ -113,14 +112,17 @@ export class BazookaWeapon {
   private autoReturnTimer = 0;
   private pendingAutoReturn = false;
   private debugViewmodelScale = 1;
+  private firePulse = 0;
+  private firingTimer = 0;
 
   constructor(
     private readonly camera: Camera,
     private readonly config: GameConfig,
   ) {
-    const [rotX, rotY, rotZ] = this.config.bazooka.viewmodel.rotationDegrees;
-    this.basePosition = new Vector3(...this.config.bazooka.viewmodel.position);
-    this.debugViewmodelScale = this.config.bazooka.viewmodel.scale;
+    const viewmodel = this.config.fpsViewmodels.gunner_bazooka;
+    const [rotX, rotY, rotZ] = viewmodel.rotationDegrees;
+    this.basePosition = new Vector3(...viewmodel.position);
+    this.debugViewmodelScale = viewmodel.scale;
     this.baseRotation.set(
       MathUtils.degToRad(rotX),
       MathUtils.degToRad(rotY),
@@ -148,7 +150,7 @@ export class BazookaWeapon {
     this.muzzleFlash.visible = false;
     this.viewmodelKeyLight.position.set(0.26, 0.18, 0.34);
     this.viewmodelFillLight.position.set(-0.12, 0.1, 0.2);
-    this.muzzleAnchor.position.set(...this.config.bazooka.viewmodel.muzzleOffset);
+    this.muzzleAnchor.position.set(...viewmodel.muzzleOffset);
     this.muzzleAnchor.add(this.muzzleFlash);
     this.contentRoot.add(this.viewmodelKeyLight, this.viewmodelFillLight, this.muzzleAnchor);
     this.viewmodelRoot.add(this.contentRoot);
@@ -167,6 +169,7 @@ export class BazookaWeapon {
     this.ammo = 0;
     this.cooldown = 0;
     this.muzzleFlashTimer = 0;
+    this.firingTimer = 0;
     this.fireKick = 0;
     this.autoReturnTimer = 0;
     this.pendingAutoReturn = false;
@@ -212,6 +215,7 @@ export class BazookaWeapon {
   }
 
   updateIdle(deltaTime: number): void {
+    this.firingTimer = Math.max(0, this.firingTimer - deltaTime);
     this.fireKick = approach(
       this.fireKick,
       0,
@@ -270,6 +274,14 @@ export class BazookaWeapon {
     };
   }
 
+  getFirePulse(): number {
+    return this.firePulse;
+  }
+
+  isRecentlyFiring(): boolean {
+    return this.firingTimer > 0;
+  }
+
   getDebugViewmodelTransform(): DebugTransformSnapshot {
     return this.createDebugSnapshot(
       this.basePosition,
@@ -290,14 +302,16 @@ export class BazookaWeapon {
   }
 
   resetDebugViewmodelTransform(): DebugTransformSnapshot {
-    const [rotX, rotY, rotZ] = this.config.bazooka.viewmodel.rotationDegrees;
-    this.basePosition.set(...this.config.bazooka.viewmodel.position);
+    const viewmodel = this.config.fpsViewmodels.gunner_bazooka;
+    const [rotX, rotY, rotZ] = viewmodel.rotationDegrees;
+    this.basePosition.set(...viewmodel.position);
     this.baseRotation.set(
       MathUtils.degToRad(rotX),
       MathUtils.degToRad(rotY),
       MathUtils.degToRad(rotZ),
     );
-    this.debugViewmodelScale = this.config.bazooka.viewmodel.scale;
+    this.debugViewmodelScale = viewmodel.scale;
+    this.muzzleAnchor.position.set(...viewmodel.muzzleOffset);
     this.applyViewmodelPose();
     return this.getDebugViewmodelTransform();
   }
@@ -321,15 +335,8 @@ export class BazookaWeapon {
     try {
       const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
       const loader = new GLTFLoader();
-      let scene: Object3D;
-
-      try {
-        const gltf = await loader.loadAsync(this.config.bazooka.viewmodel.assetPath);
-        scene = gltf.scene;
-      } catch {
-        const gltf = await loader.loadAsync(this.config.bazooka.viewmodel.fallbackAssetPath);
-        scene = gltf.scene;
-      }
+      const gltf = await loader.loadAsync(this.config.fpsViewmodels.gunner_bazooka.path);
+      const scene = gltf.scene;
 
       this.prepareModel(scene);
       this.loadedScene = scene;
@@ -343,13 +350,11 @@ export class BazookaWeapon {
   }
 
   private prepareModel(root: Object3D): void {
-    const box = new Box3().setFromObject(root);
-    const center = box.getCenter(new Vector3());
-    const size = box.getSize(new Vector3());
-
-    root.position.sub(center);
-    root.position.x += size.x * 0.12;
-    root.position.y -= size.y * 0.08;
+    if (root.userData.sidecarPrepared === true) {
+      return;
+    }
+    root.userData.sidecarPrepared = true;
+    root.position.set(0, 0, 0);
 
     root.traverse((object) => {
       object.frustumCulled = false;
@@ -479,6 +484,8 @@ export class BazookaWeapon {
     this.cooldown = 0.38;
     this.autoReturnTimer = 0.08;
     this.pendingAutoReturn = false;
+    this.firePulse += 1;
+    this.firingTimer = this.config.bazooka.viewmodel.muzzleFlashDuration;
     this.fireKick = 1.2;
     this.muzzleFlashTimer = this.config.bazooka.viewmodel.muzzleFlashDuration;
     this.muzzleFlash.visible = true;
@@ -514,6 +521,7 @@ export class BazookaWeapon {
     world: WorldSystem,
     rewards: RewardSystem,
   ): void {
+    this.firingTimer = Math.max(0, this.firingTimer - deltaTime);
     this.fireKick = approach(
       this.fireKick,
       0,
