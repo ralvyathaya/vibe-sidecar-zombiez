@@ -1,5 +1,6 @@
 import { Vector2 } from 'three';
 import { GAME_CONFIG } from '../../core/config';
+import type { ControlProfile, CoopRole, RemoteInputFrame } from '../../core/types';
 
 export interface LaneRequestInputState {
   active: boolean;
@@ -13,15 +14,30 @@ export class InputSystem {
   private readonly keyboardKeys = new Set<string>();
   private readonly virtualKeys = new Set<string>();
   private readonly lookDelta = new Vector2();
+  private readonly remoteLookDelta = new Vector2();
   private readonly touchLookSensitivity = 0.92;
   private readonly touchControlsEnabled = this.detectTouchControls();
+  private localRole: CoopRole = 'solo';
+  private localProfile: ControlProfile = 'legacyGunner';
+  private remoteRole: CoopRole = 'solo';
   private pointerLocked = false;
   private mouseFireHeld = false;
   private virtualFireHeld = false;
+  private remoteFireHeld = false;
+  private remoteAccelerateHeld = false;
+  private remoteBrakeHeld = false;
   private reloadQueued = false;
+  private remoteReloadQueued = false;
+  private reloadJammed = false;
   private actionQQueued = false;
   private actionEQueued = false;
+  private remoteActionQQueued = false;
+  private remoteActionEQueued = false;
   private wigglePulse = 0;
+  private remoteWigglePulse = 0;
+  private remoteLaneAxis: -1 | 0 | 1 = 0;
+  private localFrameSequence = 0;
+  private lastRemoteSequence = -1;
   private touchWiggleEnabled = false;
   private laneRequestDirection: -1 | 0 | 1 = 0;
   private laneRequestStartedAt = 0;
@@ -92,10 +108,83 @@ export class InputSystem {
     return this.touchControlsEnabled;
   }
 
+  setLocalRole(role: CoopRole): void {
+    this.localRole = role;
+  }
+
+  setControlProfile(profile: ControlProfile): void {
+    this.localProfile = profile;
+    if (!this.canProfileRequestLane(profile)) {
+      this.resetLaneRequestState();
+    }
+  }
+
+  createLocalInputFrame(role = this.localRole): RemoteInputFrame {
+    const localLaneAxis = this.getLocalStrafeAxis();
+    return {
+      sequence: this.localFrameSequence++,
+      role,
+      laneAxis: this.canProfileDrive(this.localProfile) ? localLaneAxis : 0,
+      accelerateHeld: this.canProfileDrive(this.localProfile) && this.hasLocalKey('KeyW'),
+      brakeHeld: this.canProfileDrive(this.localProfile) && this.hasLocalKey('KeyS'),
+      fireHeld: this.canProfileShoot(this.localProfile) && (this.mouseFireHeld || this.virtualFireHeld),
+      reloadPressed: this.canProfileShoot(this.localProfile) && this.reloadQueued,
+      actionQPressed: this.canProfileDrive(this.localProfile) && this.actionQQueued,
+      actionEPressed: this.canProfileDrive(this.localProfile) && this.actionEQueued,
+      wigglePulse: this.canProfileWiggle(this.localProfile) ? this.wigglePulse : 0,
+      lookDeltaX: this.canProfileShoot(this.localProfile) ? this.lookDelta.x : 0,
+      lookDeltaY: this.canProfileShoot(this.localProfile) ? this.lookDelta.y : 0,
+      sentAt: performance.now(),
+    };
+  }
+
+  applyRemoteInputFrame(frame: RemoteInputFrame): void {
+    if (frame.sequence <= this.lastRemoteSequence) {
+      return;
+    }
+
+    this.lastRemoteSequence = frame.sequence;
+    this.remoteRole = frame.role;
+    this.remoteLaneAxis = frame.laneAxis;
+    this.remoteAccelerateHeld = frame.accelerateHeld;
+    this.remoteBrakeHeld = frame.brakeHeld;
+    this.remoteFireHeld = frame.fireHeld;
+    if (frame.reloadPressed) {
+      this.remoteReloadQueued = true;
+    }
+    if (frame.actionQPressed) {
+      this.remoteActionQQueued = true;
+    }
+    if (frame.actionEPressed) {
+      this.remoteActionEQueued = true;
+    }
+    this.remoteWigglePulse += frame.wigglePulse;
+    this.remoteLookDelta.x += frame.lookDeltaX;
+    this.remoteLookDelta.y += frame.lookDeltaY;
+  }
+
+  clearRemoteInput(): void {
+    this.remoteRole = 'solo';
+    this.remoteLaneAxis = 0;
+    this.remoteAccelerateHeld = false;
+    this.remoteBrakeHeld = false;
+    this.remoteFireHeld = false;
+    this.remoteReloadQueued = false;
+    this.remoteActionQQueued = false;
+    this.remoteActionEQueued = false;
+    this.remoteWigglePulse = 0;
+    this.remoteLookDelta.set(0, 0);
+    this.lastRemoteSequence = -1;
+  }
+
   getStrafeAxis(): number {
-    const left = this.hasKey('KeyA') ? -1 : 0;
-    const right = this.hasKey('KeyD') ? 1 : 0;
-    return left + right;
+    return this.getDriverSteerAxis();
+  }
+
+  getDriverSteerAxis(): number {
+    const local = this.canProfileDrive(this.localProfile) ? this.getLocalStrafeAxis() : 0;
+    const remote = this.canRoleDrive(this.remoteRole) ? this.remoteLaneAxis : 0;
+    return this.resolveAxis(local, remote);
   }
 
   getLeanAxis(): number {
@@ -103,49 +192,87 @@ export class InputSystem {
   }
 
   isFireHeld(): boolean {
-    return this.mouseFireHeld || this.virtualFireHeld;
+    return (
+      (this.canProfileShoot(this.localProfile) && (this.mouseFireHeld || this.virtualFireHeld)) ||
+      (this.canRoleShoot(this.remoteRole) && this.remoteFireHeld)
+    );
   }
 
   consumeLookDelta(target = new Vector2()): Vector2 {
-    target.copy(this.lookDelta);
+    target.set(0, 0);
+    if (this.canProfileShoot(this.localProfile)) {
+      target.add(this.lookDelta);
+    }
+    if (this.canRoleShoot(this.remoteRole)) {
+      target.add(this.remoteLookDelta);
+    }
     this.lookDelta.set(0, 0);
+    this.remoteLookDelta.set(0, 0);
     return target;
   }
 
   consumeReloadPressed(): boolean {
-    const wasQueued = this.reloadQueued;
+    if (this.reloadJammed) {
+      this.reloadQueued = false;
+      this.remoteReloadQueued = false;
+      return false;
+    }
+
+    const wasQueued =
+      (this.canProfileShoot(this.localProfile) && this.reloadQueued) ||
+      (this.canRoleShoot(this.remoteRole) && this.remoteReloadQueued);
     this.reloadQueued = false;
+    this.remoteReloadQueued = false;
     return wasQueued;
   }
 
   consumeActionQ(): boolean {
-    const wasQueued = this.actionQQueued;
+    const wasQueued =
+      (this.canProfileDrive(this.localProfile) && this.actionQQueued) ||
+      (this.canRoleDrive(this.remoteRole) && this.remoteActionQQueued);
     this.actionQQueued = false;
+    this.remoteActionQQueued = false;
     return wasQueued;
   }
 
   consumeActionE(): boolean {
-    const wasQueued = this.actionEQueued;
+    const wasQueued =
+      (this.canProfileDrive(this.localProfile) && this.actionEQueued) ||
+      (this.canRoleDrive(this.remoteRole) && this.remoteActionEQueued);
     this.actionEQueued = false;
+    this.remoteActionEQueued = false;
     return wasQueued;
   }
 
   isAccelerateHeld(): boolean {
-    return this.hasKey('KeyW');
+    return (
+      (this.canProfileDrive(this.localProfile) && this.hasLocalKey('KeyW')) ||
+      (this.canRoleDrive(this.remoteRole) && this.remoteAccelerateHeld)
+    );
   }
 
   isBrakeHeld(): boolean {
-    return this.hasKey('KeyS');
+    return (
+      (this.canProfileDrive(this.localProfile) && this.hasLocalKey('KeyS')) ||
+      (this.canRoleDrive(this.remoteRole) && this.remoteBrakeHeld)
+    );
   }
 
   consumeWigglePulse(): number {
-    const pulse = this.wigglePulse;
+    const pulse =
+      (this.canProfileWiggle(this.localProfile) ? this.wigglePulse : 0) +
+      (this.canRoleWiggle(this.remoteRole) ? this.remoteWigglePulse : 0);
     this.wigglePulse = 0;
+    this.remoteWigglePulse = 0;
     return pulse;
   }
 
   setTouchWiggleEnabled(enabled: boolean): void {
     this.touchWiggleEnabled = enabled;
+  }
+
+  setReloadJammed(jammed: boolean): void {
+    this.reloadJammed = jammed;
   }
 
   getLaneRequestState(
@@ -210,6 +337,7 @@ export class InputSystem {
     this.actionQQueued = false;
     this.actionEQueued = false;
     this.wigglePulse = 0;
+    this.clearRemoteInput();
     this.lookDelta.set(0, 0);
     this.aimTouchId = null;
     this.virtualKeys.clear();
@@ -242,7 +370,7 @@ export class InputSystem {
   private handleKeyUp(event: KeyboardEvent): void {
     this.keyboardKeys.delete(event.code);
     if (event.code === 'KeyA' || event.code === 'KeyD') {
-      const direction = this.getStrafeAxis();
+      const direction = this.getLaneRequestAxis();
       if (direction !== -1 && direction !== 1) {
         this.resetLaneRequestState();
       }
@@ -370,8 +498,69 @@ export class InputSystem {
     return null;
   }
 
-  private hasKey(code: string): boolean {
+  private hasLocalKey(code: string): boolean {
     return this.keyboardKeys.has(code) || this.virtualKeys.has(code);
+  }
+
+  private getLocalStrafeAxis(): -1 | 0 | 1 {
+    const left = this.hasLocalKey('KeyA') ? -1 : 0;
+    const right = this.hasLocalKey('KeyD') ? 1 : 0;
+    return this.resolveAxis(left, right);
+  }
+
+  private resolveAxis(left: number, right: number): -1 | 0 | 1 {
+    const resolved = left + right;
+    if (resolved < 0) {
+      return -1;
+    }
+    if (resolved > 0) {
+      return 1;
+    }
+    return 0;
+  }
+
+  private canRoleDrive(role: CoopRole): boolean {
+    return this.canProfileDrive(this.profileForRole(role));
+  }
+
+  private canRoleShoot(role: CoopRole): boolean {
+    return this.canProfileShoot(this.profileForRole(role));
+  }
+
+  private canRoleWiggle(role: CoopRole): boolean {
+    return this.canProfileWiggle(this.profileForRole(role));
+  }
+
+  private canProfileDrive(profile: ControlProfile): boolean {
+    return profile === 'driver';
+  }
+
+  private canProfileRequestLane(profile: ControlProfile): boolean {
+    return profile === 'legacyGunner';
+  }
+
+  private canRoleRequestLane(role: CoopRole): boolean {
+    return this.canProfileRequestLane(this.profileForRole(role));
+  }
+
+  private canProfileShoot(profile: ControlProfile): boolean {
+    return profile === 'legacyGunner' || profile === 'coopGunner' || profile === 'driver';
+  }
+
+  private canProfileWiggle(profile: ControlProfile): boolean {
+    return profile === 'legacyGunner' || profile === 'coopGunner' || profile === 'driver';
+  }
+
+  private profileForRole(role: CoopRole): ControlProfile {
+    if (role === 'driver') {
+      return 'driver';
+    }
+
+    if (role === 'gunner') {
+      return 'coopGunner';
+    }
+
+    return 'legacyGunner';
   }
 
   private setVirtualKey(code: string, active: boolean): void {
@@ -392,7 +581,7 @@ export class InputSystem {
     }
 
     if (code === 'KeyA' || code === 'KeyD') {
-      const direction = this.getStrafeAxis();
+      const direction = this.getLaneRequestAxis();
       if (direction !== -1 && direction !== 1) {
         this.resetLaneRequestState();
       }
@@ -415,6 +604,19 @@ export class InputSystem {
     now: number,
     commitTrigger: boolean,
   ): LaneRequestInputState & { triggered: boolean } {
+    if (
+      !this.canProfileRequestLane(this.localProfile) &&
+      !this.canRoleRequestLane(this.remoteRole)
+    ) {
+      this.resetLaneRequestState();
+      return {
+        active: false,
+        direction: 0,
+        holdRatio: 0,
+        triggered: false,
+      };
+    }
+
     if (blocked) {
       this.resetLaneRequestState();
       return {
@@ -425,7 +627,7 @@ export class InputSystem {
       };
     }
 
-    const direction = this.getStrafeAxis();
+    const direction = this.getLaneRequestAxis();
     if (direction !== -1 && direction !== 1) {
       this.resetLaneRequestState();
       return {
@@ -464,5 +666,11 @@ export class InputSystem {
       holdRatio: Math.min(1, elapsedMs / durationMs),
       triggered,
     };
+  }
+
+  private getLaneRequestAxis(): -1 | 0 | 1 {
+    const local = this.canProfileRequestLane(this.localProfile) ? this.getLocalStrafeAxis() : 0;
+    const remote = this.canRoleRequestLane(this.remoteRole) ? this.remoteLaneAxis : 0;
+    return this.resolveAxis(local, remote);
   }
 }

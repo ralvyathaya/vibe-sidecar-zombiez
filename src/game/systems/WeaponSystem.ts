@@ -1,8 +1,11 @@
 import type { Camera } from 'three';
 import type {
+  DebugTransformSnapshot,
+  DebugTransformTarget,
   GameConfig,
   LoadoutState,
   PickupEvent,
+  WeaponPolicy,
   WeaponKind,
   WeaponStatus,
 } from '../../core/types';
@@ -22,6 +25,7 @@ export class WeaponSystem {
   private activeWeapon: WeaponKind = 'pistol';
   private shotgunUnlocked = false;
   private bazookaRestoreWeapon: Extract<WeaponKind, 'pistol' | 'shotgun'> = 'pistol';
+  private weaponPolicy: WeaponPolicy = 'full';
 
   constructor(camera: Camera, private readonly config: GameConfig) {
     this.bazookaWeapon = new BazookaWeapon(camera, config);
@@ -43,6 +47,10 @@ export class WeaponSystem {
     this.shotgunWeapon.reset();
     this.shotgunWeapon.setEquipped(false);
 
+    if (this.weaponPolicy === 'pistolOnly') {
+      return;
+    }
+
     if (this.config.debug.developmentWeapons) {
       this.shotgunUnlocked = true;
       this.shotgunWeapon.setAmmo(this.config.shotgun.maxAmmo);
@@ -60,6 +68,15 @@ export class WeaponSystem {
     world: WorldSystem,
     rewards: RewardSystem,
   ): void {
+    if (this.weaponPolicy === 'pistolOnly') {
+      if (this.activeWeapon !== 'pistol') {
+        this.equipPistol(player);
+      }
+      this.bazookaWeapon.updateBackground(deltaTime, player, enemies, world, rewards);
+      this.pistolWeapon.updateRunning(deltaTime, input, player, enemies, world, rewards);
+      return;
+    }
+
     if (this.activeWeapon === 'bazooka') {
       this.bazookaWeapon.updateRunning(deltaTime, input, player, enemies, world, rewards);
       if (this.bazookaWeapon.consumePendingAutoReturn()) {
@@ -88,6 +105,10 @@ export class WeaponSystem {
   }
 
   getStatus(player: PlayerSystem): WeaponStatus {
+    if (this.weaponPolicy === 'pistolOnly') {
+      return this.pistolWeapon.getStatus(player);
+    }
+
     if (this.activeWeapon === 'bazooka') {
       return this.bazookaWeapon.getStatus();
     }
@@ -100,6 +121,10 @@ export class WeaponSystem {
   }
 
   applyPickup(pickup: PickupEvent, player: PlayerSystem): void {
+    if (this.weaponPolicy === 'pistolOnly') {
+      return;
+    }
+
     if (pickup.type === 'bazooka') {
       this.applyBazookaPickup(player);
       return;
@@ -131,10 +156,23 @@ export class WeaponSystem {
   }
 
   hasUnlockedShotgun(): boolean {
+    if (this.weaponPolicy === 'pistolOnly') {
+      return false;
+    }
+
     return this.shotgunUnlocked;
   }
 
   getLoadoutState(): LoadoutState {
+    if (this.weaponPolicy === 'pistolOnly') {
+      return {
+        activeWeapon: 'pistol',
+        shotgunUnlocked: false,
+        shotgunAmmo: 0,
+        bazookaAmmo: 0,
+      };
+    }
+
     return {
       activeWeapon: this.activeWeapon,
       shotgunUnlocked: this.shotgunUnlocked,
@@ -147,6 +185,64 @@ export class WeaponSystem {
     this.bazookaWeapon.destroy();
     this.pistolWeapon.destroy();
     this.shotgunWeapon.destroy();
+  }
+
+  setWeaponPolicy(policy: WeaponPolicy, player?: PlayerSystem): void {
+    if (this.weaponPolicy === policy) {
+      return;
+    }
+
+    this.weaponPolicy = policy;
+    if (policy === 'pistolOnly' && player) {
+      this.shotgunUnlocked = false;
+      this.shotgunWeapon.setAmmo(0);
+      this.bazookaWeapon.setAmmo(0);
+      this.bazookaRestoreWeapon = 'pistol';
+      this.equipPistol(player);
+    }
+  }
+
+  getDebugViewmodelTransform(target: DebugTransformTarget): DebugTransformSnapshot | null {
+    if (target === 'pistolViewmodel') {
+      return this.pistolWeapon.getDebugViewmodelTransform();
+    }
+    if (target === 'shotgunViewmodel') {
+      return this.shotgunWeapon.getDebugViewmodelTransform();
+    }
+    if (target === 'bazookaViewmodel') {
+      return this.bazookaWeapon.getDebugViewmodelTransform();
+    }
+    return null;
+  }
+
+  setDebugViewmodelTransform(
+    target: DebugTransformTarget,
+    snapshot: DebugTransformSnapshot,
+  ): void {
+    if (target === 'pistolViewmodel') {
+      this.pistolWeapon.setDebugViewmodelTransform(snapshot);
+      return;
+    }
+    if (target === 'shotgunViewmodel') {
+      this.shotgunWeapon.setDebugViewmodelTransform(snapshot);
+      return;
+    }
+    if (target === 'bazookaViewmodel') {
+      this.bazookaWeapon.setDebugViewmodelTransform(snapshot);
+    }
+  }
+
+  resetDebugViewmodelTransform(target: DebugTransformTarget): DebugTransformSnapshot | null {
+    if (target === 'pistolViewmodel') {
+      return this.pistolWeapon.resetDebugViewmodelTransform();
+    }
+    if (target === 'shotgunViewmodel') {
+      return this.shotgunWeapon.resetDebugViewmodelTransform();
+    }
+    if (target === 'bazookaViewmodel') {
+      return this.bazookaWeapon.resetDebugViewmodelTransform();
+    }
+    return null;
   }
 
   private equipPistol(player: PlayerSystem): void {

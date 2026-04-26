@@ -6,11 +6,18 @@ import type {
   DriverPromptState,
   GameConfig,
   LaneThreatState,
+  ManualDriverInput,
   RideState,
   RunEventType,
   RunSegment,
 } from '../../core/types';
 import { approach, clamp, lerp, randomRange } from '../../core/utils';
+
+const DEFAULT_MANUAL_DRIVER_INPUT: ManualDriverInput = {
+  steerAxis: 0,
+  accelerateHeld: false,
+  brakeHeld: false,
+};
 
 export class DriverSystem {
   private laneIndex = 1;
@@ -46,6 +53,8 @@ export class DriverSystem {
   private supportCue: DriverPromptState | null = null;
   private supportCueCooldownTimer = 0;
   private laneThreats: LaneThreatState[] = [];
+  private manualWorldX = 0;
+  private manualSteerVelocity = 0;
   private time = 0;
 
   constructor(private readonly config: GameConfig) {
@@ -86,6 +95,8 @@ export class DriverSystem {
     this.supportCue = null;
     this.supportCueCooldownTimer = 0;
     this.laneThreats = this.createFallbackLaneThreats();
+    this.manualWorldX = this.resolveLaneCenter(1);
+    this.manualSteerVelocity = 0;
     this.time = 0;
   }
 
@@ -98,6 +109,8 @@ export class DriverSystem {
     eventTimer = 0,
     eventDuration = 0,
     nitroActive = false,
+    manualInput: ManualDriverInput = DEFAULT_MANUAL_DRIVER_INPUT,
+    manualMode = false,
   ): RideState {
     this.time += deltaTime;
     this.laneThreats = laneThreats.length > 0 ? laneThreats : this.createFallbackLaneThreats();
@@ -135,7 +148,7 @@ export class DriverSystem {
       this.engineTroubleRoughness = 0;
     }
 
-    this.updateDriveState(deltaTime);
+    this.updateDriveState(deltaTime, manualInput, manualMode);
 
     if (this.supportCue) {
       this.supportCue.timer = Math.max(0, this.supportCue.timer - deltaTime);
@@ -144,14 +157,14 @@ export class DriverSystem {
       }
     }
 
-    if (this.promptLockout <= 0 && !this.hasBlockingEffect() && !hasLatch) {
+    if (!manualMode && this.promptLockout <= 0 && !this.hasBlockingEffect() && !hasLatch) {
       this.nextPromptIn -= deltaTime;
       if (this.nextPromptIn <= 0) {
         this.tryCreateDriverPrompt(failureSeverity, hasLatch);
       }
     }
 
-    if (this.laneRescanTimer <= 0) {
+    if (!manualMode && this.laneRescanTimer <= 0) {
       this.laneRescanTimer = this.config.driver.laneRescanInterval;
       this.updateLaneChoice(failureSeverity, hasLatch);
     }
@@ -166,7 +179,7 @@ export class DriverSystem {
           )
         : 1;
 
-    if (this.laneChangeTimer > 0) {
+    if (!manualMode && this.laneChangeTimer > 0) {
       this.laneChangeTimer = Math.max(0, this.laneChangeTimer - deltaTime);
       if (this.laneChangeTimer <= 0) {
         this.laneIndex = this.laneToIndex;
@@ -175,10 +188,31 @@ export class DriverSystem {
       }
     }
 
+    if (manualMode) {
+      this.updateManualSteer(
+        deltaTime,
+        manualInput.steerAxis,
+        failureSeverity,
+        hasLatch,
+        nitroActive,
+      );
+      this.laneIndex = this.resolveNearestLaneIndex(this.manualWorldX);
+      this.targetLaneIndex = this.laneIndex;
+      this.laneFromIndex = this.laneIndex;
+      this.laneToIndex = this.laneIndex;
+      this.laneChangeTimer = 0;
+      this.laneChangeDurationCurrent = this.config.driver.laneChangeDuration;
+    }
+
     const fromCenter = this.resolveLaneCenter(this.laneFromIndex);
     const toCenter = this.resolveLaneCenter(this.laneToIndex);
-    const laneCenterX = lerp(fromCenter, toCenter, laneAlpha);
-    const speedMultiplier = this.getSpeedMultiplier(failureSeverity, hasLatch, nitroActive);
+    const laneCenterX = manualMode ? this.manualWorldX : lerp(fromCenter, toCenter, laneAlpha);
+    const speedMultiplier = this.getSpeedMultiplier(
+      failureSeverity,
+      hasLatch,
+      nitroActive,
+      manualMode,
+    );
     // Slippery road should change handling, not leave the bike visibly buzzing for
     // several seconds. Keep the event readable through speed/handling only.
     const slipperyTurnJitter = 0;
@@ -191,8 +225,10 @@ export class DriverSystem {
         : 0) -
       (this.brakeTimer > 0 ? this.config.driver.brakeStabilityBonus : 0);
     const handlingPenalty = clamp(Math.max(0, baseHandlingPenalty), 0, 0.92);
-    const floorItAlpha = this.floorItTimer > 0 ? clamp(this.manualBoostStrength, 0, 1) : 0;
-    const brakeAlpha = this.brakeTimer > 0 ? clamp(this.manualBrakeStrength, 0, 1) : 0;
+    const floorItAlpha =
+      this.floorItTimer > 0 || manualMode ? clamp(this.manualBoostStrength, 0, 1) : 0;
+    const brakeAlpha =
+      this.brakeTimer > 0 || manualMode ? clamp(this.manualBrakeStrength, 0, 1) : 0;
     const engineTroubleAlpha =
       this.engineTroubleTimer > 0 ? this.getEngineTroublePulse() : 0;
     const aimShake =
@@ -216,7 +252,7 @@ export class DriverSystem {
     return {
       laneIndex: this.laneIndex,
       targetLaneIndex: this.laneToIndex,
-      laneChangeAlpha: laneAlpha,
+      laneChangeAlpha: manualMode ? 1 : laneAlpha,
       laneCenterX,
       worldX: laneCenterX,
       laneRequestActive: false,
@@ -246,8 +282,8 @@ export class DriverSystem {
       activeEvent: this.activeEvent,
       eventTimer: this.eventTimer,
       eventDuration: this.eventDuration,
-      floorItMode: this.floorItTimer > 0,
-      brakeMode: this.brakeTimer > 0,
+      floorItMode: this.floorItTimer > 0 || (manualMode && this.manualBoostStrength > 0.04),
+      brakeMode: this.brakeTimer > 0 || (manualMode && this.manualBrakeStrength > 0.04),
       nitroActive: this.nitroActive,
       engineTroubleMode: this.engineTroubleTimer > 0,
       engineTroubleWobble:
@@ -687,6 +723,7 @@ export class DriverSystem {
     failureSeverity: number,
     hasLatch: boolean,
     nitroActive: boolean,
+    manualMode = false,
   ): number {
     const segmentVisibility = this.config.pacing.visibility[this.segment];
     const segmentSpeedBias =
@@ -695,8 +732,14 @@ export class DriverSystem {
     const troubleLow =
       this.config.driver.engineTroubleSpeedMultiplier - this.engineTroubleRoughness * 0.08;
     const troubleHigh = 0.96 - this.engineTroubleRoughness * 0.04;
-    const driverMultiplier =
-      this.floorItTimer > 0
+    const manualDriverMultiplier = clamp(
+      1 + this.manualBoostStrength * 0.22 - this.manualBrakeStrength * 0.36,
+      0.58,
+      1.26,
+    );
+    const driverMultiplier = manualMode
+      ? manualDriverMultiplier
+      : this.floorItTimer > 0
         ? this.config.driver.floorItSpeedMultiplier
         : this.brakeTimer > 0
           ? this.config.driver.brakeSpeedMultiplier
@@ -802,6 +845,22 @@ export class DriverSystem {
     return this.config.world.laneCenters[laneIndex] ?? 0;
   }
 
+  private resolveNearestLaneIndex(worldX: number): number {
+    let bestIndex = 0;
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    for (let index = 0; index < this.config.world.laneCenters.length; index += 1) {
+      const laneCenter = this.config.world.laneCenters[index] ?? 0;
+      const distance = Math.abs(worldX - laneCenter);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = index;
+      }
+    }
+
+    return bestIndex;
+  }
+
   private hasBlockingEffect(): boolean {
     return (
       this.floorItTimer > 0 ||
@@ -812,7 +871,11 @@ export class DriverSystem {
     );
   }
 
-  private updateDriveState(deltaTime: number): void {
+  private updateDriveState(
+    deltaTime: number,
+    manualInput: ManualDriverInput,
+    manualMode: boolean,
+  ): void {
     const response = this.config.ride.inputHoldResponse;
 
     if (this.engineTroubleTimer > 0) {
@@ -832,8 +895,20 @@ export class DriverSystem {
       return;
     }
 
-    const targetBrake = this.brakeTimer > 0 ? 0.82 : 0;
-    const targetBoost = this.floorItTimer > 0 ? 1 : 0;
+    const targetBrake = manualMode
+      ? manualInput.brakeHeld
+        ? 0.86
+        : 0
+      : this.brakeTimer > 0
+        ? 0.82
+        : 0;
+    const targetBoost = manualMode
+      ? manualInput.accelerateHeld && !manualInput.brakeHeld
+        ? 1
+        : 0
+      : this.floorItTimer > 0
+        ? 1
+        : 0;
     this.manualBrakeStrength = approach(
       this.manualBrakeStrength,
       targetBrake,
@@ -843,6 +918,39 @@ export class DriverSystem {
       this.manualBoostStrength,
       targetBoost,
       deltaTime * response * (targetBoost > this.manualBoostStrength ? 1 : 1.2),
+    );
+  }
+
+  private updateManualSteer(
+    deltaTime: number,
+    steerAxis: number,
+    failureSeverity: number,
+    hasLatch: boolean,
+    nitroActive: boolean,
+  ): void {
+    const normalizedAxis = clamp(steerAxis, -1, 1);
+    const eventPenalty = this.activeEvent === 'slipperyRoad' ? 0.22 : 0;
+    const damagePenalty = failureSeverity * 0.24;
+    const latchPenalty = hasLatch ? 0.12 : 0;
+    const nitroBonus = nitroActive ? 1.08 : 1;
+    const controlScale = clamp(1 - eventPenalty - damagePenalty - latchPenalty, 0.42, 1);
+    const targetVelocity =
+      normalizedAxis * this.config.player.strafeSpeed * controlScale * nitroBonus;
+
+    this.manualSteerVelocity = approach(
+      this.manualSteerVelocity,
+      targetVelocity,
+      deltaTime * this.config.ride.inputHoldResponse * 3.2,
+    );
+
+    const roadLimit = Math.max(
+      0.6,
+      this.config.world.roadHalfWidth - this.config.player.collisionRadius * 1.25,
+    );
+    this.manualWorldX = clamp(
+      this.manualWorldX + this.manualSteerVelocity * deltaTime,
+      -roadLimit,
+      roadLimit,
     );
   }
 

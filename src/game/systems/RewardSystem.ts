@@ -207,6 +207,22 @@ export class RewardSystem {
     this.breakChain('CHAIN LOST', this.config.rewards.chainLostCalloutDuration);
   }
 
+  registerPickupBonus(label: string, scoreBonus: number, chainBonus = 0): number {
+    for (let index = 0; index < chainBonus; index += 1) {
+      this.extendChain();
+    }
+
+    const awardedScore = Math.max(0, Math.round(scoreBonus * this.state.multiplier));
+    if (awardedScore > 0) {
+      this.state.comboBonusTotal += awardedScore;
+      this.setCallout(`${label.toUpperCase()} +${awardedScore}`);
+    } else if (chainBonus > 0) {
+      this.setCallout(`${label.toUpperCase()} CHAIN BOOST`);
+    }
+
+    return awardedScore;
+  }
+
   finalizeRun(finalScore: number): void {
     if (this.finalizedRun) {
       return;

@@ -25,6 +25,9 @@
 --icon-sfx: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath fill='%23f4e6cd' d='M6 12h5l7-6v20l-7-6H6z'/%3E%3Cpath d='M22 11c2 1.5 3 3.1 3 5s-1 3.5-3 5M24.8 7.8c3.2 2.4 4.7 5.2 4.7 8.2s-1.5 5.8-4.7 8.2' fill='none' stroke='%23f4e6cd' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E");
 --icon-music: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath fill='%23f4e6cd' d='M20 6v15.2a4.4 4.4 0 1 1-2-3.7V10.4l9-2.4v11.2a4.4 4.4 0 1 1-2-3.7V5.5z'/%3E%3C/svg%3E");
 --icon-lightning: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath fill='%23ffcf72' d='M18.2 2 8.7 16.2h6L12.5 30 23.3 14.7h-6.1z'/%3E%3Cpath fill='%23fff4cc' d='M17.4 4.9 11.5 15h4.7l-1.5 9.2 6.9-9.9h-4.8z' opacity='.78'/%3E%3C/svg%3E");
+--icon-solo: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath fill='%23ffba6b' d='M16 4a6 6 0 1 1 0 12 6 6 0 0 1 0-12zm0 15c5.2 0 9.5 3.3 10.5 8H5.5c1-4.7 5.3-8 10.5-8z'/%3E%3C/svg%3E");
+--icon-coop: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath fill='%23ffba6b' d='M11 5a5 5 0 1 1 0 10 5 5 0 0 1 0-10zm10 2a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9zM3 27c.8-5.1 4-8.5 8-8.5s7.2 3.4 8 8.5zm14 0c-.3-2.4-1.2-4.5-2.5-6.1 1.4-1.2 3.2-1.9 5.1-1.9 4 0 7.1 3.1 8.4 8z'/%3E%3C/svg%3E");
+--icon-lock: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath fill='%23ffcf72' d='M9 14V9.8C9 5.5 12 2.5 16 2.5s7 3 7 7.3V14h2.2c1 0 1.8.8 1.8 1.8v11.4c0 1-.8 1.8-1.8 1.8H6.8c-1 0-1.8-.8-1.8-1.8V15.8c0-1 .8-1.8 1.8-1.8zm4 0h6V9.8c0-2.1-1.2-3.4-3-3.4s-3 1.3-3 3.4z'/%3E%3C/svg%3E");
 }
 
 * {
@@ -812,6 +815,8 @@ body {
 .chain-panel {
   position: relative;
   overflow: hidden;
+  width: max-content;
+  max-width: min(210px, 42vw);
   min-height: 38px;
   padding: 0 13px;
   border-radius: 12px;
@@ -905,6 +910,7 @@ body {
   text-transform: uppercase;
   color: #f6ead4;
   text-shadow: 0 1px 0 rgba(0, 0, 0, 0.42);
+  white-space: nowrap;
 }
 
 .chain-label::before {
@@ -1193,7 +1199,7 @@ body {
 .overlay-title,
 .overlay-text,
 .overlay-button,
-.overlay-menu-start,
+.overlay-menu-playmode,
 .overlay-menu-toggle {
   margin: 0;
 }
@@ -1209,15 +1215,15 @@ body {
   top: var(--overlay-inset);
   bottom: var(--overlay-inset);
   left: 50%;
-  width: min(calc(100vw - 48px), 1040px);
+  width: min(calc(100vw - 48px), 1160px);
   transform: translateX(-50%);
   display: grid;
-  grid-template-columns: fit-content(320px) minmax(180px, 1fr) fit-content(300px);
-  gap: clamp(18px, 3.2vw, 46px);
+  grid-template-columns: fit-content(310px) minmax(320px, 1fr) fit-content(300px);
+  gap: clamp(14px, 2.4vw, 34px);
   align-items: center;
   min-width: 0;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .overlay-dialog {
@@ -1601,6 +1607,31 @@ body {
   overflow: hidden;
 }
 
+.overlay-menu-center {
+  grid-column: 2;
+  position: relative;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+  overflow: visible;
+}
+
+.overlay-menu-role-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: clamp(7px, 1.15vh, 10px);
+  width: 100%;
+  max-width: min(520px, 42vw);
+  min-width: 0;
+  min-height: 0;
+  overflow: visible;
+}
+
 .overlay-menu-logo {
   width: clamp(148px, min(20vw, 34vh), 246px);
   height: auto;
@@ -1626,10 +1657,22 @@ body {
   color: rgba(249, 240, 226, 0.9);
 }
 
-.overlay-menu-start {
+.overlay-menu-playmodes {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(6px, 1vh, 8px);
+  width: 100%;
+}
+
+.overlay-menu-playmode {
+  position: relative;
   width: clamp(230px, 24vw, 310px);
   max-width: 100%;
   min-height: clamp(44px, 7.4vh, 64px);
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  align-items: center;
+  gap: 10px;
   padding: 0 clamp(12px, 1.8vw, 18px);
   border: 1px solid rgba(255, 183, 80, 0.46);
   border-radius: 11px;
@@ -1654,7 +1697,26 @@ body {
     color 120ms ease;
 }
 
-.overlay-menu-start:hover {
+.overlay-menu-playmode::before {
+  content: "";
+  width: 20px;
+  height: 20px;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: contain;
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.28));
+}
+
+.overlay-menu-playmode[data-kind="single"]::before {
+  background-image: var(--icon-solo);
+}
+
+.overlay-menu-playmode[data-kind="coop"]::before {
+  background-image: var(--icon-coop);
+}
+
+.overlay-menu-playmode:hover,
+.overlay-menu-playmode[data-selected="true"] {
   transform: translateY(-1px);
   color: #ffc974;
   border-color: rgba(255, 197, 106, 0.58);
@@ -1662,6 +1724,14 @@ body {
     inset 0 1px 0 rgba(255, 223, 168, 0.12),
     0 14px 24px rgba(0, 0, 0, 0.18),
     0 0 24px rgba(255, 143, 56, 0.16);
+}
+
+.overlay-menu-playmode[data-selected="false"] {
+  color: rgba(242, 231, 211, 0.72);
+  border-color: rgba(255, 227, 187, 0.14);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 223, 168, 0.06),
+    0 12px 22px rgba(0, 0, 0, 0.14);
 }
 
 .overlay-menu-copy,
@@ -1696,6 +1766,316 @@ body {
   gap: clamp(6px, 1vh, 8px);
   width: clamp(230px, 24vw, 310px);
   max-width: 100%;
+}
+
+.overlay-role-select {
+  position: relative;
+  width: 100%;
+  height: clamp(300px, 61vh, 690px);
+  min-width: 0;
+  isolation: isolate;
+  overflow: visible;
+}
+
+.overlay-role-card {
+  position: absolute;
+  bottom: 0;
+  display: block;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  background: transparent;
+  color: #f4e7d1;
+  cursor: pointer;
+  box-shadow: none;
+  transition:
+    transform 140ms ease,
+    opacity 140ms ease;
+}
+
+.overlay-role-card[data-role="driver"] {
+  left: 2%;
+  width: 62%;
+  z-index: 4;
+}
+
+.overlay-role-card[data-role="gunner"] {
+  left: 39%;
+  width: 58%;
+  z-index: 3;
+  transform: translateY(2%) scale(0.94);
+}
+
+.overlay-role-card:hover {
+  z-index: 8;
+}
+
+.overlay-role-card[data-role="driver"]:hover,
+.overlay-role-card[data-role="driver"][data-selected="true"] {
+  transform: translateY(-1%) scale(1.025);
+}
+
+.overlay-role-card[data-role="gunner"]:hover,
+.overlay-role-card[data-role="gunner"][data-selected="true"] {
+  transform: translateY(0) scale(1);
+}
+
+.overlay-role-card[data-selected="true"] {
+  opacity: 1;
+}
+
+.overlay-role-card[data-selected="false"] {
+  opacity: 0.86;
+}
+
+.overlay-role-card:disabled {
+  cursor: default;
+}
+
+.ui-root[data-menu-play-mode="single"] .overlay-role-card[data-role="driver"] {
+  pointer-events: none;
+}
+
+.ui-root[data-menu-play-mode="single"] .overlay-role-card[data-role="driver"] .overlay-role-character {
+  opacity: 0.22;
+  filter:
+    grayscale(1)
+    brightness(0.26)
+    contrast(1.28)
+    drop-shadow(0 22px 24px rgba(0, 0, 0, 0.56));
+  transform: translateY(8%) scale(0.9);
+}
+
+.ui-root[data-menu-play-mode="single"] .overlay-role-card[data-role="driver"] .overlay-role-character-stage::before {
+  content: "";
+  position: absolute;
+  left: 44%;
+  top: 38%;
+  z-index: 3;
+  width: clamp(28px, 5vh, 48px);
+  height: clamp(28px, 5vh, 48px);
+  background: center / contain no-repeat var(--icon-lock);
+  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.36));
+}
+
+.overlay-role-character-stage {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: end center;
+  pointer-events: none;
+}
+
+.overlay-role-character-stage::after {
+  content: "";
+  position: absolute;
+  left: 15%;
+  right: 10%;
+  bottom: 4px;
+  height: 24px;
+  border-radius: 999px;
+  background: radial-gradient(ellipse, rgba(0, 0, 0, 0.62), transparent 70%);
+  filter: blur(3px);
+}
+
+.overlay-role-character {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center bottom;
+  opacity: 0.48;
+  filter:
+    grayscale(0.68)
+    brightness(0.48)
+    contrast(1.2)
+    drop-shadow(0 24px 28px rgba(0, 0, 0, 0.56));
+  transform: translateY(4%) scale(0.96);
+  transition:
+    filter 160ms ease,
+    opacity 160ms ease,
+    transform 160ms ease;
+}
+
+.overlay-role-card[data-role="driver"] .overlay-role-character {
+  object-position: left bottom;
+}
+
+.overlay-role-card[data-role="gunner"] .overlay-role-character {
+  object-position: right bottom;
+}
+
+.overlay-role-card:hover .overlay-role-character,
+.overlay-role-card[data-selected="true"] .overlay-role-character {
+  opacity: 1;
+  filter:
+    grayscale(0)
+    brightness(1)
+    contrast(1.02)
+    saturate(1.08)
+    drop-shadow(0 26px 30px rgba(0, 0, 0, 0.58))
+    drop-shadow(0 0 22px rgba(255, 163, 66, 0.12));
+  transform: translateY(0) scale(1.03);
+}
+
+.overlay-role-select:hover .overlay-role-card:not(:hover):not([data-selected="true"]) .overlay-role-character {
+  opacity: 0.36;
+  filter:
+    grayscale(0.88)
+    brightness(0.34)
+    contrast(1.18)
+    drop-shadow(0 22px 24px rgba(0, 0, 0, 0.54));
+  transform: translateY(7%) scale(0.92);
+}
+
+.overlay-role-body {
+  position: absolute;
+  left: 5%;
+  right: 5%;
+  bottom: clamp(4px, 1vh, 10px);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+  opacity: 0.78;
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.overlay-role-card:hover .overlay-role-body,
+.overlay-role-card[data-selected="true"] .overlay-role-body {
+  opacity: 1;
+  transform: translateY(-2px);
+}
+
+.overlay-role-title {
+  font-family: var(--font-dialogue);
+  font-size: clamp(1rem, min(2.2vw, 3.2vh), 1.44rem);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #ffb44d;
+}
+
+.overlay-role-features,
+.overlay-role-hint {
+  font-size: clamp(0.5rem, min(0.88vw, 1.32vh), 0.62rem);
+  font-weight: 700;
+  line-height: 1.22;
+  letter-spacing: 0.06em;
+  color: rgba(246, 235, 216, 0.76);
+}
+
+.overlay-role-features {
+  display: grid;
+  gap: 4px;
+  max-width: 19ch;
+}
+
+.overlay-role-feature {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: max-content;
+  max-width: 100%;
+  padding-left: 22px;
+}
+
+.overlay-role-feature::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 16px;
+  height: 1px;
+  transform: translateY(-50%);
+  background: linear-gradient(90deg, #ffb44d, rgba(255, 180, 77, 0));
+}
+
+.overlay-role-hint {
+  margin: 0;
+}
+
+.overlay-role-card[data-locked="singleplayer"] .overlay-role-body::after {
+  content: "AVAILABLE ONLY IN CO-OP MODE";
+  display: inline-flex;
+  width: max-content;
+  margin-top: 4px;
+  padding: 3px 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 202, 118, 0.24);
+  background: rgba(255, 163, 66, 0.08);
+  font-size: 0.48rem;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  color: #ffc36f;
+}
+
+.ui-root[data-menu-play-mode="coop"] .overlay-menu-solo-action,
+.ui-root[data-menu-play-mode="single"] .overlay-menu-options--coop {
+  display: none;
+}
+
+.overlay-menu-options--coop {
+  gap: clamp(5px, 0.9vh, 7px);
+}
+
+.overlay-menu-right .overlay-menu-options {
+  width: 100%;
+}
+
+.overlay-menu-coop-status {
+  min-height: 30px;
+  padding: 7px 9px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(13, 16, 18, 0.62), rgba(6, 7, 8, 0.42));
+  border: 1px solid rgba(255, 231, 190, 0.1);
+  font-size: clamp(0.54rem, min(1vw, 1.5vh), 0.68rem);
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: 0.06em;
+  color: rgba(244, 234, 218, 0.82);
+}
+
+.overlay-menu-room-row {
+  display: grid;
+  grid-template-columns: minmax(64px, 0.72fr) minmax(104px, 1fr);
+  gap: 7px;
+}
+
+.overlay-menu-room-input {
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 222, 176, 0.18);
+  background: linear-gradient(180deg, rgba(18, 18, 19, 0.72), rgba(7, 8, 9, 0.62));
+  color: #ffe9c7;
+  font-family: var(--font-ui);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  outline: none;
+}
+
+.overlay-menu-toggle--coop {
+  grid-template-columns: 1fr;
+  justify-items: center;
+}
+
+.overlay-menu-toggle--coop::before,
+.overlay-menu-toggle--coop::after {
+  display: none;
 }
 
 .overlay-menu-toggle {
@@ -2445,9 +2825,9 @@ body {
 @media (max-width: 1180px) {
   .overlay-menu,
   .overlay-state {
-    grid-template-columns: fit-content(300px) minmax(96px, 1fr) fit-content(280px);
-    gap: clamp(12px, 2.4vw, 30px);
-    overflow: hidden;
+    grid-template-columns: fit-content(290px) minmax(260px, 1fr) fit-content(280px);
+    gap: clamp(10px, 2vw, 24px);
+    overflow: visible;
   }
 
   .overlay-state-left,
@@ -2497,9 +2877,9 @@ body {
     bottom: 14px;
     left: 50%;
     width: calc(100vw - 28px);
-    grid-template-columns: minmax(220px, 0.96fr) minmax(48px, 0.38fr) minmax(210px, 0.86fr);
-    gap: 12px;
-    overflow: hidden;
+    grid-template-columns: minmax(205px, 0.9fr) minmax(220px, 1fr) minmax(205px, 0.82fr);
+    gap: 10px;
+    overflow: visible;
   }
 
   .overlay-state {
@@ -2550,11 +2930,24 @@ body {
     width: clamp(120px, min(30vw, 34vh), 230px);
   }
 
-  .overlay-menu-start,
+  .overlay-menu-playmode,
   .overlay-menu-copy,
   .overlay-menu-stats,
   .overlay-menu-options {
-    width: clamp(210px, 30vw, 280px);
+    width: clamp(195px, 28vw, 270px);
+  }
+
+  .overlay-menu-center,
+  .overlay-menu-role-panel {
+    width: 100%;
+  }
+
+  .overlay-menu-role-panel {
+    max-width: min(390px, 34vw);
+  }
+
+  .overlay-role-select {
+    height: clamp(220px, 50vh, 410px);
   }
 
   .overlay-menu-right {
@@ -2682,7 +3075,8 @@ body {
   }
 
   .chain-panel {
-    width: auto;
+    width: max-content;
+    max-width: min(148px, 38vw);
     min-height: 28px;
     padding: 0 9px;
     border-radius: 9px;
@@ -2800,8 +3194,8 @@ body {
     bottom: 10px;
     left: 50%;
     width: calc(100vw - 20px);
-    grid-template-columns: fit-content(230px) minmax(18px, 1fr) fit-content(220px);
-    gap: 8px;
+    grid-template-columns: fit-content(190px) minmax(160px, 1fr) fit-content(180px);
+    gap: 7px;
   }
 
   .overlay-menu-panel--left,
@@ -2825,18 +3219,35 @@ body {
     width: clamp(104px, min(28vw, 30vh), 178px);
   }
 
-  .overlay-menu-start,
+  .overlay-menu-playmode,
   .overlay-menu-copy,
   .overlay-menu-stats,
   .overlay-menu-options {
-    width: clamp(155px, 31vw, 220px);
+    width: clamp(150px, 29vw, 190px);
   }
 
   .overlay-menu-right,
   .overlay-menu-card,
   .overlay-state-right,
   .overlay-state-panel {
-    width: clamp(140px, 30vw, 210px);
+    width: clamp(150px, 27vw, 180px);
+  }
+
+  .overlay-menu-role-panel {
+    max-width: min(300px, 36vw);
+  }
+
+  .overlay-role-select {
+    height: clamp(160px, 46vh, 270px);
+  }
+
+  .overlay-role-title {
+    font-size: clamp(0.7rem, min(2vw, 2.8vh), 0.9rem);
+  }
+
+  .overlay-role-features,
+  .overlay-role-hint {
+    display: none;
   }
 
   .overlay-state-actions {
@@ -2901,14 +3312,14 @@ body {
     display: none;
   }
 
-  .overlay-menu-start,
+  .overlay-menu-playmode,
   .overlay-state-button {
     min-height: 40px;
     border-radius: 12px;
     letter-spacing: 0.055em;
   }
 
-  .overlay-menu-start {
+  .overlay-menu-playmode {
     font-size: clamp(0.92rem, min(3.6vw, 4.6vh), 1.25rem);
   }
 

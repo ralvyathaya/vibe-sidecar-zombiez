@@ -81,6 +81,18 @@ export const GAME_CONFIG: GameConfig = {
       modelScale: 1.02,
       seatPivotPosition: [0.10, -0.25, 0.10],
       cameraOffset: [-0.035, 0.035, 0.12],
+      roleProfiles: {
+        gunner: {
+          seatPivotPosition: [0.10, -0.25, 0.10],
+          cameraOffset: [-0.035, 0.035, 0.12],
+          cameraLookAtOffset: [0, 0, 0],
+        },
+        driver: {
+          seatPivotPosition: [0.58, -0.28, -0.06],
+          cameraOffset: [0.08, 0.02, 0.04],
+          cameraLookAtOffset: [0, 0, 0],
+        },
+      },
       lookDownReveal: [0.055, -0.15, 0.2],
       swayAmplitude: [0.005, 0.004, 0.003],
       swayFrequency: 1.65,

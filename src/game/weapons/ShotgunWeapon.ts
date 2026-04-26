@@ -19,7 +19,13 @@ import {
   Vector2,
   Vector3,
 } from 'three';
-import type { GameConfig, RewardEvent, WeaponStatus } from '../../core/types';
+import type {
+  DebugTransformSnapshot,
+  GameConfig,
+  RewardEvent,
+  Vec3Tuple,
+  WeaponStatus,
+} from '../../core/types';
 import { approach, clamp, randomRange } from '../../core/utils';
 import { SoundEffectPool } from '../audio/SoundEffectPool';
 import type { EnemySystem } from '../systems/EnemySystem';
@@ -126,6 +132,7 @@ export class ShotgunWeapon {
   private activeSpinDuration = 0;
   private cycleActive = false;
   private pendingDelaySound = false;
+  private debugViewmodelScale = 1;
 
   constructor(
     private readonly camera: Camera,
@@ -133,6 +140,7 @@ export class ShotgunWeapon {
   ) {
     const [rotX, rotY, rotZ] = this.config.shotgun.viewmodel.rotationDegrees;
     this.basePosition = new Vector3(...this.config.shotgun.viewmodel.position);
+    this.debugViewmodelScale = this.config.shotgun.viewmodel.scale;
     this.baseRotation.set(
       MathUtils.degToRad(rotX),
       MathUtils.degToRad(rotY),
@@ -329,6 +337,38 @@ export class ShotgunWeapon {
       crosshairKick: this.fireKick,
       canReload: false,
     };
+  }
+
+  getDebugViewmodelTransform(): DebugTransformSnapshot {
+    return this.createDebugSnapshot(
+      this.basePosition,
+      this.baseRotation,
+      this.debugViewmodelScale,
+    );
+  }
+
+  setDebugViewmodelTransform(snapshot: DebugTransformSnapshot): void {
+    this.basePosition.set(...snapshot.position);
+    this.baseRotation.set(
+      MathUtils.degToRad(snapshot.rotationDegrees[0]),
+      MathUtils.degToRad(snapshot.rotationDegrees[1]),
+      MathUtils.degToRad(snapshot.rotationDegrees[2]),
+    );
+    this.debugViewmodelScale = this.resolveUniformScale(snapshot.scale);
+    this.applyViewmodelPose();
+  }
+
+  resetDebugViewmodelTransform(): DebugTransformSnapshot {
+    const [rotX, rotY, rotZ] = this.config.shotgun.viewmodel.rotationDegrees;
+    this.basePosition.set(...this.config.shotgun.viewmodel.position);
+    this.baseRotation.set(
+      MathUtils.degToRad(rotX),
+      MathUtils.degToRad(rotY),
+      MathUtils.degToRad(rotZ),
+    );
+    this.debugViewmodelScale = this.config.shotgun.viewmodel.scale;
+    this.applyViewmodelPose();
+    return this.getDebugViewmodelTransform();
   }
 
   destroy(): void {
@@ -1109,13 +1149,37 @@ export class ShotgunWeapon {
       this.baseRotation.y,
       this.baseRotation.z - recoilRoll + spinRoll,
     );
-    this.viewmodelRoot.scale.setScalar(this.config.shotgun.viewmodel.scale);
+    this.viewmodelRoot.scale.setScalar(this.debugViewmodelScale);
 
     this.contentRoot.position.set(
       -this.config.shotgun.viewmodel.pumpTravel * this.pumpOffset,
       0,
       0,
     );
+  }
+
+  private createDebugSnapshot(
+    position: Vector3,
+    rotation: Vector3,
+    scale: number,
+  ): DebugTransformSnapshot {
+    return {
+      position: this.toTuple(position),
+      rotationDegrees: [
+        MathUtils.radToDeg(rotation.x),
+        MathUtils.radToDeg(rotation.y),
+        MathUtils.radToDeg(rotation.z),
+      ],
+      scale: [scale, scale, scale],
+    };
+  }
+
+  private toTuple(vector: Vector3): Vec3Tuple {
+    return [vector.x, vector.y, vector.z];
+  }
+
+  private resolveUniformScale(scale: Vec3Tuple): number {
+    return Math.max(0.001, (scale[0] + scale[1] + scale[2]) / 3);
   }
 
   private randomizeMuzzleFlash(): void {

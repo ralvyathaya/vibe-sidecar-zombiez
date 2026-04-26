@@ -20,7 +20,14 @@ import {
   SpriteMaterial,
   Vector3,
 } from 'three';
-import type { GameConfig, GameStateType, RideState } from '../../core/types';
+import type {
+  DebugTransformSnapshot,
+  GameConfig,
+  GameStateType,
+  GameplayRole,
+  RideState,
+  Vec3Tuple,
+} from '../../core/types';
 import { approach, getRuntimePerformanceProfile } from '../../core/utils';
 
 type WheelSpinAxis = 'x' | 'y' | 'z';
@@ -71,8 +78,14 @@ export class VehicleRigSystem {
   private readonly baseRigOffset = new Vector3();
   private readonly baseModelPosition = new Vector3();
   private readonly baseModelRotation = new Vector3();
-  private readonly baseSeatPivotPosition = new Vector3();
-  private readonly baseCameraOffset = new Vector3();
+  private readonly roleSeatPivotPositions: Record<GameplayRole, Vector3> = {
+    driver: new Vector3(),
+    gunner: new Vector3(),
+  };
+  private readonly roleCameraOffsets: Record<GameplayRole, Vector3> = {
+    driver: new Vector3(),
+    gunner: new Vector3(),
+  };
   private readonly lookDownReveal = new Vector3();
   private readonly baseLatchPosition = new Vector3();
   private readonly baseHeadlightPosition = new Vector3();
@@ -85,6 +98,7 @@ export class VehicleRigSystem {
   private readonly wheelBounds = new Box3();
   private readonly wheelSize = new Vector3();
   private loadedScene: Object3D | null = null;
+  private activeRole: GameplayRole = 'gunner';
   private currentFov = 72;
   private time = 0;
   private hitShake = 0;
@@ -135,8 +149,10 @@ export class VehicleRigSystem {
       MathUtils.degToRad(rig.modelRotationDegrees[1]),
       MathUtils.degToRad(rig.modelRotationDegrees[2]),
     );
-    this.baseSeatPivotPosition.set(...rig.seatPivotPosition);
-    this.baseCameraOffset.set(...rig.cameraOffset);
+    this.roleSeatPivotPositions.gunner.set(...rig.roleProfiles.gunner.seatPivotPosition);
+    this.roleSeatPivotPositions.driver.set(...rig.roleProfiles.driver.seatPivotPosition);
+    this.roleCameraOffsets.gunner.set(...rig.roleProfiles.gunner.cameraOffset);
+    this.roleCameraOffsets.driver.set(...rig.roleProfiles.driver.cameraOffset);
     this.lookDownReveal.set(...rig.lookDownReveal);
     this.baseLatchPosition.set(...rig.sidecarLatchPosition);
     this.baseHeadlightPosition.set(...rig.headlightPosition);
@@ -312,8 +328,8 @@ export class VehicleRigSystem {
       this.nearFill,
     );
 
-    this.seatPivot.position.copy(this.baseSeatPivotPosition);
-    this.cameraYaw.position.copy(this.baseCameraOffset);
+    this.seatPivot.position.copy(this.getActiveSeatPivotPosition());
+    this.cameraYaw.position.copy(this.getActiveCameraOffset());
     this.sidecarLatchAnchor.position.copy(this.baseLatchPosition);
 
     this.vehicleSpace.add(
@@ -347,6 +363,52 @@ export class VehicleRigSystem {
     return this.sidecarLatchAnchor;
   }
 
+  setActiveRole(role: GameplayRole): void {
+    this.activeRole = role;
+    this.seatPivot.position.copy(this.getActiveSeatPivotPosition());
+    this.cameraYaw.position.copy(this.getActiveCameraOffset());
+  }
+
+  getRoleCameraTransform(role: GameplayRole): DebugTransformSnapshot {
+    return this.snapshotFromVector(this.roleCameraOffsets[role]);
+  }
+
+  setRoleCameraTransform(role: GameplayRole, snapshot: DebugTransformSnapshot): void {
+    this.roleCameraOffsets[role].set(...snapshot.position);
+    if (this.activeRole === role) {
+      this.cameraYaw.position.copy(this.getActiveCameraOffset());
+    }
+  }
+
+  resetRoleCameraTransform(role: GameplayRole): DebugTransformSnapshot {
+    const source = this.config.vehicle.stage1Rig.roleProfiles[role].cameraOffset;
+    this.roleCameraOffsets[role].set(...source);
+    if (this.activeRole === role) {
+      this.cameraYaw.position.copy(this.getActiveCameraOffset());
+    }
+    return this.getRoleCameraTransform(role);
+  }
+
+  getRoleSeatTransform(role: GameplayRole): DebugTransformSnapshot {
+    return this.snapshotFromVector(this.roleSeatPivotPositions[role]);
+  }
+
+  setRoleSeatTransform(role: GameplayRole, snapshot: DebugTransformSnapshot): void {
+    this.roleSeatPivotPositions[role].set(...snapshot.position);
+    if (this.activeRole === role) {
+      this.seatPivot.position.copy(this.getActiveSeatPivotPosition());
+    }
+  }
+
+  resetRoleSeatTransform(role: GameplayRole): DebugTransformSnapshot {
+    const source = this.config.vehicle.stage1Rig.roleProfiles[role].seatPivotPosition;
+    this.roleSeatPivotPositions[role].set(...source);
+    if (this.activeRole === role) {
+      this.seatPivot.position.copy(this.getActiveSeatPivotPosition());
+    }
+    return this.getRoleSeatTransform(role);
+  }
+
   reset(): void {
     this.time = 0;
     this.hitShake = 0;
@@ -358,9 +420,9 @@ export class VehicleRigSystem {
     this.obstructionShakeGroup.rotation.set(0, 0, 0);
     this.vehicleSpace.position.set(0, 0, 0);
     this.vehicleSpace.rotation.set(0, 0, 0);
-    this.seatPivot.position.copy(this.baseSeatPivotPosition);
+    this.seatPivot.position.copy(this.getActiveSeatPivotPosition());
     this.seatPivot.rotation.set(0, 0, 0);
-    this.cameraYaw.position.copy(this.baseCameraOffset);
+    this.cameraYaw.position.copy(this.getActiveCameraOffset());
     this.cameraYaw.rotation.set(0, 0, 0);
     this.cameraPitch.rotation.set(0, 0, 0);
     this.modelRoot.position.copy(this.baseModelPosition);
@@ -404,6 +466,8 @@ export class VehicleRigSystem {
     ride: RideState | null = null,
   ): void {
     const rig = this.config.vehicle.stage1Rig;
+    const activeCameraOffset = this.getActiveCameraOffset();
+    const activeSeatPivotPosition = this.getActiveSeatPivotPosition();
     this.time += deltaTime;
     const running = gameState === 'running';
     const lookDown = MathUtils.clamp(this.cameraPitch.rotation.x, 0, MathUtils.degToRad(40));
@@ -496,10 +560,11 @@ export class VehicleRigSystem {
       turnRoll + laneRoll + vibration * 0.12 + slamRoll + engineTroubleSide * 0.72 + failureRoll,
     );
 
+    this.seatPivot.position.copy(activeSeatPivotPosition);
     this.cameraYaw.position.set(
-      this.baseCameraOffset.x + this.lookDownReveal.x * lookDownAlpha,
-      this.baseCameraOffset.y + this.lookDownReveal.y * lookDownAlpha,
-      this.baseCameraOffset.z + this.lookDownReveal.z * lookDownAlpha,
+      activeCameraOffset.x + this.lookDownReveal.x * lookDownAlpha,
+      activeCameraOffset.y + this.lookDownReveal.y * lookDownAlpha,
+      activeCameraOffset.z + this.lookDownReveal.z * lookDownAlpha,
     );
     this.sidecarLatchAnchor.position.set(
       this.baseLatchPosition.x + laneShift * 0.6,
@@ -606,6 +671,26 @@ export class VehicleRigSystem {
     this.vehicleRig.removeFromParent();
     this.disposeObject(this.loadedScene);
     this.wheelBlurTexture.dispose();
+  }
+
+  private getActiveSeatPivotPosition(): Vector3 {
+    return this.roleSeatPivotPositions[this.activeRole];
+  }
+
+  private getActiveCameraOffset(): Vector3 {
+    return this.roleCameraOffsets[this.activeRole];
+  }
+
+  private snapshotFromVector(position: Vector3): DebugTransformSnapshot {
+    return {
+      position: this.toTuple(position),
+      rotationDegrees: [0, 0, 0],
+      scale: [1, 1, 1],
+    };
+  }
+
+  private toTuple(vector: Vector3): Vec3Tuple {
+    return [vector.x, vector.y, vector.z];
   }
 
   private async loadVehicleModel(): Promise<void> {

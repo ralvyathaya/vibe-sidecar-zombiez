@@ -1,5 +1,8 @@
 import type {
+  CoopRunStats,
+  CoopSessionState,
   GameStateType,
+  GameplayRole,
   PlayerState,
   RadarContact,
   RewardState,
@@ -26,6 +29,10 @@ const WEAPON_ART: Record<WeaponStatus['weaponType'], string> = {
 const MENU_LOGO = '/ui/menu/logo-game.png';
 const MENU_LOGO_SMALL = '/ui/menu/logo-game-small.png';
 const MENU_LOGO_SRCSET = `${MENU_LOGO_SMALL} 368w, ${MENU_LOGO} 737w`;
+const ROLE_CHARACTER_ART: Record<GameplayRole, string> = {
+  gunner: '/ui/characters/gunner.png',
+  driver: '/ui/characters/driver.png',
+};
 
 const PAUSE_SUBHEADINGS = [
   'The driver is pretending this pause was tactical.',
@@ -46,6 +53,8 @@ type HUDSnapshot = {
   player: PlayerState;
   weapon: WeaponStatus;
   reward: RewardState;
+  coopSession: CoopSessionState;
+  coopStats: CoopRunStats;
   ride: RideState | null;
   elapsedSeconds: number;
   radarContacts: RadarContact[];
@@ -74,6 +83,8 @@ type DeathCausePresentation = {
   body: string;
 };
 
+type MenuPlayMode = 'single' | 'coop';
+
 export class UISystem {
   onPrimaryAction?: () => void;
   onRestartAction?: () => void;
@@ -84,6 +95,10 @@ export class UISystem {
   onMobileReload?: () => void;
   onMobileFireHeldChange?: (active: boolean) => void;
   onMobileScreenTap?: () => void;
+  onRoleSelect?: (role: GameplayRole) => void;
+  onCreateCoopRoom?: (role: GameplayRole) => void;
+  onJoinCoopRoom?: (roomCode: string, role: GameplayRole) => void;
+  onSinglePlayerAction?: () => void;
 
   private readonly root = document.createElement('div');
   private readonly overlay = document.createElement('div');
@@ -95,10 +110,21 @@ export class UISystem {
   private readonly overlayMenu = document.createElement('div');
   private readonly overlayMenuLogo = document.createElement('img');
   private readonly overlayMenuStartButton = document.createElement('button');
+  private readonly overlayMenuCoopModeButton = document.createElement('button');
   private readonly overlayMenuCopy = document.createElement('p');
   private readonly overlayMenuStats = document.createElement('div');
+  private readonly overlayMenuRoleSelect = document.createElement('div');
+  private readonly overlayMenuGunnerRoleButton = document.createElement('button');
+  private readonly overlayMenuDriverRoleButton = document.createElement('button');
+  private readonly overlayMenuGunnerRoleImage = document.createElement('img');
+  private readonly overlayMenuDriverRoleImage = document.createElement('img');
   private readonly overlayMenuSfxToggle = document.createElement('button');
   private readonly overlayMenuMusicToggle = document.createElement('button');
+  private readonly overlayMenuCoopStatus = document.createElement('div');
+  private readonly overlayMenuRoomInput = document.createElement('input');
+  private readonly overlayMenuCreateRoomButton = document.createElement('button');
+  private readonly overlayMenuJoinRoomButton = document.createElement('button');
+  private readonly overlayMenuSoloButton = document.createElement('button');
   private readonly overlayStateSfxToggle = document.createElement('button');
   private readonly overlayStateMusicToggle = document.createElement('button');
   private readonly overlayDialog = document.createElement('div');
@@ -120,6 +146,10 @@ export class UISystem {
   private readonly overlayStateTimeValue = document.createElement('span');
   private readonly overlayStateBestChainValue = document.createElement('span');
   private readonly overlayStateKillsValue = document.createElement('span');
+  private readonly overlayStatePickupsValue = document.createElement('span');
+  private readonly overlayStateRiskValue = document.createElement('span');
+  private readonly overlayStateAccuracyValue = document.createElement('span');
+  private readonly overlayStateLatchSavesValue = document.createElement('span');
   private readonly overlayStateCauseTitle = document.createElement('div');
   private readonly overlayStateCauseBody = document.createElement('div');
   private menuReloadControlRow: HTMLElement | null = null;
@@ -221,6 +251,8 @@ export class UISystem {
   private lastNitroTimer = 0;
   private tankWarningCooldown = 0;
   private mobileControlsEnabled = false;
+  private selectedRole: GameplayRole = 'gunner';
+  private menuPlayMode: MenuPlayMode = 'single';
 
   constructor(host: HTMLElement) {
     this.root.className = 'ui-root';
@@ -524,13 +556,54 @@ export class UISystem {
     this.overlayMenuLogo.sizes = '(max-width: 900px) 30vw, 286px';
     this.overlayMenuLogo.alt = 'Sidecar of the Dead';
     this.overlayMenuLogo.decoding = 'async';
-    this.overlayMenuStartButton.className = 'overlay-menu-start';
+    this.overlayMenuStartButton.className = 'overlay-menu-playmode';
     this.overlayMenuStartButton.type = 'button';
-    this.overlayMenuStartButton.textContent = 'Start Run';
+    this.overlayMenuStartButton.dataset.kind = 'single';
+    this.overlayMenuStartButton.textContent = 'Single Player';
+    this.overlayMenuCoopModeButton.className = 'overlay-menu-playmode';
+    this.overlayMenuCoopModeButton.type = 'button';
+    this.overlayMenuCoopModeButton.dataset.kind = 'coop';
+    this.overlayMenuCoopModeButton.textContent = 'Co-op';
     this.overlayMenuCopy.className = 'overlay-menu-copy';
     this.overlayMenuCopy.textContent =
       'Built roughly 90% with AI tools: Cursor + Codex for code, Nano Banana for image iteration, ElevenLabs for voices and SFX passes, plus Gemini-assisted music and prompt workflow.';
     this.overlayMenuStats.className = 'overlay-menu-stats';
+    this.overlayMenuRoleSelect.className = 'overlay-role-select';
+    this.setupRoleButton(
+      this.overlayMenuGunnerRoleButton,
+      this.overlayMenuGunnerRoleImage,
+      'gunner',
+      'Police',
+      ['Full weapon kit', 'Aim, reload, clear latch'],
+    );
+    this.setupRoleButton(
+      this.overlayMenuDriverRoleButton,
+      this.overlayMenuDriverRoleImage,
+      'driver',
+      'Joe',
+      ['Free roam driver', 'Pistol only'],
+    );
+    this.overlayMenuRoleSelect.append(
+      this.overlayMenuGunnerRoleButton,
+      this.overlayMenuDriverRoleButton,
+    );
+    this.overlayMenuCoopStatus.className = 'overlay-menu-coop-status';
+    this.overlayMenuRoomInput.className = 'overlay-menu-room-input';
+    this.overlayMenuRoomInput.type = 'text';
+    this.overlayMenuRoomInput.maxLength = 6;
+    this.overlayMenuRoomInput.placeholder = 'ROOM';
+    this.overlayMenuRoomInput.autocomplete = 'off';
+    this.overlayMenuRoomInput.spellcheck = false;
+    this.overlayMenuCreateRoomButton.className = 'overlay-menu-toggle overlay-menu-toggle--coop';
+    this.overlayMenuCreateRoomButton.type = 'button';
+    this.overlayMenuCreateRoomButton.textContent = 'Create Room';
+    this.overlayMenuJoinRoomButton.className = 'overlay-menu-toggle overlay-menu-toggle--coop';
+    this.overlayMenuJoinRoomButton.type = 'button';
+    this.overlayMenuJoinRoomButton.textContent = 'Join Room';
+    this.overlayMenuSoloButton.className =
+      'overlay-menu-toggle overlay-menu-toggle--coop overlay-menu-solo-action';
+    this.overlayMenuSoloButton.type = 'button';
+    this.overlayMenuSoloButton.textContent = 'Start Game';
     this.overlayMenuSfxToggle.className = 'overlay-menu-toggle';
     this.overlayMenuSfxToggle.type = 'button';
     this.overlayMenuMusicToggle.className = 'overlay-menu-toggle';
@@ -549,13 +622,25 @@ export class UISystem {
       this.onRestartAction?.();
     });
     this.overlayMenuStartButton.addEventListener('click', () => {
-      this.onPrimaryAction?.();
+      this.setMenuPlayMode('single');
+    });
+    this.overlayMenuCoopModeButton.addEventListener('click', () => {
+      this.setMenuPlayMode('coop');
     });
     this.overlayMenuSfxToggle.addEventListener('click', () => {
       this.toggleSfxPreference();
     });
     this.overlayMenuMusicToggle.addEventListener('click', () => {
       this.toggleMusicPreference();
+    });
+    this.overlayMenuCreateRoomButton.addEventListener('click', () => {
+      this.onCreateCoopRoom?.(this.selectedRole);
+    });
+    this.overlayMenuJoinRoomButton.addEventListener('click', () => {
+      this.onJoinCoopRoom?.(this.overlayMenuRoomInput.value, this.selectedRole);
+    });
+    this.overlayMenuSoloButton.addEventListener('click', () => {
+      this.onSinglePlayerAction?.();
     });
     this.overlayStateSfxToggle.addEventListener('click', () => {
       this.toggleSfxPreference();
@@ -582,10 +667,30 @@ export class UISystem {
     menuOptionsLabel.className = 'overlay-menu-section-label';
     menuOptionsLabel.textContent = 'Boot Options';
 
+    const playModeOptions = document.createElement('div');
+    playModeOptions.className = 'overlay-menu-playmodes';
+    playModeOptions.append(this.overlayMenuStartButton, this.overlayMenuCoopModeButton);
+
     menuOptions.append(
       menuOptionsLabel,
+      playModeOptions,
       this.overlayMenuSfxToggle,
       this.overlayMenuMusicToggle,
+    );
+
+    const coopOptions = document.createElement('div');
+    coopOptions.className = 'overlay-menu-options overlay-menu-options--coop';
+    const coopLabel = document.createElement('div');
+    coopLabel.className = 'overlay-menu-section-label';
+    coopLabel.textContent = 'Online Co-op';
+    const roomRow = document.createElement('div');
+    roomRow.className = 'overlay-menu-room-row';
+    roomRow.append(this.overlayMenuRoomInput, this.overlayMenuJoinRoomButton);
+    coopOptions.append(
+      coopLabel,
+      this.overlayMenuCoopStatus,
+      this.overlayMenuCreateRoomButton,
+      roomRow,
     );
 
     const menuHint = document.createElement('div');
@@ -596,12 +701,24 @@ export class UISystem {
       this.overlayMenuLogo,
       menuEyebrow,
       menuTagline,
-      this.overlayMenuStartButton,
       this.overlayMenuCopy,
       this.overlayMenuStats,
       menuOptions,
       menuHint,
     );
+
+    const menuCenter = document.createElement('div');
+    menuCenter.className = 'overlay-menu-center';
+    const rolePanel = document.createElement('section');
+    rolePanel.className = 'overlay-menu-role-panel';
+    const roleLabel = document.createElement('div');
+    roleLabel.className = 'overlay-menu-section-label';
+    roleLabel.textContent = 'Select Role';
+    const roleHint = document.createElement('p');
+    roleHint.className = 'overlay-role-hint';
+    roleHint.textContent = 'Pick Single Player to start as Police. Pick Co-op to choose Joe or Police.';
+    rolePanel.append(roleLabel, this.overlayMenuRoleSelect, roleHint, this.overlayMenuSoloButton, coopOptions);
+    menuCenter.append(rolePanel);
 
     const menuRight = document.createElement('div');
     menuRight.className = 'overlay-menu-right';
@@ -654,6 +771,10 @@ export class UISystem {
       this.createSummaryRow('time', 'Time', this.overlayStateTimeValue),
       this.createSummaryRow('chain', 'Best Chain', this.overlayStateBestChainValue),
       this.createSummaryRow('skull', 'Zombies Killed', this.overlayStateKillsValue),
+      this.createSummaryRow('chain', 'Pickups', this.overlayStatePickupsValue),
+      this.createSummaryRow('skull', 'Risk Pickups', this.overlayStateRiskValue),
+      this.createSummaryRow('score', 'Gunner Acc.', this.overlayStateAccuracyValue),
+      this.createSummaryRow('chain', 'Latch Saves', this.overlayStateLatchSavesValue),
     );
 
     const causeTitle = document.createElement('h2');
@@ -693,8 +814,10 @@ export class UISystem {
     );
     this.overlayState.append(this.overlayStateLeft, this.overlayStateRight);
     this.overlay.append(this.overlayMenu, this.overlayState, this.overlayDialog);
-    this.overlayMenu.append(menuLeft, menuRight);
+    this.overlayMenu.append(menuLeft, menuCenter, menuRight);
     this.syncAudioButtons();
+    this.setSelectedRole(this.selectedRole, false);
+    this.setMenuPlayMode(this.menuPlayMode, false);
     this.root.append(
       hud,
       this.mobileControls,
@@ -798,6 +921,27 @@ export class UISystem {
       this.pauseReloadControlRow.hidden = enabled;
     }
     this.updateMobileControlsVisibility(this.root.dataset.state as GameStateType);
+  }
+
+  setCoopSession(session: CoopSessionState): void {
+    this.setText(this.overlayMenuCoopStatus, session.statusText);
+    this.setSelectedRole(session.selectedRole, false);
+    this.setDataset(this.root, 'coopRole', session.role);
+    this.setDataset(this.root, 'selectedRole', session.selectedRole);
+    this.setDataset(this.root, 'controlProfile', session.activeProfile);
+    this.setDataset(this.root, 'coopConnection', session.connection);
+    this.overlayMenuCreateRoomButton.textContent = `Create Room - ${this.formatRoleLabel(this.selectedRole)}`;
+    this.overlayMenuJoinRoomButton.textContent = `Join As ${this.formatRoleLabel(this.selectedRole)}`;
+    this.overlayMenuCreateRoomButton.dataset.enabled =
+      session.canStartRun && session.connection !== 'offline' && session.connection !== 'fallback'
+        ? 'true'
+        : 'false';
+    this.overlayMenuJoinRoomButton.dataset.enabled =
+      session.connection === 'joined' || session.connection === 'connected' ? 'true' : 'false';
+    this.overlayMenuSoloButton.dataset.enabled = session.role === 'solo' ? 'true' : 'false';
+    if (session.roomCode && this.overlayMenuRoomInput.value !== session.roomCode) {
+      this.overlayMenuRoomInput.value = session.roomCode;
+    }
   }
 
   setDeathCause(cause: DeathCausePresentation): void {
@@ -1057,6 +1201,8 @@ export class UISystem {
       (snapshot.ride?.latchActive ? 0.12 : 0);
     this.setStyleValue(this.vignette, 'opacity', `${Math.min(1, vignetteStrength).toFixed(2)}`);
     this.setDataset(this.root, 'state', snapshot.gameState);
+    this.setDataset(this.root, 'coopRole', snapshot.coopSession.role);
+    this.setDataset(this.root, 'coopConnection', snapshot.coopSession.connection);
     this.setDataset(this.root, 'segment', snapshot.ride?.segment ?? 'rest');
     this.setDataset(
       this.root,
@@ -1079,6 +1225,14 @@ export class UISystem {
       this.setText(this.overlayStateTimeValue, `${snapshot.elapsedSeconds.toFixed(1)}s`);
       this.setText(this.overlayStateBestChainValue, `${snapshot.reward.bestChain}`);
       this.setText(this.overlayStateKillsValue, `${snapshot.reward.zombiesKilled}`);
+      this.setText(this.overlayStatePickupsValue, `${snapshot.coopStats.driverPickupsGrabbed}`);
+      this.setText(this.overlayStateRiskValue, `${snapshot.coopStats.riskPickupsTaken}`);
+      const accuracy =
+        snapshot.coopStats.gunnerShotsFired > 0
+          ? Math.round((snapshot.coopStats.gunnerKills / snapshot.coopStats.gunnerShotsFired) * 100)
+          : 0;
+      this.setText(this.overlayStateAccuracyValue, `${accuracy}%`);
+      this.setText(this.overlayStateLatchSavesValue, `${snapshot.coopStats.latchSaves}`);
       return;
     }
 
@@ -1086,8 +1240,7 @@ export class UISystem {
       this.setText(
         this.overlayMenuStats,
         `Best Score  ${snapshot.reward.bestScore}\n` +
-        `Best Chain  ${snapshot.reward.bestChainRecord}\n` +
-        `Last Run  ${snapshot.reward.lastRunScore}`,
+        `Best Chain  ${snapshot.reward.bestChainRecord}`,
       );
       this.setText(this.overlayMeta, '');
       this.overlayBreakdown.hidden = true;
@@ -1448,6 +1601,93 @@ export class UISystem {
     return card;
   }
 
+  private setupRoleButton(
+    button: HTMLButtonElement,
+    image: HTMLImageElement,
+    role: GameplayRole,
+    label: string,
+    features: string[],
+  ): void {
+    button.className = 'overlay-role-card';
+    button.type = 'button';
+    button.dataset.role = role;
+    if (role === 'driver') {
+      button.dataset.locked = 'singleplayer';
+    }
+    image.className = 'overlay-role-character';
+    image.src = ROLE_CHARACTER_ART[role];
+    image.alt = label;
+    image.decoding = 'async';
+
+    const stage = document.createElement('span');
+    stage.className = 'overlay-role-character-stage';
+    stage.append(image);
+
+    const body = document.createElement('span');
+    body.className = 'overlay-role-body';
+
+    const title = document.createElement('span');
+    title.className = 'overlay-role-title';
+    title.textContent = label;
+
+    const featureList = document.createElement('span');
+    featureList.className = 'overlay-role-features';
+    for (const feature of features) {
+      const item = document.createElement('span');
+      item.className = 'overlay-role-feature';
+      item.textContent = feature;
+      featureList.append(item);
+    }
+
+    body.append(title, featureList);
+    button.append(stage, body);
+    button.addEventListener('click', () => {
+      this.setSelectedRole(role);
+    });
+  }
+
+  private setSelectedRole(role: GameplayRole, emit = true): void {
+    if (this.menuPlayMode === 'single' && role === 'driver') {
+      return;
+    }
+
+    this.selectedRole = role;
+    this.overlayMenuGunnerRoleButton.dataset.selected = role === 'gunner' ? 'true' : 'false';
+    this.overlayMenuDriverRoleButton.dataset.selected = role === 'driver' ? 'true' : 'false';
+    this.overlayMenuCreateRoomButton.textContent = `Create Room - ${this.formatRoleLabel(role)}`;
+    this.overlayMenuJoinRoomButton.textContent = `Join As ${this.formatRoleLabel(role)}`;
+    if (emit) {
+      this.onRoleSelect?.(role);
+    }
+  }
+
+  private formatRoleLabel(role: GameplayRole): string {
+    return role === 'driver' ? 'Driver' : 'Gunner';
+  }
+
+  private setMenuPlayMode(mode: MenuPlayMode, emit = true): void {
+    this.menuPlayMode = mode;
+    this.setDataset(this.root, 'menuPlayMode', mode);
+    this.overlayMenuStartButton.dataset.selected = mode === 'single' ? 'true' : 'false';
+    this.overlayMenuCoopModeButton.dataset.selected = mode === 'coop' ? 'true' : 'false';
+    this.overlayMenuDriverRoleButton.disabled = mode === 'single';
+    this.overlayMenuDriverRoleButton.dataset.locked = mode === 'single' ? 'singleplayer' : 'false';
+    this.overlayMenuSoloButton.hidden = mode !== 'single';
+
+    if (mode === 'single') {
+      this.setSelectedRole('gunner', emit);
+    } else if (emit) {
+      this.onRoleSelect?.(this.selectedRole);
+    }
+  }
+
+  private createMenuPoint(text: string): HTMLElement {
+    const point = document.createElement('div');
+    point.className = 'overlay-menu-point';
+    point.textContent = text;
+    return point;
+  }
+
   private createMenuControlRow(keyLabel: string, description: string): HTMLElement {
     const row = document.createElement('div');
     row.className = 'overlay-menu-control';
@@ -1462,13 +1702,6 @@ export class UISystem {
 
     row.append(key, label);
     return row;
-  }
-
-  private createMenuPoint(text: string): HTMLElement {
-    const point = document.createElement('div');
-    point.className = 'overlay-menu-point';
-    point.textContent = text;
-    return point;
   }
 
   private createSummaryRow(

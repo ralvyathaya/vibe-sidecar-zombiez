@@ -15,6 +15,35 @@ let cachedRuntimePerformanceProfile: RuntimePerformanceProfile | null = null;
 export const lerp = (start: number, end: number, t: number): number =>
   start + (end - start) * t;
 
+const nativeRandom = Math.random.bind(Math);
+let activeRandomSeed: number | null = null;
+
+const normalizeSeed = (seed: number): number => {
+  const normalized = Math.floor(Math.abs(seed)) >>> 0;
+  return normalized === 0 ? 0x6d2b79f5 : normalized;
+};
+
+export const setGameRandomSeed = (seed: number): void => {
+  let state = normalizeSeed(seed);
+  activeRandomSeed = state;
+  Math.random = () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let mixed = state;
+    mixed = Math.imul(mixed ^ (mixed >>> 15), mixed | 1);
+    mixed ^= mixed + Math.imul(mixed ^ (mixed >>> 7), mixed | 61);
+    return ((mixed ^ (mixed >>> 14)) >>> 0) / 4294967296;
+  };
+};
+
+export const restoreNativeRandom = (): void => {
+  if (activeRandomSeed === null) {
+    return;
+  }
+
+  activeRandomSeed = null;
+  Math.random = nativeRandom;
+};
+
 export const randomRange = (min: number, max: number): number =>
   min + Math.random() * (max - min);
 

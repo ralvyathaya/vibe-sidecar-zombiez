@@ -18,7 +18,7 @@ import {
   Vector2,
   Vector3,
 } from 'three';
-import type { GameConfig, WeaponStatus } from '../../core/types';
+import type { DebugTransformSnapshot, GameConfig, Vec3Tuple, WeaponStatus } from '../../core/types';
 import { approach, clamp, randomRange } from '../../core/utils';
 import { SoundEffectPool } from '../audio/SoundEffectPool';
 import type { EnemySystem } from '../systems/EnemySystem';
@@ -112,6 +112,7 @@ export class BazookaWeapon {
   private fireKick = 0;
   private autoReturnTimer = 0;
   private pendingAutoReturn = false;
+  private debugViewmodelScale = 1;
 
   constructor(
     private readonly camera: Camera,
@@ -119,6 +120,7 @@ export class BazookaWeapon {
   ) {
     const [rotX, rotY, rotZ] = this.config.bazooka.viewmodel.rotationDegrees;
     this.basePosition = new Vector3(...this.config.bazooka.viewmodel.position);
+    this.debugViewmodelScale = this.config.bazooka.viewmodel.scale;
     this.baseRotation.set(
       MathUtils.degToRad(rotX),
       MathUtils.degToRad(rotY),
@@ -266,6 +268,38 @@ export class BazookaWeapon {
       crosshairKick: this.fireKick,
       canReload: false,
     };
+  }
+
+  getDebugViewmodelTransform(): DebugTransformSnapshot {
+    return this.createDebugSnapshot(
+      this.basePosition,
+      this.baseRotation,
+      this.debugViewmodelScale,
+    );
+  }
+
+  setDebugViewmodelTransform(snapshot: DebugTransformSnapshot): void {
+    this.basePosition.set(...snapshot.position);
+    this.baseRotation.set(
+      MathUtils.degToRad(snapshot.rotationDegrees[0]),
+      MathUtils.degToRad(snapshot.rotationDegrees[1]),
+      MathUtils.degToRad(snapshot.rotationDegrees[2]),
+    );
+    this.debugViewmodelScale = this.resolveUniformScale(snapshot.scale);
+    this.applyViewmodelPose();
+  }
+
+  resetDebugViewmodelTransform(): DebugTransformSnapshot {
+    const [rotX, rotY, rotZ] = this.config.bazooka.viewmodel.rotationDegrees;
+    this.basePosition.set(...this.config.bazooka.viewmodel.position);
+    this.baseRotation.set(
+      MathUtils.degToRad(rotX),
+      MathUtils.degToRad(rotY),
+      MathUtils.degToRad(rotZ),
+    );
+    this.debugViewmodelScale = this.config.bazooka.viewmodel.scale;
+    this.applyViewmodelPose();
+    return this.getDebugViewmodelTransform();
   }
 
   destroy(): void {
@@ -716,7 +750,31 @@ export class BazookaWeapon {
       this.baseRotation.y,
       this.baseRotation.z,
     );
-    this.viewmodelRoot.scale.setScalar(this.config.bazooka.viewmodel.scale);
+    this.viewmodelRoot.scale.setScalar(this.debugViewmodelScale);
+  }
+
+  private createDebugSnapshot(
+    position: Vector3,
+    rotation: Vector3,
+    scale: number,
+  ): DebugTransformSnapshot {
+    return {
+      position: this.toTuple(position),
+      rotationDegrees: [
+        MathUtils.radToDeg(rotation.x),
+        MathUtils.radToDeg(rotation.y),
+        MathUtils.radToDeg(rotation.z),
+      ],
+      scale: [scale, scale, scale],
+    };
+  }
+
+  private toTuple(vector: Vector3): Vec3Tuple {
+    return [vector.x, vector.y, vector.z];
+  }
+
+  private resolveUniformScale(scale: Vec3Tuple): number {
+    return Math.max(0.001, (scale[0] + scale[1] + scale[2]) / 3);
   }
 
   private randomizeMuzzleFlash(): void {

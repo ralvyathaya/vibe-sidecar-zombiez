@@ -5,11 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "relay": "node server/relay.mjs",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
-    "three": "^0.176.0"
+    "three": "^0.176.0",
+    "ws": "^8.20.0"
   },
   "devDependencies": {
     "@types/three": "^0.176.0",

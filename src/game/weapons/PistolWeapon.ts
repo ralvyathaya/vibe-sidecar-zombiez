@@ -16,7 +16,7 @@ import {
   Vector2,
   Vector3,
 } from 'three';
-import type { GameConfig, WeaponStatus } from '../../core/types';
+import type { DebugTransformSnapshot, GameConfig, Vec3Tuple, WeaponStatus } from '../../core/types';
 import { approach, clamp, randomRange } from '../../core/utils';
 import { SoundEffectPool } from '../audio/SoundEffectPool';
 import type { EnemySystem } from '../systems/EnemySystem';
@@ -105,6 +105,7 @@ export class PistolWeapon {
   private dryFireTimer = 0;
   private fireKick = 0;
   private slideOffset = 0;
+  private debugViewmodelScale = 1;
 
   constructor(
     private readonly camera: Camera,
@@ -112,6 +113,7 @@ export class PistolWeapon {
   ) {
     const [rotX, rotY, rotZ] = this.config.weapon.viewmodel.rotationDegrees;
     this.basePosition = new Vector3(...this.config.weapon.viewmodel.position);
+    this.debugViewmodelScale = this.config.weapon.viewmodel.scale;
     this.gunshotSound = new SoundEffectPool(this.config.weapon.audio.gunshotPath, {
       poolSize: 4,
       volume: this.config.weapon.audio.gunshotVolume,
@@ -268,6 +270,38 @@ export class PistolWeapon {
         !player.state.reloading &&
         player.state.ammoInMagazine < this.config.weapon.magazineSize,
     };
+  }
+
+  getDebugViewmodelTransform(): DebugTransformSnapshot {
+    return this.createDebugSnapshot(
+      this.basePosition,
+      this.baseRotation,
+      this.debugViewmodelScale,
+    );
+  }
+
+  setDebugViewmodelTransform(snapshot: DebugTransformSnapshot): void {
+    this.basePosition.set(...snapshot.position);
+    this.baseRotation.set(
+      MathUtils.degToRad(snapshot.rotationDegrees[0]),
+      MathUtils.degToRad(snapshot.rotationDegrees[1]),
+      MathUtils.degToRad(snapshot.rotationDegrees[2]),
+    );
+    this.debugViewmodelScale = this.resolveUniformScale(snapshot.scale);
+    this.applyViewmodelPose(false);
+  }
+
+  resetDebugViewmodelTransform(): DebugTransformSnapshot {
+    const [rotX, rotY, rotZ] = this.config.weapon.viewmodel.rotationDegrees;
+    this.basePosition.set(...this.config.weapon.viewmodel.position);
+    this.baseRotation.set(
+      MathUtils.degToRad(rotX),
+      MathUtils.degToRad(rotY),
+      MathUtils.degToRad(rotZ),
+    );
+    this.debugViewmodelScale = this.config.weapon.viewmodel.scale;
+    this.applyViewmodelPose(false);
+    return this.getDebugViewmodelTransform();
   }
 
   destroy(): void {
@@ -774,7 +808,31 @@ export class PistolWeapon {
       this.baseRotation.y,
       this.baseRotation.z + recoilRoll + reloadTilt,
     );
-    this.viewmodelRoot.scale.setScalar(this.config.weapon.viewmodel.scale);
+    this.viewmodelRoot.scale.setScalar(this.debugViewmodelScale);
+  }
+
+  private createDebugSnapshot(
+    position: Vector3,
+    rotation: Vector3,
+    scale: number,
+  ): DebugTransformSnapshot {
+    return {
+      position: this.toTuple(position),
+      rotationDegrees: [
+        MathUtils.radToDeg(rotation.x),
+        MathUtils.radToDeg(rotation.y),
+        MathUtils.radToDeg(rotation.z),
+      ],
+      scale: [scale, scale, scale],
+    };
+  }
+
+  private toTuple(vector: Vector3): Vec3Tuple {
+    return [vector.x, vector.y, vector.z];
+  }
+
+  private resolveUniformScale(scale: Vec3Tuple): number {
+    return Math.max(0.001, (scale[0] + scale[1] + scale[2]) / 3);
   }
 
   private applySlidePose(): void {

@@ -17,6 +17,9 @@ import type {
   LaneThreatState,
   LoadoutState,
   PickupEvent,
+  PickupEffectType,
+  PickupRarity,
+  PickupRiskType,
   PickupType,
   PlayerState,
 } from '../../core/types';
@@ -28,9 +31,15 @@ type PickupRecord = ActivePickup & {
   bazookaVariant: Group;
   ammoCrateVariant: Group;
   medkitVariant: Group;
+  adrenalineVariant: Group;
   nitroVariant: Group;
+  scoreCacheVariant: Group;
+  chainBoostVariant: Group;
+  decoyVariant: Group;
+  weaponBoostVariant: Group;
   glow: Mesh;
   beacon: Mesh;
+  hotRing: Mesh;
 };
 
 export class PickupSystem {
@@ -85,6 +94,7 @@ export class PickupSystem {
     elapsedSeconds: number,
     loadout: LoadoutState,
     player: PlayerState,
+    collectWeaponPickups = true,
   ): PickupEvent[] {
     const events: PickupEvent[] = [];
     const scrollDistance = forwardSpeed * deltaTime;
@@ -113,8 +123,14 @@ export class PickupSystem {
         1 + pulse * 0.28,
         0.92 + pulse * 0.12,
       );
+      pickup.hotRing.visible = pickup.hot;
+      pickup.hotRing.rotation.z += deltaTime * (pickup.hot ? 2.2 : 0);
+      pickup.hotRing.scale.setScalar(0.92 + pulse * 0.16);
       (pickup.glow.material as MeshBasicMaterial).opacity = 0.2 + Math.max(0, pulse - 0.88) * 0.22;
       (pickup.beacon.material as MeshBasicMaterial).opacity = 0.2 + Math.max(0, pulse - 0.86) * 0.16;
+      (pickup.hotRing.material as MeshBasicMaterial).opacity = pickup.hot
+        ? 0.34 + Math.max(0, pulse - 0.9) * 0.28
+        : 0;
 
       if (pickup.mesh.position.z > this.config.pickups.cleanupZ) {
         this.deactivate(pickup);
@@ -128,11 +144,23 @@ export class PickupSystem {
         Math.abs(pickup.mesh.position.x - playerX) <
         pickup.width * 0.5 + this.config.player.collisionRadius;
 
-      if (closeEnoughInZ && closeEnoughInX) {
+      if (
+        closeEnoughInZ &&
+        closeEnoughInX &&
+        (collectWeaponPickups || !this.isWeaponPickup(pickup.kind))
+      ) {
         this.playPickupCue(pickup.kind);
         events.push({
           type: pickup.kind,
           ammo: pickup.ammo,
+          effect: pickup.effect,
+          risk: pickup.risk,
+          rarity: pickup.rarity,
+          hot: pickup.hot,
+          label: pickup.label,
+          scoreBonus: pickup.scoreBonus,
+          chainBonus: pickup.chainBonus,
+          duration: pickup.duration,
         });
         this.deactivate(pickup);
       }
@@ -178,6 +206,15 @@ export class PickupSystem {
     }
 
     return events;
+  }
+
+  private isWeaponPickup(kind: PickupType): boolean {
+    return (
+      kind === 'shotgun' ||
+      kind === 'shotgunAmmo' ||
+      kind === 'bazooka' ||
+      kind === 'weaponBoost'
+    );
   }
 
   getLaneHints(
@@ -227,7 +264,10 @@ export class PickupSystem {
       lane.pickupKind = pickup.kind;
       lane.pickupDistance = distanceAhead;
       lane.pickupValue = value;
-      lane.pickupRisk = proximity * 0.35 + localOffset * 0.6;
+      lane.pickupRisk =
+        proximity * 0.35 +
+        localOffset * 0.6 +
+        (pickup.hot ? 0.7 : pickup.rarity === 'rare' ? 0.2 : 0);
     }
 
     return hints;
@@ -268,7 +308,12 @@ export class PickupSystem {
       const bazookaVariant = new Group();
       const ammoCrateVariant = this.createAmmoCrateVariant();
       const medkitVariant = this.createMedkitVariant();
+      const adrenalineVariant = this.createAdrenalineVariant();
       const nitroVariant = this.createNitroVariant();
+      const scoreCacheVariant = this.createScoreCacheVariant();
+      const chainBoostVariant = this.createChainBoostVariant();
+      const decoyVariant = this.createDecoyVariant();
+      const weaponBoostVariant = this.createWeaponBoostVariant();
       const glow = new Mesh(
         new SphereGeometry(0.55, 10, 10),
         new MeshBasicMaterial({
@@ -291,14 +336,32 @@ export class PickupSystem {
         }),
       );
       beacon.position.y = 1.5;
+      const hotRing = new Mesh(
+        new CylinderGeometry(0.72, 0.72, 0.045, 24, 1, true),
+        new MeshBasicMaterial({
+          color: 0xff4f3d,
+          transparent: true,
+          opacity: 0.58,
+          depthWrite: false,
+          blending: AdditiveBlending,
+        }),
+      );
+      hotRing.position.y = 0.08;
+      hotRing.rotation.x = Math.PI * 0.5;
       mesh.add(
         beacon,
         glow,
+        hotRing,
         shotgunVariant,
         bazookaVariant,
         ammoCrateVariant,
         medkitVariant,
+        adrenalineVariant,
         nitroVariant,
+        scoreCacheVariant,
+        chainBoostVariant,
+        decoyVariant,
+        weaponBoostVariant,
       );
       this.root.add(mesh);
 
@@ -313,14 +376,28 @@ export class PickupSystem {
         ammo: this.config.pickups.shotgunPickupAmmo,
         bobOffset: Math.random() * Math.PI * 2,
         spinSpeed: randomRange(0.7, 1.2),
+        effect: 'weapon',
+        risk: 'none',
+        rarity: 'common',
+        hot: false,
+        label: 'Shotgun',
+        scoreBonus: 0,
+        chainBonus: 0,
+        duration: 0,
         mesh,
         shotgunVariant,
         bazookaVariant,
         ammoCrateVariant,
         medkitVariant,
+        adrenalineVariant,
         nitroVariant,
+        scoreCacheVariant,
+        chainBoostVariant,
+        decoyVariant,
+        weaponBoostVariant,
         glow,
         beacon,
+        hotRing,
       });
 
       this.applyShotgunVisual(this.pickups[index]);
@@ -376,8 +453,17 @@ export class PickupSystem {
       }
     }
 
+    const descriptor = this.describePickup(kind, elapsedSeconds, forcedKind !== undefined);
     pickup.active = true;
     pickup.kind = kind;
+    pickup.effect = descriptor.effect;
+    pickup.risk = descriptor.risk;
+    pickup.rarity = descriptor.rarity;
+    pickup.hot = descriptor.hot;
+    pickup.label = descriptor.label;
+    pickup.scoreBonus = descriptor.scoreBonus;
+    pickup.chainBonus = descriptor.chainBonus;
+    pickup.duration = descriptor.duration;
     pickup.lane = laneIndex;
     pickup.laneLocalX = laneCenter + randomRange(-0.25, 0.25);
     pickup.mesh.visible = true;
@@ -385,6 +471,7 @@ export class PickupSystem {
     pickup.mesh.rotation.set(0, randomRange(-0.3, 0.3), 0);
     pickup.spinSpeed = randomRange(0.8, 1.35);
     pickup.bobOffset = Math.random() * Math.PI * 2;
+    this.hidePickupVariants(pickup);
     if (kind === 'shotgun') {
       if (!this.shotgunTemplate && !this.shotgunLoadPromise) {
         void this.loadShotgunTemplate();
@@ -471,6 +558,81 @@ export class PickupSystem {
       return;
     }
 
+    if (kind === 'adrenaline') {
+      pickup.ammo = 0;
+      pickup.width = 1.35;
+      pickup.depth = 1.3;
+      pickup.adrenalineVariant.visible = true;
+      this.applyPickupColor(pickup, 0x8df5ff);
+      if (consumeSpacing) {
+        this.nextSpawnZ -= randomRange(
+          this.config.pickups.supportPickupSpacingMin,
+          this.config.pickups.supportPickupSpacingMax,
+        );
+      }
+      return;
+    }
+
+    if (kind === 'scoreCache') {
+      pickup.ammo = 0;
+      pickup.width = 1.55;
+      pickup.depth = 1.45;
+      pickup.scoreCacheVariant.visible = true;
+      this.applyPickupColor(pickup, 0xffe18a);
+      if (consumeSpacing) {
+        this.nextSpawnZ -= randomRange(
+          this.config.pickups.supportPickupSpacingMin,
+          this.config.pickups.supportPickupSpacingMax,
+        );
+      }
+      return;
+    }
+
+    if (kind === 'chainBoost') {
+      pickup.ammo = 0;
+      pickup.width = 1.45;
+      pickup.depth = 1.35;
+      pickup.chainBoostVariant.visible = true;
+      this.applyPickupColor(pickup, 0xffb16b);
+      if (consumeSpacing) {
+        this.nextSpawnZ -= randomRange(
+          this.config.pickups.supportPickupSpacingMin,
+          this.config.pickups.supportPickupSpacingMax,
+        );
+      }
+      return;
+    }
+
+    if (kind === 'decoy') {
+      pickup.ammo = 0;
+      pickup.width = 1.45;
+      pickup.depth = 1.35;
+      pickup.decoyVariant.visible = true;
+      this.applyPickupColor(pickup, 0xa4c2ff);
+      if (consumeSpacing) {
+        this.nextSpawnZ -= randomRange(
+          this.config.pickups.supportPickupSpacingMin,
+          this.config.pickups.supportPickupSpacingMax,
+        );
+      }
+      return;
+    }
+
+    if (kind === 'weaponBoost') {
+      pickup.ammo = this.config.pickups.ammoCrateMax + 1;
+      pickup.width = 1.6;
+      pickup.depth = 1.45;
+      pickup.weaponBoostVariant.visible = true;
+      this.applyPickupColor(pickup, 0xff9b5c);
+      if (consumeSpacing) {
+        this.nextSpawnZ -= randomRange(
+          this.config.pickups.supportPickupSpacingMin,
+          this.config.pickups.supportPickupSpacingMax,
+        );
+      }
+      return;
+    }
+
     pickup.ammo = randomInt(
       this.config.pickups.ammoCrateMin,
       this.config.pickups.ammoCrateMax,
@@ -501,7 +663,205 @@ export class PickupSystem {
     pickup.bazookaVariant.visible = pickup.kind === 'bazooka';
     pickup.ammoCrateVariant.visible = pickup.kind === 'shotgunAmmo';
     pickup.medkitVariant.visible = pickup.kind === 'medkit';
+    pickup.adrenalineVariant.visible = pickup.kind === 'adrenaline';
     pickup.nitroVariant.visible = pickup.kind === 'nitroCan';
+    pickup.scoreCacheVariant.visible = pickup.kind === 'scoreCache';
+    pickup.chainBoostVariant.visible = pickup.kind === 'chainBoost';
+    pickup.decoyVariant.visible = pickup.kind === 'decoy';
+    pickup.weaponBoostVariant.visible = pickup.kind === 'weaponBoost';
+    pickup.hotRing.visible = false;
+    pickup.hot = false;
+    pickup.risk = 'none';
+    pickup.rarity = 'common';
+  }
+
+  private hidePickupVariants(pickup: PickupRecord): void {
+    pickup.shotgunVariant.visible = false;
+    pickup.bazookaVariant.visible = false;
+    pickup.ammoCrateVariant.visible = false;
+    pickup.medkitVariant.visible = false;
+    pickup.adrenalineVariant.visible = false;
+    pickup.nitroVariant.visible = false;
+    pickup.scoreCacheVariant.visible = false;
+    pickup.chainBoostVariant.visible = false;
+    pickup.decoyVariant.visible = false;
+    pickup.weaponBoostVariant.visible = false;
+    pickup.hotRing.visible = pickup.hot;
+  }
+
+  private applyPickupColor(pickup: PickupRecord, color: number): void {
+    const glowColor = pickup.hot ? 0xff6652 : color;
+    (pickup.glow.material as MeshBasicMaterial).color.setHex(glowColor);
+    (pickup.beacon.material as MeshBasicMaterial).color.setHex(glowColor);
+    (pickup.hotRing.material as MeshBasicMaterial).color.setHex(0xff4f3d);
+    pickup.hotRing.visible = pickup.hot;
+  }
+
+  private describePickup(
+    kind: PickupType,
+    elapsedSeconds: number,
+    forced: boolean,
+  ): {
+    effect: PickupEffectType;
+    risk: PickupRiskType;
+    rarity: PickupRarity;
+    hot: boolean;
+    label: string;
+    scoreBonus: number;
+    chainBonus: number;
+    duration: number;
+  } {
+    const base = this.getBasePickupDescriptor(kind);
+    const hot = this.shouldMakeHotPickup(kind, elapsedSeconds, forced);
+    return {
+      ...base,
+      hot,
+      rarity: hot ? 'hot' : base.rarity,
+      risk: hot ? this.pickHotPickupRisk(kind) : 'none',
+      scoreBonus: hot ? Math.round(base.scoreBonus * 1.75 + 30) : base.scoreBonus,
+      chainBonus: hot ? base.chainBonus + 1 : base.chainBonus,
+      duration: hot ? base.duration * 1.2 : base.duration,
+    };
+  }
+
+  private getBasePickupDescriptor(kind: PickupType): {
+    effect: PickupEffectType;
+    risk: PickupRiskType;
+    rarity: PickupRarity;
+    label: string;
+    scoreBonus: number;
+    chainBonus: number;
+    duration: number;
+  } {
+    switch (kind) {
+      case 'shotgun':
+        return {
+          effect: 'weapon',
+          risk: 'none',
+          rarity: 'rare',
+          label: 'Shotgun',
+          scoreBonus: 0,
+          chainBonus: 0,
+          duration: 0,
+        };
+      case 'bazooka':
+        return {
+          effect: 'weapon',
+          risk: 'none',
+          rarity: 'rare',
+          label: 'Bazooka',
+          scoreBonus: 0,
+          chainBonus: 0,
+          duration: 0,
+        };
+      case 'medkit':
+        return {
+          effect: 'heal',
+          risk: 'none',
+          rarity: 'rare',
+          label: 'Medkit',
+          scoreBonus: 0,
+          chainBonus: 0,
+          duration: 0,
+        };
+      case 'adrenaline':
+        return {
+          effect: 'adrenaline',
+          risk: 'none',
+          rarity: 'rare',
+          label: 'Focus Dose',
+          scoreBonus: 0,
+          chainBonus: 0,
+          duration: this.config.pickups.adrenalineDuration,
+        };
+      case 'nitroCan':
+        return {
+          effect: 'nitro',
+          risk: 'none',
+          rarity: 'rare',
+          label: 'Nitro',
+          scoreBonus: 0,
+          chainBonus: 0,
+          duration: this.config.pickups.nitroDuration,
+        };
+      case 'scoreCache':
+        return {
+          effect: 'score',
+          risk: 'none',
+          rarity: 'common',
+          label: 'Score Cache',
+          scoreBonus: 90,
+          chainBonus: 0,
+          duration: 0,
+        };
+      case 'chainBoost':
+        return {
+          effect: 'chain',
+          risk: 'none',
+          rarity: 'rare',
+          label: 'Chain Boost',
+          scoreBonus: 30,
+          chainBonus: 2,
+          duration: 0,
+        };
+      case 'decoy':
+        return {
+          effect: 'decoy',
+          risk: 'none',
+          rarity: 'rare',
+          label: 'Noise Decoy',
+          scoreBonus: 0,
+          chainBonus: 0,
+          duration: 8,
+        };
+      case 'weaponBoost':
+        return {
+          effect: 'weaponBoost',
+          risk: 'none',
+          rarity: 'rare',
+          label: 'Weapon Boost',
+          scoreBonus: 40,
+          chainBonus: 0,
+          duration: 7,
+        };
+      case 'shotgunAmmo':
+      default:
+        return {
+          effect: 'ammo',
+          risk: 'none',
+          rarity: 'common',
+          label: 'Ammo Crate',
+          scoreBonus: 0,
+          chainBonus: 0,
+          duration: 0,
+        };
+    }
+  }
+
+  private shouldMakeHotPickup(kind: PickupType, elapsedSeconds: number, forced: boolean): boolean {
+    if (forced || elapsedSeconds < 20) {
+      return false;
+    }
+
+    const chance =
+      kind === 'scoreCache' || kind === 'chainBoost' || kind === 'weaponBoost'
+        ? 0.42
+        : kind === 'shotgun' || kind === 'bazooka' || kind === 'nitroCan'
+          ? 0.28
+          : kind === 'medkit'
+            ? 0.1
+            : 0.22;
+    return Math.random() < chance;
+  }
+
+  private pickHotPickupRisk(kind: PickupType): PickupRiskType {
+    const risks: PickupRiskType[] =
+      kind === 'nitroCan' || kind === 'weaponBoost'
+        ? ['runnerSwarm', 'handlingPenalty', 'loudAggro']
+        : kind === 'adrenaline' || kind === 'shotgunAmmo'
+          ? ['reloadJam', 'loudAggro', 'fogHaze']
+          : ['runnerSwarm', 'fogHaze', 'loudAggro', 'handlingPenalty'];
+    return risks[randomInt(0, risks.length - 1)] ?? 'runnerSwarm';
   }
 
   private getActiveCount(): number {
@@ -685,6 +1045,36 @@ export class PickupSystem {
     return group;
   }
 
+  private createAdrenalineVariant(): Group {
+    const group = new Group();
+    group.visible = false;
+    group.scale.setScalar(this.config.pickups.supportPickupScale);
+
+    const vial = new Mesh(
+      new CylinderGeometry(0.13, 0.13, 0.82, 12),
+      new MeshStandardMaterial({ color: 0x77ecff, roughness: 0.34, metalness: 0.08 }),
+    );
+    vial.position.y = 0.42;
+    vial.rotation.z = Math.PI * 0.5;
+    group.add(vial);
+
+    const plunger = new Mesh(
+      new BoxGeometry(0.18, 0.08, 0.1),
+      new MeshStandardMaterial({ color: 0xf1efe3, roughness: 0.7, metalness: 0.04 }),
+    );
+    plunger.position.set(0.48, 0.42, 0);
+    group.add(plunger);
+
+    const needle = new Mesh(
+      new BoxGeometry(0.42, 0.025, 0.025),
+      new MeshStandardMaterial({ color: 0xc8d2d6, roughness: 0.44, metalness: 0.28 }),
+    );
+    needle.position.set(-0.55, 0.42, 0);
+    group.add(needle);
+
+    return group;
+  }
+
   private createNitroVariant(): Group {
     const group = new Group();
     group.visible = false;
@@ -710,6 +1100,107 @@ export class PickupSystem {
     );
     nozzle.position.set(0, 0.9, 0);
     group.add(nozzle);
+
+    return group;
+  }
+
+  private createScoreCacheVariant(): Group {
+    const group = new Group();
+    group.visible = false;
+    group.scale.setScalar(this.config.pickups.supportPickupScale);
+
+    const cache = new Mesh(
+      new BoxGeometry(0.82, 0.5, 0.62),
+      new MeshStandardMaterial({ color: 0x6e5130, roughness: 0.86, metalness: 0.04 }),
+    );
+    cache.position.y = 0.28;
+    group.add(cache);
+
+    const lid = new Mesh(
+      new BoxGeometry(0.88, 0.1, 0.68),
+      new MeshStandardMaterial({ color: 0xc9933a, roughness: 0.64, metalness: 0.18 }),
+    );
+    lid.position.y = 0.58;
+    group.add(lid);
+
+    const coin = new Mesh(
+      new CylinderGeometry(0.18, 0.18, 0.05, 18),
+      new MeshStandardMaterial({ color: 0xffde7a, roughness: 0.42, metalness: 0.32 }),
+    );
+    coin.position.set(0, 0.68, 0);
+    coin.rotation.x = Math.PI * 0.5;
+    group.add(coin);
+
+    return group;
+  }
+
+  private createChainBoostVariant(): Group {
+    const group = new Group();
+    group.visible = false;
+    group.scale.setScalar(this.config.pickups.supportPickupScale);
+
+    for (const x of [-0.22, 0.22]) {
+      const link = new Mesh(
+        new CylinderGeometry(0.18, 0.18, 0.1, 18),
+        new MeshStandardMaterial({ color: 0xd6b06d, roughness: 0.5, metalness: 0.22 }),
+      );
+      link.position.set(x, 0.42, 0);
+      link.rotation.x = Math.PI * 0.5;
+      link.scale.set(1, 0.56, 1);
+      group.add(link);
+    }
+
+    const core = new Mesh(
+      new SphereGeometry(0.22, 12, 12),
+      new MeshStandardMaterial({ color: 0xff8f53, roughness: 0.48, metalness: 0.04 }),
+    );
+    core.position.y = 0.42;
+    group.add(core);
+
+    return group;
+  }
+
+  private createDecoyVariant(): Group {
+    const group = new Group();
+    group.visible = false;
+    group.scale.setScalar(this.config.pickups.supportPickupScale);
+
+    const speaker = new Mesh(
+      new BoxGeometry(0.64, 0.5, 0.5),
+      new MeshStandardMaterial({ color: 0x2f3f53, roughness: 0.8, metalness: 0.08 }),
+    );
+    speaker.position.y = 0.3;
+    group.add(speaker);
+
+    const cone = new Mesh(
+      new CylinderGeometry(0.2, 0.08, 0.18, 18),
+      new MeshStandardMaterial({ color: 0xa9c8ff, roughness: 0.62, metalness: 0.1 }),
+    );
+    cone.position.set(0, 0.3, -0.26);
+    cone.rotation.x = Math.PI * 0.5;
+    group.add(cone);
+
+    return group;
+  }
+
+  private createWeaponBoostVariant(): Group {
+    const group = new Group();
+    group.visible = false;
+    group.scale.setScalar(this.config.pickups.supportPickupScale);
+
+    const shell = new Mesh(
+      new BoxGeometry(0.84, 0.48, 0.58),
+      new MeshStandardMaterial({ color: 0x4d3329, roughness: 0.82, metalness: 0.04 }),
+    );
+    shell.position.y = 0.28;
+    group.add(shell);
+
+    const flame = new Mesh(
+      new SphereGeometry(0.24, 12, 12),
+      new MeshStandardMaterial({ color: 0xff7b3f, emissive: 0x7d1e0d, emissiveIntensity: 0.8 }),
+    );
+    flame.position.y = 0.66;
+    group.add(flame);
 
     return group;
   }
@@ -918,6 +1409,15 @@ export class PickupSystem {
     } else if (kind === 'nitroCan') {
       volume *= 1.08;
       playbackRate = randomRange(0.94, 1);
+    } else if (
+      kind === 'adrenaline' ||
+      kind === 'scoreCache' ||
+      kind === 'chainBoost' ||
+      kind === 'decoy' ||
+      kind === 'weaponBoost'
+    ) {
+      volume *= 1.12;
+      playbackRate = randomRange(1.03, 1.12);
     }
 
     this.pickupSound.play(volume, playbackRate);
@@ -956,6 +1456,27 @@ export class PickupSystem {
         return 0.2;
       }
       return player.nitroTimer > 0 ? 0.4 : 1.55;
+    }
+
+    if (kind === 'adrenaline') {
+      return player.adrenalineTimer > 0 ? 0.35 : 1.4;
+    }
+
+    if (kind === 'scoreCache') {
+      return 1.15 + Math.min(elapsedSeconds / 120, 0.45);
+    }
+
+    if (kind === 'chainBoost') {
+      return 1.25 + Math.min(elapsedSeconds / 140, 0.35);
+    }
+
+    if (kind === 'decoy') {
+      const healthRatio = player.health / Math.max(player.maxHealth, 1);
+      return healthRatio <= 0.45 ? 1.7 : 1.05;
+    }
+
+    if (kind === 'weaponBoost') {
+      return loadout.shotgunUnlocked ? 1.6 : 0.72;
     }
 
     if (!loadout.shotgunUnlocked) {
@@ -1030,6 +1551,15 @@ export class PickupSystem {
       { type: 'medkit', weight: medkitWeight },
       { type: 'shotgunAmmo', weight: ammoBias },
       {
+        type: 'adrenaline',
+        weight:
+          elapsedSeconds < this.config.pickups.supportUnlockTimeSeconds + 8
+            ? 0
+            : player.adrenalineTimer > 0
+              ? 0.05
+              : 0.22,
+      },
+      {
         type: 'nitroCan',
         weight:
           elapsedSeconds < this.config.pickups.nitroEarliestSeconds
@@ -1037,6 +1567,22 @@ export class PickupSystem {
             : player.nitroTimer > 0
               ? 0.08
               : 0.34,
+      },
+      {
+        type: 'scoreCache',
+        weight: elapsedSeconds < 18 ? 0 : 0.24,
+      },
+      {
+        type: 'chainBoost',
+        weight: elapsedSeconds < 28 ? 0 : 0.18,
+      },
+      {
+        type: 'decoy',
+        weight: elapsedSeconds < 24 ? 0 : healthRatio <= 0.5 ? 0.2 : 0.1,
+      },
+      {
+        type: 'weaponBoost',
+        weight: elapsedSeconds < 34 || !loadout.shotgunUnlocked ? 0 : 0.18,
       },
     ];
   }

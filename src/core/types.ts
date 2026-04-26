@@ -20,8 +20,51 @@ export type PickupType =
   | 'bazooka'
   | 'medkit'
   | 'adrenaline'
-  | 'nitroCan';
+  | 'nitroCan'
+  | 'scoreCache'
+  | 'chainBoost'
+  | 'decoy'
+  | 'weaponBoost';
+export type PickupRiskType =
+  | 'none'
+  | 'runnerSwarm'
+  | 'reloadJam'
+  | 'fogHaze'
+  | 'loudAggro'
+  | 'handlingPenalty';
+export type PickupEffectType =
+  | 'weapon'
+  | 'ammo'
+  | 'heal'
+  | 'adrenaline'
+  | 'nitro'
+  | 'score'
+  | 'chain'
+  | 'decoy'
+  | 'weaponBoost';
+export type PickupRarity = 'common' | 'rare' | 'hot';
 export type CrosshairStyle = 'pistol' | 'shotgun' | 'bazooka';
+export type CoopRole = 'solo' | 'driver' | 'gunner';
+export type GameplayRole = 'driver' | 'gunner';
+export type ControlProfile = 'legacyGunner' | 'coopGunner' | 'driver';
+export type WeaponPolicy = 'full' | 'pistolOnly';
+export type DebugTransformTarget =
+  | 'driverCamera'
+  | 'gunnerCamera'
+  | 'driverSeat'
+  | 'gunnerSeat'
+  | 'pistolViewmodel'
+  | 'shotgunViewmodel'
+  | 'bazookaViewmodel'
+  | 'armsAnchor';
+export type CoopConnectionState =
+  | 'offline'
+  | 'connecting'
+  | 'hosting'
+  | 'joined'
+  | 'connected'
+  | 'fallback'
+  | 'error';
 export type RunSegment = 'rest' | 'chaos' | 'dark';
 export type RunEventType = 'none' | 'berserkWave' | 'slipperyRoad' | 'blackoutStretch';
 export type DriverIntentType =
@@ -62,6 +105,24 @@ export interface FlashMaterial {
   transparent: boolean;
   opacity: number;
   depthWrite: boolean;
+}
+
+export interface ManualDriverInput {
+  steerAxis: number;
+  accelerateHeld: boolean;
+  brakeHeld: boolean;
+}
+
+export interface VehicleRigRoleProfile {
+  seatPivotPosition: Vec3Tuple;
+  cameraOffset: Vec3Tuple;
+  cameraLookAtOffset?: Vec3Tuple;
+}
+
+export interface DebugTransformSnapshot {
+  position: Vec3Tuple;
+  rotationDegrees: Vec3Tuple;
+  scale: Vec3Tuple;
 }
 
 export interface ZombieConfig {
@@ -207,6 +268,7 @@ export interface GameConfig {
       modelScale: number;
       seatPivotPosition: Vec3Tuple;
       cameraOffset: Vec3Tuple;
+      roleProfiles: Record<GameplayRole, VehicleRigRoleProfile>;
       lookDownReveal: Vec3Tuple;
       swayAmplitude: Vec3Tuple;
       swayFrequency: number;
@@ -737,6 +799,50 @@ export interface RewardState {
   lastRunScore: number;
 }
 
+export interface CoopRunStats {
+  driverPickupsGrabbed: number;
+  riskPickupsTaken: number;
+  gunnerShotsFired: number;
+  gunnerKills: number;
+  latchSaves: number;
+}
+
+export interface CoopSessionState {
+  role: CoopRole;
+  selectedRole: GameplayRole;
+  activeProfile: ControlProfile;
+  connection: CoopConnectionState;
+  roomCode: string;
+  peerConnected: boolean;
+  canStartRun: boolean;
+  statusText: string;
+  relayUrl: string;
+}
+
+export interface RemoteInputFrame {
+  sequence: number;
+  role: CoopRole;
+  laneAxis: -1 | 0 | 1;
+  accelerateHeld: boolean;
+  brakeHeld: boolean;
+  fireHeld: boolean;
+  reloadPressed: boolean;
+  actionQPressed: boolean;
+  actionEPressed: boolean;
+  wigglePulse: number;
+  lookDeltaX: number;
+  lookDeltaY: number;
+  sentAt: number;
+}
+
+export interface CoopSnapshot {
+  gameState: GameStateType;
+  elapsedSeconds: number;
+  player: Pick<PlayerState, 'health' | 'distance' | 'score' | 'alive' | 'laneIndex'>;
+  reward: Pick<RewardState, 'chainCount' | 'multiplier' | 'zombiesKilled' | 'bestChain'>;
+  stats: CoopRunStats;
+}
+
 export interface LoadoutState {
   activeWeapon: WeaponKind;
   shotgunUnlocked: boolean;
@@ -911,9 +1017,25 @@ export interface ActivePickup {
   ammo: number;
   bobOffset: number;
   spinSpeed: number;
+  effect: PickupEffectType;
+  risk: PickupRiskType;
+  rarity: PickupRarity;
+  hot: boolean;
+  label: string;
+  scoreBonus: number;
+  chainBonus: number;
+  duration: number;
 }
 
 export interface PickupEvent {
   type: PickupType;
   ammo: number;
+  effect: PickupEffectType;
+  risk: PickupRiskType;
+  rarity: PickupRarity;
+  hot: boolean;
+  label: string;
+  scoreBonus: number;
+  chainBonus: number;
+  duration: number;
 }

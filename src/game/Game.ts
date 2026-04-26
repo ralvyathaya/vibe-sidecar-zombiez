@@ -4,16 +4,27 @@ import { GameLoop } from '../core/GameLoop';
 import { RendererSystem } from '../core/Renderer';
 import type {
   ActiveZombie,
+  ControlProfile,
+  DebugTransformSnapshot,
+  DebugTransformTarget,
+  CoopRunStats,
+  CoopSessionState,
+  CoopSnapshot,
   DriverPromptResolution,
   GameStateType,
   LaneThreatState,
+  PickupEvent,
+  PickupRiskType,
   RideState,
+  WeaponPolicy,
   WorldImpactResult,
 } from '../core/types';
-import { approach, clamp } from '../core/utils';
+import { approach, clamp, randomInt, randomRange, setGameRandomSeed } from '../core/utils';
 import { UISystem } from '../ui/UISystem';
 import { LoopingSound } from './audio/LoopingSound';
 import { SoundEffectPool } from './audio/SoundEffectPool';
+import { DebugTransformEditor, type DebugTransformBinding } from './debug/DebugTransformEditor';
+import { NetworkSystem } from './network/NetworkSystem';
 import { DriverSystem } from './systems/DriverSystem';
 import { EnemySystem } from './systems/EnemySystem';
 import { InputSystem } from './systems/InputSystem';
@@ -49,6 +60,8 @@ export class Game {
   private readonly vehicleRigSystem: VehicleRigSystem;
   private readonly driverSystem: DriverSystem;
   private readonly uiSystem: UISystem;
+  private readonly networkSystem: NetworkSystem;
+  private readonly debugTransformEditor: DebugTransformEditor;
   private readonly gameLoop: GameLoop;
   private readonly engineLoop: LoopingSound;
   private readonly stallLoop: LoopingSound;
@@ -89,6 +102,36 @@ export class Game {
   private lastRideState: RideState | null = null;
   private stallLoopActive = false;
   private overlayActionLockUntil = 0;
+  private runSeed = Date.now();
+  private networkSnapshotTimer = 0;
+  private reloadJamTimer = 0;
+  private pickupHandlingTimer = 0;
+  private pickupFogTimer = 0;
+  private decoyTimer = 0;
+  private weaponBoostTimer = 0;
+  private armsAnchorDebugTransform: DebugTransformSnapshot = {
+    position: [0, 0, 0],
+    rotationDegrees: [0, 0, 0],
+    scale: [1, 1, 1],
+  };
+  private coopSession: CoopSessionState = {
+    role: 'solo',
+    selectedRole: 'gunner',
+    activeProfile: 'legacyGunner',
+    connection: 'offline',
+    roomCode: '',
+    peerConnected: false,
+    canStartRun: true,
+    statusText: 'Solo with bot fallback',
+    relayUrl: '',
+  };
+  private coopStats: CoopRunStats = {
+    driverPickupsGrabbed: 0,
+    riskPickupsTaken: 0,
+    gunnerShotsFired: 0,
+    gunnerKills: 0,
+    latchSaves: 0,
+  };
 
   constructor(root: HTMLElement) {
     this.shell.className = 'game-shell';
@@ -113,6 +156,28 @@ export class Game {
     this.rewardSystem = new RewardSystem(GAME_CONFIG);
     this.driverSystem = new DriverSystem(GAME_CONFIG);
     this.uiSystem = new UISystem(root);
+    this.networkSystem = new NetworkSystem();
+    this.coopSession = this.networkSystem.getSession();
+    this.inputSystem.setLocalRole(this.coopSession.role);
+    this.inputSystem.setControlProfile(this.coopSession.activeProfile);
+    this.weaponSystem.setWeaponPolicy(
+      this.resolveWeaponPolicy(this.coopSession.activeProfile),
+      this.playerSystem,
+    );
+    this.vehicleRigSystem.setActiveRole(this.resolveVehicleRole(this.coopSession.activeProfile));
+    this.debugTransformEditor = new DebugTransformEditor({
+      host: root,
+      enabled: this.isDebugEditorEnabled(),
+      initialProfile: this.coopSession.activeProfile,
+      targets: this.createDebugTransformBindings(),
+      onProfileChange: (profile) => {
+        this.applyDebugProfile(profile);
+      },
+      onStartLocalRun: (profile) => {
+        this.applyDebugProfile(profile);
+        this.startRun('start', false);
+      },
+    });
     this.engineLoop = new LoopingSound(GAME_CONFIG.vehicle.engineAudioPath, {
       volume: GAME_CONFIG.vehicle.engineVolume,
       playbackRate: GAME_CONFIG.vehicle.enginePlaybackRate,
@@ -195,8 +260,45 @@ export class Game {
         this.inputSystem.queueWigglePulse();
       }
     };
+    this.uiSystem.onRoleSelect = (role) => {
+      this.networkSystem.selectRole(role);
+    };
+    this.uiSystem.onCreateCoopRoom = (role) => {
+      void this.networkSystem.createRoom(role);
+    };
+    this.uiSystem.onJoinCoopRoom = (roomCode, role) => {
+      void this.networkSystem.joinRoom(roomCode, role);
+    };
+    this.uiSystem.onSinglePlayerAction = () => {
+      this.startSinglePlayerRun();
+    };
+    this.networkSystem.onSessionChange = (session) => {
+      this.coopSession = session;
+      this.inputSystem.setLocalRole(session.role);
+      this.inputSystem.setControlProfile(session.activeProfile);
+      this.weaponSystem.setWeaponPolicy(
+        this.resolveWeaponPolicy(session.activeProfile),
+        this.playerSystem,
+      );
+      this.vehicleRigSystem.setActiveRole(this.resolveVehicleRole(session.activeProfile));
+      this.debugTransformEditor.setProfile(session.activeProfile);
+      if (!session.peerConnected) {
+        this.inputSystem.clearRemoteInput();
+      }
+      this.uiSystem.setCoopSession(session);
+    };
+    this.networkSystem.onRemoteInput = (frame) => {
+      this.inputSystem.applyRemoteInputFrame(frame);
+    };
+    this.networkSystem.onRemoteStart = (seed) => {
+      this.startRunFromNetwork(seed);
+    };
+    this.networkSystem.onRemoteRetry = (seed) => {
+      this.startRunFromNetwork(seed);
+    };
     this.uiSystem.setAudioPreferences(this.audioPreferences);
     this.uiSystem.setTouchControlsEnabled(this.inputSystem.usesTouchControls());
+    this.uiSystem.setCoopSession(this.coopSession);
     this.applyAudioPreferences();
     window.addEventListener('keydown', this.handleOverlayKeyDown);
 
@@ -212,6 +314,8 @@ export class Game {
     this.gameLoop.stop();
     window.removeEventListener('keydown', this.handleOverlayKeyDown);
     this.uiSystem.destroy();
+    this.networkSystem.destroy();
+    this.debugTransformEditor.destroy();
     this.inputSystem.destroy();
     this.weaponSystem.destroy();
     this.vehicleRigSystem.destroy();
@@ -225,9 +329,15 @@ export class Game {
   }
 
   private update(deltaTime: number): void {
+    this.networkSystem.update(deltaTime);
+
     if (this.state === 'running') {
       const simulationDelta = this.consumeSimulationDelta(deltaTime);
+      this.networkSystem.sendInput(
+        this.inputSystem.createLocalInputFrame(this.coopSession.role),
+      );
       this.handleContextActions();
+      this.updatePickupRiskEffects(deltaTime);
       this.decayRoadFeedback(deltaTime);
       this.enemySystem.prewarmUpcomingAssets(this.spawnSystem.elapsedSeconds);
       this.worldSystem.prewarmDeferredAssets(this.spawnSystem.elapsedSeconds);
@@ -274,6 +384,12 @@ export class Game {
         this.spawnSystem.getEventTimer(),
         this.spawnSystem.getEventDuration(),
         this.playerSystem.hasNitro(),
+        {
+          steerAxis: this.inputSystem.getDriverSteerAxis(),
+          accelerateHeld: this.inputSystem.isAccelerateHeld(),
+          brakeHeld: this.inputSystem.isBrakeHeld(),
+        },
+        this.coopSession.activeProfile === 'driver',
       );
       const promptResolution = this.driverSystem.consumePromptResolution();
       if (promptResolution) {
@@ -308,6 +424,8 @@ export class Game {
       );
       this.updateLatchState(simulationDelta);
 
+      const preWeaponStatus = this.weaponSystem.getStatus(this.playerSystem);
+      const preWeaponKills = this.rewardSystem.getState().zombiesKilled;
       this.weaponSystem.updateRunning(
         simulationDelta,
         this.inputSystem,
@@ -316,6 +434,7 @@ export class Game {
         this.worldSystem,
         this.rewardSystem,
       );
+      this.updateGunnerStats(preWeaponStatus.ammoInMagazine, preWeaponKills);
 
       if (this.latchWasActive && !this.enemySystem.hasLatchedRunner()) {
         this.spawnSystem.notifyLatchResolved();
@@ -350,25 +469,10 @@ export class Game {
         this.spawnSystem.elapsedSeconds,
         loadout,
         this.playerSystem.state,
+        this.coopSession.activeProfile !== 'driver',
       );
       for (const pickupEvent of pickupEvents) {
-        if (
-          pickupEvent.type === 'shotgun' ||
-          pickupEvent.type === 'shotgunAmmo' ||
-          pickupEvent.type === 'bazooka'
-        ) {
-          this.weaponSystem.applyPickup(pickupEvent, this.playerSystem);
-          continue;
-        }
-
-        if (pickupEvent.type === 'medkit') {
-          this.playerSystem.heal(GAME_CONFIG.pickups.medkitHeal);
-          continue;
-        }
-
-        if (pickupEvent.type === 'nitroCan') {
-          this.playerSystem.grantNitro(GAME_CONFIG.pickups.nitroDuration);
-        }
+        this.applyPickupEvent(pickupEvent);
       }
 
       const finalLoadout = this.weaponSystem.getLoadoutState();
@@ -406,6 +510,7 @@ export class Game {
       );
       this.engineLoop.setDriveState(finalRide.driveBoostStrength, finalRide.driveBrakeStrength);
       this.engineLoop.setTurnAmount(this.playerSystem.getEngineTurnAmount());
+      this.sendNetworkSnapshot(deltaTime);
 
       if (!this.playerSystem.state.alive) {
         this.handleDeath();
@@ -448,6 +553,8 @@ export class Game {
       player: this.playerSystem.state,
       weapon: this.weaponSystem.getStatus(this.playerSystem),
       reward: this.rewardSystem.getState(),
+      coopSession: this.coopSession,
+      coopStats: this.coopStats,
       ride,
       elapsedSeconds: this.spawnSystem.elapsedSeconds,
       radarContacts: ride
@@ -460,6 +567,181 @@ export class Game {
           )
         : [],
     });
+  }
+
+  private applyPickupEvent(pickupEvent: PickupEvent): void {
+    const isWeaponPickup = this.isWeaponPickup(pickupEvent);
+    if (this.coopSession.activeProfile === 'driver' && isWeaponPickup) {
+      return;
+    }
+
+    this.coopStats.driverPickupsGrabbed += 1;
+    if (pickupEvent.hot || pickupEvent.risk !== 'none') {
+      this.coopStats.riskPickupsTaken += 1;
+    }
+
+    if (isWeaponPickup) {
+      this.weaponSystem.applyPickup(
+        {
+          ...pickupEvent,
+          type: pickupEvent.type === 'weaponBoost' ? 'shotgunAmmo' : pickupEvent.type,
+        },
+        this.playerSystem,
+      );
+    }
+
+    if (pickupEvent.type === 'medkit') {
+      this.playerSystem.heal(
+        pickupEvent.hot
+          ? Math.round(GAME_CONFIG.pickups.medkitHeal * 1.35)
+          : GAME_CONFIG.pickups.medkitHeal,
+      );
+    }
+
+    if (pickupEvent.type === 'adrenaline') {
+      this.playerSystem.grantAdrenaline(pickupEvent.duration || GAME_CONFIG.pickups.adrenalineDuration);
+    }
+
+    if (pickupEvent.type === 'nitroCan') {
+      this.playerSystem.grantNitro(pickupEvent.duration || GAME_CONFIG.pickups.nitroDuration);
+    }
+
+    if (pickupEvent.type === 'decoy') {
+      this.decoyTimer = Math.max(this.decoyTimer, pickupEvent.duration || 8);
+    }
+
+    if (pickupEvent.type === 'weaponBoost') {
+      this.weaponBoostTimer = Math.max(this.weaponBoostTimer, pickupEvent.duration || 7);
+      this.playerSystem.grantAdrenaline(Math.max(2.5, (pickupEvent.duration || 7) * 0.55));
+    }
+
+    if (pickupEvent.scoreBonus > 0 || pickupEvent.chainBonus > 0) {
+      this.playerSystem.state.score += this.rewardSystem.registerPickupBonus(
+        pickupEvent.label,
+        pickupEvent.scoreBonus,
+        pickupEvent.chainBonus,
+      );
+    }
+
+    if (pickupEvent.risk !== 'none') {
+      this.applyPickupRisk(pickupEvent.risk, pickupEvent.hot);
+    }
+  }
+
+  private isWeaponPickup(pickupEvent: PickupEvent): boolean {
+    return (
+      pickupEvent.type === 'shotgun' ||
+      pickupEvent.type === 'shotgunAmmo' ||
+      pickupEvent.type === 'bazooka' ||
+      pickupEvent.type === 'weaponBoost'
+    );
+  }
+
+  private applyPickupRisk(risk: PickupRiskType, hot: boolean): void {
+    switch (risk) {
+      case 'runnerSwarm':
+        this.spawnRiskSwarm(hot ? 3 : 2, true);
+        break;
+      case 'loudAggro':
+        this.spawnRiskSwarm(hot ? 4 : 2, false);
+        break;
+      case 'reloadJam':
+        this.reloadJamTimer = Math.max(this.reloadJamTimer, hot ? 3.2 : 2.2);
+        break;
+      case 'fogHaze':
+        this.pickupFogTimer = Math.max(this.pickupFogTimer, hot ? 7 : 4.5);
+        break;
+      case 'handlingPenalty':
+        this.pickupHandlingTimer = Math.max(this.pickupHandlingTimer, hot ? 5.5 : 3.5);
+        break;
+      case 'none':
+      default:
+        break;
+    }
+  }
+
+  private spawnRiskSwarm(count: number, preferRunners: boolean): void {
+    const baseLaneIndex = this.playerSystem.state.laneIndex;
+    for (let index = 0; index < count; index += 1) {
+      const laneIndex = clamp(
+        baseLaneIndex + randomInt(-1, 1),
+        0,
+        GAME_CONFIG.world.laneCenters.length - 1,
+      );
+      const laneX = (GAME_CONFIG.world.laneCenters[laneIndex] ?? 0) + randomRange(-0.4, 0.4);
+      const z = randomRange(-92, -64) - index * randomRange(3, 5.5);
+      const canRunner =
+        preferRunners &&
+        this.spawnSystem.elapsedSeconds >= 20 &&
+        this.enemySystem.getActiveCountByType('runner') < GAME_CONFIG.spawn.runnerMaxActive;
+      this.enemySystem.spawn(canRunner && Math.random() < 0.72 ? 'runner' : 'walker', laneX, z);
+    }
+  }
+
+  private updatePickupRiskEffects(deltaTime: number): void {
+    this.reloadJamTimer = Math.max(0, this.reloadJamTimer - deltaTime);
+    this.pickupHandlingTimer = Math.max(0, this.pickupHandlingTimer - deltaTime);
+    this.pickupFogTimer = Math.max(0, this.pickupFogTimer - deltaTime);
+    this.decoyTimer = Math.max(0, this.decoyTimer - deltaTime);
+    this.weaponBoostTimer = Math.max(0, this.weaponBoostTimer - deltaTime);
+    this.inputSystem.setReloadJammed(this.reloadJamTimer > 0);
+  }
+
+  private updateGunnerStats(previousAmmo: number, previousKills: number): void {
+    const nextStatus = this.weaponSystem.getStatus(this.playerSystem);
+    const shotsFired = Math.max(0, previousAmmo - nextStatus.ammoInMagazine);
+    if (shotsFired > 0) {
+      this.coopStats.gunnerShotsFired += shotsFired;
+    }
+
+    const nextKills = this.rewardSystem.getState().zombiesKilled;
+    const kills = Math.max(0, nextKills - previousKills);
+    if (kills > 0) {
+      this.coopStats.gunnerKills += kills;
+    }
+  }
+
+  private sendNetworkSnapshot(deltaTime: number): void {
+    this.networkSnapshotTimer = Math.max(0, this.networkSnapshotTimer - deltaTime);
+    if (this.networkSnapshotTimer > 0) {
+      return;
+    }
+
+    this.networkSnapshotTimer = 0.16;
+    const reward = this.rewardSystem.getState();
+    const snapshot: CoopSnapshot = {
+      gameState: this.state,
+      elapsedSeconds: this.spawnSystem.elapsedSeconds,
+      player: {
+        health: this.playerSystem.state.health,
+        distance: this.playerSystem.state.distance,
+        score: this.playerSystem.state.score,
+        alive: this.playerSystem.state.alive,
+        laneIndex: this.playerSystem.state.laneIndex,
+      },
+      reward: {
+        chainCount: reward.chainCount,
+        multiplier: reward.multiplier,
+        zombiesKilled: reward.zombiesKilled,
+        bestChain: reward.bestChain,
+      },
+      stats: { ...this.coopStats },
+    };
+    this.networkSystem.sendSnapshot(snapshot);
+  }
+
+  private createRunSeed(): number {
+    return (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
+  }
+
+  private resetCoopStats(): void {
+    this.coopStats = {
+      driverPickupsGrabbed: 0,
+      riskPickupsTaken: 0,
+      gunnerShotsFired: 0,
+      gunnerKills: 0,
+      latchSaves: 0,
+    };
   }
 
   private handleContextActions(): void {
@@ -477,6 +759,12 @@ export class Game {
   }
 
   private handleEnemyContact(zombie: ActiveZombie): void {
+    if (this.decoyTimer > 0 && zombie.type !== 'tank') {
+      this.decoyTimer = Math.max(0, this.decoyTimer - 1.2);
+      this.enemySystem.despawn(zombie);
+      return;
+    }
+
     if (zombie.type === 'runner' && this.enemySystem.tryLatchRunner(zombie)) {
       this.latchEscapeProgress = 0;
       return;
@@ -510,6 +798,7 @@ export class Game {
       this.latchEscapeProgress = 0;
       if (kill) {
         this.playerSystem.state.score += kill.baseScore;
+        this.coopStats.latchSaves += 1;
       }
       return;
     }
@@ -588,7 +877,9 @@ export class Game {
       laneRequestDirection: laneRequestState.direction,
       laneRequestHoldRatio: laneRequestState.holdRatio,
       handlingPenalty: clamp(
-        baseRide.handlingPenalty + this.roadHandlingPenalty,
+        baseRide.handlingPenalty +
+          this.roadHandlingPenalty +
+          (this.pickupHandlingTimer > 0 ? 0.18 : 0),
         0,
         0.92,
       ),
@@ -598,10 +889,12 @@ export class Game {
             ? GAME_CONFIG.ride.adrenalineAimShakeMultiplier
             : 1) +
         this.roadAimShake +
+        (this.pickupFogTimer > 0 ? 0.026 : 0) +
         (latchActive ? GAME_CONFIG.ride.latchAimShake : 0),
       cameraShake:
         baseRide.cameraShake +
         this.roadCameraShake +
+        (this.pickupHandlingTimer > 0 ? 0.018 : 0) +
         (latchActive ? GAME_CONFIG.ride.latchCameraShake : 0),
       latchActive,
       latchWiggle: this.latchEscapeProgress,
@@ -617,7 +910,8 @@ export class Game {
         baseRide.radarStrength *
         (baseRide.activeEvent === 'blackoutStretch'
           ? GAME_CONFIG.pacing.events.blackoutRadarMultiplier
-          : 1),
+          : 1) *
+        (this.pickupFogTimer > 0 ? 0.62 : 1),
       laneThreats,
     };
   }
@@ -688,7 +982,17 @@ export class Game {
     }
 
     if (this.state === 'menu' || this.state === 'dead') {
-      this.resetGame();
+      if (!this.coopSession.canStartRun) {
+        this.uiSystem.setCoopSession({
+          ...this.coopSession,
+          statusText: 'Waiting for host to start this room.',
+        });
+        return;
+      }
+
+      const action = this.state === 'dead' ? 'retry' : 'start';
+      this.startRun(action);
+      return;
     }
 
     this.blurOverlayFocus();
@@ -705,6 +1009,35 @@ export class Game {
       return;
     }
 
+    if (!this.coopSession.canStartRun) {
+      this.uiSystem.setCoopSession({
+        ...this.coopSession,
+        statusText: 'Waiting for host to restart this room.',
+      });
+      return;
+    }
+
+    this.startRun('retry');
+  }
+
+  private startSinglePlayerRun(): void {
+    if (!this.beginOverlayAction()) {
+      return;
+    }
+
+    this.networkSystem.startSolo();
+    this.startRun('start', false);
+  }
+
+  private startRun(action: 'start' | 'retry', broadcast = true): void {
+    this.runSeed = this.createRunSeed();
+    if (broadcast && this.coopSession.role !== 'solo') {
+      if (action === 'retry') {
+        this.networkSystem.sendRetry(this.runSeed);
+      } else {
+        this.networkSystem.sendStart(this.runSeed);
+      }
+    }
     this.resetGame();
     this.blurOverlayFocus();
     SoundEffectPool.unlockAudio();
@@ -713,6 +1046,15 @@ export class Game {
     if (this.inputSystem.shouldUsePointerLock()) {
       this.inputSystem.requestPointerLock();
     }
+  }
+
+  private startRunFromNetwork(seed: number): void {
+    this.runSeed = seed;
+    this.resetGame();
+    this.blurOverlayFocus();
+    SoundEffectPool.unlockAudio();
+    this.inputSystem.clearTransientInput();
+    this.setState('running');
   }
 
   private beginOverlayAction(): boolean {
@@ -733,6 +1075,12 @@ export class Game {
   }
 
   private resetGame(): void {
+    setGameRandomSeed(this.runSeed);
+    this.weaponSystem.setWeaponPolicy(
+      this.resolveWeaponPolicy(this.coopSession.activeProfile),
+      this.playerSystem,
+    );
+    this.vehicleRigSystem.setActiveRole(this.resolveVehicleRole(this.coopSession.activeProfile));
     this.playerSystem.reset();
     this.driverSystem.reset();
     this.vehicleRigSystem.reset();
@@ -754,7 +1102,135 @@ export class Game {
     this.frameRideState = null;
     this.lastRideState = null;
     this.lastDeathCause = 'unknown';
+    this.networkSnapshotTimer = 0;
+    this.reloadJamTimer = 0;
+    this.pickupHandlingTimer = 0;
+    this.pickupFogTimer = 0;
+    this.decoyTimer = 0;
+    this.weaponBoostTimer = 0;
+    this.inputSystem.setReloadJammed(false);
+    this.resetCoopStats();
     this.syncStallLoop(false);
+  }
+
+  private applyDebugProfile(profile: ControlProfile): void {
+    this.networkSystem.startDebugProfile(profile);
+  }
+
+  private isDebugEditorEnabled(): boolean {
+    const urlParams = new URLSearchParams(window.location.search);
+    const forced = urlParams.has('debug');
+    const touchLike =
+      navigator.maxTouchPoints > 0 ||
+      (typeof window.matchMedia === 'function' &&
+        window.matchMedia('(pointer: coarse)').matches);
+    return forced || (import.meta.env.DEV && !touchLike);
+  }
+
+  private createDebugTransformBindings(): Partial<Record<DebugTransformTarget, DebugTransformBinding>> {
+    return {
+      driverCamera: {
+        label: 'Driver Camera',
+        description: 'Role camera offset for Joe/Driver POV.',
+        get: () => this.vehicleRigSystem.getRoleCameraTransform('driver'),
+        set: (snapshot) => {
+          this.vehicleRigSystem.setRoleCameraTransform('driver', snapshot);
+        },
+        reset: () => this.vehicleRigSystem.resetRoleCameraTransform('driver'),
+      },
+      gunnerCamera: {
+        label: 'Gunner Camera',
+        description: 'Role camera offset for Police/Gunner POV.',
+        get: () => this.vehicleRigSystem.getRoleCameraTransform('gunner'),
+        set: (snapshot) => {
+          this.vehicleRigSystem.setRoleCameraTransform('gunner', snapshot);
+        },
+        reset: () => this.vehicleRigSystem.resetRoleCameraTransform('gunner'),
+      },
+      driverSeat: {
+        label: 'Driver Seat',
+        description: 'Vehicle seat pivot for Driver POV.',
+        get: () => this.vehicleRigSystem.getRoleSeatTransform('driver'),
+        set: (snapshot) => {
+          this.vehicleRigSystem.setRoleSeatTransform('driver', snapshot);
+        },
+        reset: () => this.vehicleRigSystem.resetRoleSeatTransform('driver'),
+      },
+      gunnerSeat: {
+        label: 'Gunner Seat',
+        description: 'Vehicle seat pivot for Gunner POV.',
+        get: () => this.vehicleRigSystem.getRoleSeatTransform('gunner'),
+        set: (snapshot) => {
+          this.vehicleRigSystem.setRoleSeatTransform('gunner', snapshot);
+        },
+        reset: () => this.vehicleRigSystem.resetRoleSeatTransform('gunner'),
+      },
+      pistolViewmodel: this.createWeaponDebugBinding(
+        'pistolViewmodel',
+        'Pistol Viewmodel',
+        'Pistol position, rotation, and scale under the FPS camera.',
+      ),
+      shotgunViewmodel: this.createWeaponDebugBinding(
+        'shotgunViewmodel',
+        'Shotgun Viewmodel',
+        'Shotgun position, rotation, and scale under the FPS camera.',
+      ),
+      bazookaViewmodel: this.createWeaponDebugBinding(
+        'bazookaViewmodel',
+        'Bazooka Viewmodel',
+        'Bazooka position, rotation, and scale under the FPS camera.',
+      ),
+      armsAnchor: {
+        label: 'Arms Anchor',
+        description: 'Reserved transform for future hand/arms GLB mounting.',
+        get: () => ({ ...this.armsAnchorDebugTransform }),
+        set: (snapshot) => {
+          this.armsAnchorDebugTransform = { ...snapshot };
+        },
+        reset: () => {
+          this.armsAnchorDebugTransform = {
+            position: [0, 0, 0],
+            rotationDegrees: [0, 0, 0],
+            scale: [1, 1, 1],
+          };
+          return { ...this.armsAnchorDebugTransform };
+        },
+      },
+    };
+  }
+
+  private createWeaponDebugBinding(
+    target: DebugTransformTarget,
+    label: string,
+    description: string,
+  ): DebugTransformBinding {
+    return {
+      label,
+      description,
+      get: () =>
+        this.weaponSystem.getDebugViewmodelTransform(target) ?? {
+          position: [0, 0, 0],
+          rotationDegrees: [0, 0, 0],
+          scale: [1, 1, 1],
+        },
+      set: (snapshot) => {
+        this.weaponSystem.setDebugViewmodelTransform(target, snapshot);
+      },
+      reset: () =>
+        this.weaponSystem.resetDebugViewmodelTransform(target) ?? {
+          position: [0, 0, 0],
+          rotationDegrees: [0, 0, 0],
+          scale: [1, 1, 1],
+        },
+    };
+  }
+
+  private resolveWeaponPolicy(profile: ControlProfile): WeaponPolicy {
+    return profile === 'driver' ? 'pistolOnly' : 'full';
+  }
+
+  private resolveVehicleRole(profile: ControlProfile): 'driver' | 'gunner' {
+    return profile === 'driver' ? 'driver' : 'gunner';
   }
 
   private setState(nextState: GameStateType): void {
