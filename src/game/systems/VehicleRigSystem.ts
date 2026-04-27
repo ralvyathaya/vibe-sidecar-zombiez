@@ -129,6 +129,7 @@ export class VehicleRigSystem {
   private readonly runtimeProfile = getRuntimePerformanceProfile();
   private readonly wheelBindings: WheelBinding[] = [];
   private readonly localDriverHiddenBindings: VisibilityBinding[] = [];
+  private readonly driverPistolStanceHiddenBindings: VisibilityBinding[] = [];
   private readonly localGunnerHiddenBindings: VisibilityBinding[] = [];
   private readonly wheelBounds = new Box3();
   private readonly wheelSize = new Vector3();
@@ -153,6 +154,7 @@ export class VehicleRigSystem {
   };
   private loadedScene: Object3D | null = null;
   private activeRole: GameplayRole = 'gunner';
+  private driverPistolStanceActive = false;
   private currentFov = 72;
   private time = 0;
   private hitShake = 0;
@@ -424,6 +426,15 @@ export class VehicleRigSystem {
     this.applyPovVisibility();
   }
 
+  setDriverPistolStance(active: boolean): void {
+    if (this.driverPistolStanceActive === active) {
+      return;
+    }
+
+    this.driverPistolStanceActive = active;
+    this.applyPovVisibility();
+  }
+
   getRoleCameraTransform(role: GameplayRole): DebugTransformSnapshot {
     return this.snapshotFromVector(this.roleCameraOffsets[role]);
   }
@@ -473,6 +484,7 @@ export class VehicleRigSystem {
     this.poseTimers.gunner = 0;
     this.muzzleTimers.driver = 0;
     this.muzzleTimers.gunner = 0;
+    this.driverPistolStanceActive = false;
     this.vehicleRig.position.set(0, 0, 0);
     this.vehicleRig.rotation.set(0, 0, 0);
     this.obstructionShakeGroup.position.set(0, 0, 0);
@@ -898,12 +910,26 @@ export class VehicleRigSystem {
 
   private bindLocalPovHiddenNodes(model: Object3D): void {
     this.localDriverHiddenBindings.length = 0;
+    this.driverPistolStanceHiddenBindings.length = 0;
     this.localGunnerHiddenBindings.length = 0;
 
     const driverPatterns = this.config.vehicle.stage1Rig.localDriverHiddenNodePatterns;
     const driverMatches = this.findNodesByPatterns(model, driverPatterns);
     for (const node of driverMatches) {
       this.localDriverHiddenBindings.push({
+        node,
+        baseVisible: node.visible,
+      });
+    }
+
+    const driverPistolStancePatterns =
+      this.config.vehicle.stage1Rig.driverPistolStanceHiddenNodePatterns;
+    const driverPistolStanceMatches = this.findNodesByPatterns(
+      model,
+      driverPistolStancePatterns,
+    );
+    for (const node of driverPistolStanceMatches) {
+      this.driverPistolStanceHiddenBindings.push({
         node,
         baseVisible: node.visible,
       });
@@ -920,8 +946,15 @@ export class VehicleRigSystem {
 
     if (this.localDriverHiddenBindings.length === 0) {
       console.warn(
-        'Vehicle GLB has no local driver arm nodes to hide; first-person overlap may remain.',
+        'Vehicle GLB has no local driver body nodes to hide; first-person overlap may remain.',
         driverPatterns,
+      );
+    }
+
+    if (this.driverPistolStanceHiddenBindings.length === 0) {
+      console.warn(
+        'Vehicle GLB has no driver pistol stance arm nodes to hide; left arm may overlap the FPS pistol.',
+        driverPistolStancePatterns,
       );
     }
 
@@ -1045,12 +1078,18 @@ export class VehicleRigSystem {
   }
 
   private applyPovVisibility(): void {
-    const hideDriverArmForLocalPov = this.activeRole === 'driver';
+    const hideDriverBodyForLocalPov = this.activeRole === 'driver';
+    const hideDriverPistolArmForLocalPov =
+      this.activeRole === 'driver' && this.driverPistolStanceActive;
     const hideGunnerArmsForLocalPov = this.activeRole === 'gunner';
     this.modelRoot.visible = true;
 
     for (const binding of this.localDriverHiddenBindings) {
-      binding.node.visible = hideDriverArmForLocalPov ? false : binding.baseVisible;
+      binding.node.visible = hideDriverBodyForLocalPov ? false : binding.baseVisible;
+    }
+
+    for (const binding of this.driverPistolStanceHiddenBindings) {
+      binding.node.visible = hideDriverPistolArmForLocalPov ? false : binding.baseVisible;
     }
 
     for (const binding of this.localGunnerHiddenBindings) {

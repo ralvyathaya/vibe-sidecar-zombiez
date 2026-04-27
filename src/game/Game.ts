@@ -394,6 +394,7 @@ export class Game {
       const driverPistolStance =
         this.weaponSystem.isDriverPistolStanceActive() ||
         (this.coopSession.activeProfile !== 'driver' && this.inputSystem.isDriverFireHeld());
+      this.vehicleRigSystem.setDriverPistolStance(driverPistolStance);
       const baseRide = this.driverSystem.update(
         simulationDelta,
         combinedLaneThreats,
@@ -542,6 +543,7 @@ export class Game {
         this.handleDeath();
       }
     } else {
+      this.vehicleRigSystem.setDriverPistolStance(false);
       const idleRide = this.lastRideState ?? this.composeRideState(
         this.driverSystem.update(
           0,

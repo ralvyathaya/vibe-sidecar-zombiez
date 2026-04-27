@@ -301,6 +301,7 @@ export interface GameConfig {
       wheelNodePatterns: string[];
       poseNodePatterns: VehiclePoseNodePatternConfig;
       localDriverHiddenNodePatterns: string[];
+      driverPistolStanceHiddenNodePatterns: string[];
       localGunnerHiddenNodePatterns: string[];
       posePulseDuration: number;
       driverFirePoseDegrees: Vec3Tuple;
