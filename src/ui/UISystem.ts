@@ -25,7 +25,7 @@ const WEAPON_ART: Record<WeaponStatus['weaponType'], string> = {
   pistol: '/ui/weapons/pistol.png',
   shotgun: '/ui/weapons/shotgun.png',
   bazooka: '/ui/weapons/bazooka.png',
-  assaultRifle: '/ui/weapons/pistol_glock.png',
+  assaultRifle: '/ui/weapons/assault-rifle.svg',
 };
 const GUNNER_HANDGUN_HUD_ART = '/ui/weapons/pistol_glock.png';
 
@@ -1180,14 +1180,20 @@ export class UISystem {
     this.setDataset(this.accoladeBanner, 'tone', snapshot.reward.activeAccoladeTone);
 
     const activeEvent = snapshot.ride?.activeEvent ?? 'none';
-    const eventVisible = Boolean(snapshot.ride) && activeEvent !== 'none';
+    const visibleSetpiece =
+      activeEvent === 'none' && snapshot.ride?.setpiece === 'rampJump'
+        ? 'rampJump'
+        : activeEvent;
+    const eventVisible = Boolean(snapshot.ride) && visibleSetpiece !== 'none';
     this.eventChip.hidden = !eventVisible;
-    this.setText(this.eventChip, this.getEventLabel(activeEvent));
-    this.setDataset(this.eventChip, 'event', activeEvent);
+    this.setText(this.eventChip, this.getEventLabel(visibleSetpiece));
+    this.setDataset(this.eventChip, 'event', visibleSetpiece);
     this.setDataset(this.eventChip, 'visible', eventVisible ? 'true' : 'false');
     const bossVisible = snapshot.boss.status !== 'inactive';
     this.bossHud.hidden = !bossVisible;
     this.setDataset(this.bossHud, 'status', snapshot.boss.status);
+    this.setDataset(this.bossHud, 'warning', snapshot.boss.activeTelegraphs.length > 0 ? 'true' : 'false');
+    this.setDataset(this.bossHud, 'hit', snapshot.boss.hitFlashRatio > 0 ? 'true' : 'false');
     if (bossVisible) {
       this.setText(
         this.bossTitle,
@@ -1199,6 +1205,8 @@ export class UISystem {
         this.bossMeta,
         snapshot.boss.status === 'approach'
           ? 'INCOMING'
+          : snapshot.boss.activeTelegraphs.length > 0
+            ? 'DODGE LANE'
           : snapshot.boss.status === 'retreating'
             ? 'RETREATING'
             : snapshot.boss.status === 'defeated'
@@ -1713,7 +1721,7 @@ export class UISystem {
     return null;
   }
 
-  private getEventLabel(eventType: RideState['activeEvent']): string {
+  private getEventLabel(eventType: RideState['activeEvent'] | RideState['setpiece']): string {
     if (eventType === 'berserkWave') {
       return 'BERSERK WAVE';
     }
@@ -1722,6 +1730,9 @@ export class UISystem {
     }
     if (eventType === 'blackoutStretch') {
       return 'BLACKOUT';
+    }
+    if (eventType === 'rampJump') {
+      return 'RAMP JUMP';
     }
     return '';
   }

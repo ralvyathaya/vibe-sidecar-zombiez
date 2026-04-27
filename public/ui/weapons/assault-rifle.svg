@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="180" height="72" viewBox="0 0 180 72" role="img" aria-label="Assault rifle">
+  <defs>
+    <linearGradient id="metal" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#d9c39c"/>
+      <stop offset="0.35" stop-color="#7b7060"/>
+      <stop offset="1" stop-color="#24262b"/>
+    </linearGradient>
+    <linearGradient id="orange" x1="0" x2="1">
+      <stop offset="0" stop-color="#ffcf82"/>
+      <stop offset="1" stop-color="#d55722"/>
+    </linearGradient>
+  </defs>
+  <path d="M14 38h30l14-12h54l9 8h42v9h-39l-8 7H75l-10 12H48l8-18H14z" fill="#111318" stroke="#f4d6a4" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M59 29h51l7 6h-67z" fill="url(#metal)"/>
+  <path d="M116 34h51v5h-51z" fill="#3b3e45"/>
+  <path d="M32 38l17-14h11L45 42z" fill="#272b31"/>
+  <path d="M70 45h19l-7 21H64z" fill="#17191e" stroke="#d29a55" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M96 46h15l6 18H99z" fill="#1b1e25" stroke="#7b7060" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M124 28l18-7h13l-16 9z" fill="#24262b" stroke="#d29a55" stroke-width="2"/>
+  <path d="M118 43h18l-5 8h-18z" fill="url(#orange)" opacity="0.85"/>
+  <path d="M49 33h62" stroke="#ffe0a2" stroke-width="2" stroke-dasharray="7 4" opacity="0.75"/>
+  <path d="M159 34h14l5 3-5 3h-14z" fill="#ffb15e"/>
+  <path d="M9 45h44" stroke="#5d626b" stroke-width="4" opacity="0.9"/>
+  <path d="M10 51h37" stroke="#cc4a29" stroke-width="3" opacity="0.9"/>
+</svg>

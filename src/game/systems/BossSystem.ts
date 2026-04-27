@@ -20,7 +20,7 @@ import type {
   GameConfig,
   WeaponKind,
 } from '../../core/types';
-import { clamp, randomInt } from '../../core/utils';
+import { clamp, randomInt, sampleRoadCurveOffset } from '../../core/utils';
 
 type BossProjectileRecord = {
   id: number;
@@ -64,6 +64,8 @@ export class BossSystem {
     healthRatio: 0,
     timerRatio: 0,
     phase: 0,
+    hitFlashRatio: 0,
+    attackWarningRatio: 0,
     activeTelegraphs: [],
   };
 
@@ -79,6 +81,7 @@ export class BossSystem {
   private time = 0;
   private projectileId = 0;
   private pendingScoreBonus = 0;
+  private hitFlashTimer = 0;
   private remoteSnapshot: BossSnapshot | null = null;
   private remoteSnapshotTimer = 0;
 
@@ -184,6 +187,7 @@ export class BossSystem {
     this.attackTimer = 0;
     this.time = 0;
     this.pendingScoreBonus = 0;
+    this.hitFlashTimer = 0;
     this.remoteSnapshot = null;
     this.remoteSnapshotTimer = 0;
     this.root.visible = false;
@@ -210,6 +214,7 @@ export class BossSystem {
     playerX: number,
   ): BossDamageResult {
     this.time += deltaTime;
+    this.hitFlashTimer = Math.max(0, this.hitFlashTimer - deltaTime);
     this.remoteSnapshotTimer = Math.max(0, this.remoteSnapshotTimer - deltaTime);
     if (this.remoteSnapshotTimer <= 0) {
       this.remoteSnapshot = null;
@@ -252,6 +257,7 @@ export class BossSystem {
 
     const damageMultiplier = weapon === 'bazooka' ? 4.2 : weapon === 'shotgun' ? 2.2 : 1;
     this.health = Math.max(0, this.health - amount * damageMultiplier);
+    this.hitFlashTimer = 0.16;
     if (this.health <= 0) {
       this.startRetreat(true);
     }
@@ -292,6 +298,8 @@ export class BossSystem {
             ? clamp(this.statusTimer / Math.max(this.config.boss.approachDuration, 0.001), 0, 1)
             : clamp(1 - this.statusTimer / Math.max(this.config.boss.retreatDuration, 0.001), 0, 1),
       phase: this.phase,
+      hitFlashRatio: clamp(this.hitFlashTimer / 0.16, 0, 1),
+      attackWarningRatio: this.status === 'fighting' ? this.getAttackWarningRatio() : 0,
       activeTelegraphs: this.projectiles
         .filter((projectile) => projectile.active)
         .map((projectile) => ({
@@ -474,8 +482,12 @@ export class BossSystem {
     const healthRatio = this.maxHealth > 0 ? this.health / this.maxHealth : 0;
     this.weakpoint.scale.setScalar(0.76 + (1 - healthRatio) * 0.28 + Math.sin(this.time * 8) * 0.04);
     const weakMaterial = this.weakpoint.material as MeshStandardMaterial;
-    weakMaterial.emissiveIntensity = 1.05 + (1 - healthRatio) * 1.3 + Math.sin(this.time * 7) * 0.18;
-    this.keyLight.intensity = this.status === 'fighting' ? 1.6 + (1 - healthRatio) * 2.1 : 0.8;
+    const hitFlashRatio = clamp(this.hitFlashTimer / 0.16, 0, 1);
+    weakMaterial.emissiveIntensity =
+      1.05 + (1 - healthRatio) * 1.3 + Math.sin(this.time * 7) * 0.18 + hitFlashRatio * 2.2;
+    this.keyLight.intensity =
+      (this.status === 'fighting' ? 1.6 + (1 - healthRatio) * 2.1 : 0.8) + hitFlashRatio * 2.8;
+    (this.hull.material as MeshStandardMaterial).emissiveIntensity = 0.35 + hitFlashRatio * 0.9;
 
     for (const projectile of this.projectiles) {
       if (!projectile.active) {
@@ -490,8 +502,21 @@ export class BossSystem {
           : 1;
       const impactActive = projectile.telegraphTimer <= 0;
       projectile.mesh.visible = true;
-      projectile.mesh.position.x = projectile.laneX;
-      projectile.mesh.scale.set(projectile.width, 1, impactActive ? 22 : 30);
+      const telegraphZ = -17;
+      projectile.mesh.position.x =
+        projectile.laneX +
+        sampleRoadCurveOffset(
+          telegraphZ,
+          this.time,
+          this.config.world.roadCurveFrequency,
+          this.config.world.roadCurveAmplitude,
+        );
+      projectile.mesh.position.z = telegraphZ;
+      projectile.mesh.scale.set(
+        projectile.width * (impactActive ? 1.06 : 0.9 + telegraphRatio * 0.18),
+        1,
+        impactActive ? 23 : 31,
+      );
       projectile.material.color.setHex(impactActive ? 0xfff0a0 : 0xff3f2f);
       projectile.material.opacity = impactActive
         ? 0.72 * clamp(projectile.impactTimer / this.config.boss.projectileImpactDuration, 0, 1)
@@ -592,6 +617,12 @@ export class BossSystem {
       return 'lanePair';
     }
     return 'singleLane';
+  }
+
+  private getAttackWarningRatio(): number {
+    const interval = (this.config.boss.projectileIntervalByLevel[this.level - 1] ?? 1.8) *
+      (this.phase >= 3 ? 0.82 : this.phase >= 2 ? 0.92 : 1);
+    return clamp(1 - this.attackTimer / Math.max(interval, 0.001), 0, 1);
   }
 
   private isVulnerable(): boolean {

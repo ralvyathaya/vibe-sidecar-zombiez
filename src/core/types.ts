@@ -176,6 +176,8 @@ export interface BossSnapshot {
   healthRatio: number;
   timerRatio: number;
   phase: BossPhase;
+  hitFlashRatio: number;
+  attackWarningRatio: number;
   activeTelegraphs: Array<{
     id: number;
     laneIndex: number;
