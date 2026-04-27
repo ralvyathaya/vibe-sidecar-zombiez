@@ -77,7 +77,7 @@ export const GAME_CONFIG: GameConfig = {
       assetPath: '/models/vehicles/Motorcycle+sidecar.glb',
       fallbackAssetPath: '/models/vehicles/sidecar-motorcycle-chaos-fallback.glb',
       modelPosition: [-0.12, -0.35, -0.12],
-      modelRotationDegrees: [0,45  , 0],
+      modelRotationDegrees: [0, 45, 0],
       modelScale: 1.02,
       seatPivotPosition: [0.10, -0.25, 0.10],
       cameraOffset: [-0.035, 0.035, 0.12],

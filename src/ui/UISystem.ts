@@ -25,7 +25,7 @@ const WEAPON_ART: Record<WeaponStatus['weaponType'], string> = {
   shotgun: '/ui/weapons/shotgun.png',
   bazooka: '/ui/weapons/bazooka.png',
 };
-const GUNNER_HANDGUN_HUD_ART = '/ui/Layer 1.png';
+const GUNNER_HANDGUN_HUD_ART = '/ui/weapons/pistol_glock.png';
 
 const MENU_LOGO = '/ui/menu/logo-game.png';
 const MENU_LOGO_SMALL = '/ui/menu/logo-game-small.png';
