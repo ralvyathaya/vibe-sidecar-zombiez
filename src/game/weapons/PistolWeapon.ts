@@ -124,6 +124,8 @@ export class PistolWeapon {
   private debugViewmodelScale = 1;
   private firePulse = 0;
   private firingTimer = 0;
+  private equipped = true;
+  private presentationVisible = true;
 
   constructor(
     private readonly camera: Camera,
@@ -252,7 +254,17 @@ export class PistolWeapon {
   }
 
   setEquipped(equipped: boolean): void {
-    this.viewmodelRoot.visible = equipped;
+    this.equipped = equipped;
+    this.syncRootVisibility();
+  }
+
+  setPresentationVisible(visible: boolean): void {
+    if (this.presentationVisible === visible) {
+      return;
+    }
+
+    this.presentationVisible = visible;
+    this.syncRootVisibility();
   }
 
   setFpsViewmodelKey(
@@ -905,6 +917,10 @@ export class PistolWeapon {
     this.debugViewmodelScale = viewmodel.scale;
     this.muzzleAnchor.position.set(...viewmodel.muzzleOffset);
     this.applyViewmodelPose(false);
+  }
+
+  private syncRootVisibility(): void {
+    this.viewmodelRoot.visible = this.equipped && this.presentationVisible;
   }
 
   private getCurrentFpsConfig() {

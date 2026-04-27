@@ -386,6 +386,14 @@ export class Game {
         GAME_CONFIG.driver.laneRequestHoldDuration,
         laneRequestBlocked,
       );
+      const driverManualMode =
+        this.coopSession.activeProfile === 'driver' || this.coopSession.peerRole === 'driver';
+      const localDriverPistolIntent =
+        this.coopSession.activeProfile === 'driver' && this.inputSystem.isLocalFireHeld();
+      this.weaponSystem.updateDriverPistolStance(simulationDelta, localDriverPistolIntent);
+      const driverPistolStance =
+        this.weaponSystem.isDriverPistolStanceActive() ||
+        (this.coopSession.activeProfile !== 'driver' && this.inputSystem.isDriverFireHeld());
       const baseRide = this.driverSystem.update(
         simulationDelta,
         combinedLaneThreats,
@@ -399,8 +407,9 @@ export class Game {
           steerAxis: this.inputSystem.getDriverSteerAxis(),
           accelerateHeld: this.inputSystem.isAccelerateHeld(),
           brakeHeld: this.inputSystem.isBrakeHeld(),
+          pistolStance: driverPistolStance,
         },
-        this.coopSession.activeProfile === 'driver',
+        driverManualMode,
       );
       const promptResolution = this.driverSystem.consumePromptResolution();
       if (promptResolution) {

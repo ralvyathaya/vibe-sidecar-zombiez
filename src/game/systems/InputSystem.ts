@@ -213,6 +213,17 @@ export class InputSystem {
     );
   }
 
+  isLocalFireHeld(): boolean {
+    return this.canProfileShoot(this.localProfile) && (this.mouseFireHeld || this.virtualFireHeld);
+  }
+
+  isDriverFireHeld(): boolean {
+    const localDriverFire =
+      this.localProfile === 'driver' && (this.mouseFireHeld || this.virtualFireHeld);
+    const remoteDriverFire = this.remoteRole === 'driver' && this.remoteFireHeld;
+    return localDriverFire || remoteDriverFire;
+  }
+
   consumeLookDelta(target = new Vector2()): Vector2 {
     target.set(0, 0);
     if (this.canProfileShoot(this.localProfile)) {

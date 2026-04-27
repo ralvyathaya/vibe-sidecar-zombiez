@@ -122,6 +122,7 @@ export interface ManualDriverInput {
   steerAxis: number;
   accelerateHeld: boolean;
   brakeHeld: boolean;
+  pistolStance?: boolean;
 }
 
 export interface VehicleRigRoleProfile {

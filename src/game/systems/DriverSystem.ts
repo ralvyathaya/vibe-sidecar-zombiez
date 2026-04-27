@@ -17,7 +17,13 @@ const DEFAULT_MANUAL_DRIVER_INPUT: ManualDriverInput = {
   steerAxis: 0,
   accelerateHeld: false,
   brakeHeld: false,
+  pistolStance: false,
 };
+
+const DRIVER_PISTOL_STANCE_BRAKE_DRAG = 0.18;
+const DRIVER_PISTOL_STANCE_SPEED_MULTIPLIER = 0.92;
+const DRIVER_PISTOL_STANCE_STEER_PENALTY = 0.22;
+const DRIVER_PISTOL_STANCE_RESPONSE_MULTIPLIER = 0.68;
 
 export class DriverSystem {
   private laneIndex = 1;
@@ -195,6 +201,7 @@ export class DriverSystem {
         failureSeverity,
         hasLatch,
         nitroActive,
+        manualInput.pistolStance === true,
       );
       this.laneIndex = this.resolveNearestLaneIndex(this.manualWorldX);
       this.targetLaneIndex = this.laneIndex;
@@ -212,6 +219,7 @@ export class DriverSystem {
       hasLatch,
       nitroActive,
       manualMode,
+      manualInput.pistolStance === true,
     );
     // Slippery road should change handling, not leave the bike visibly buzzing for
     // several seconds. Keep the event readable through speed/handling only.
@@ -219,6 +227,7 @@ export class DriverSystem {
     const baseHandlingPenalty =
       failureSeverity * this.config.ride.failureHandlingPenalty +
       (this.floorItTimer > 0 ? 0.045 : 0) +
+      (manualMode && manualInput.pistolStance === true ? 0.08 : 0) +
       (this.engineTroubleTimer > 0 ? 0.18 + this.engineTroubleRoughness * 0.06 : 0) +
       (this.activeEvent === 'slipperyRoad'
         ? this.config.pacing.events.slipperyHandlingPenalty
@@ -724,6 +733,7 @@ export class DriverSystem {
     hasLatch: boolean,
     nitroActive: boolean,
     manualMode = false,
+    pistolStance = false,
   ): number {
     const segmentVisibility = this.config.pacing.visibility[this.segment];
     const segmentSpeedBias =
@@ -750,10 +760,13 @@ export class DriverSystem {
     const eventMultiplier = this.activeEvent === 'slipperyRoad' ? 0.985 : 1;
     const nitroBonus = nitroActive ? 1 + this.config.ride.nitroSpeedBonus : 1;
     const failureMultiplier = 1 - failureSeverity * this.config.ride.failureSpeedPenalty;
+    const pistolStanceMultiplier =
+      manualMode && pistolStance ? DRIVER_PISTOL_STANCE_SPEED_MULTIPLIER : 1;
 
     return clamp(
       segmentSpeedBias *
         driverMultiplier *
+        pistolStanceMultiplier *
         latchMultiplier *
         eventMultiplier *
         nitroBonus *
@@ -877,6 +890,7 @@ export class DriverSystem {
     manualMode: boolean,
   ): void {
     const response = this.config.ride.inputHoldResponse;
+    const pistolStance = manualMode && manualInput.pistolStance === true;
 
     if (this.engineTroubleTimer > 0) {
       const pulse = this.getEngineTroublePulse();
@@ -898,13 +912,17 @@ export class DriverSystem {
     const targetBrake = manualMode
       ? manualInput.brakeHeld
         ? 0.86
-        : 0
+        : pistolStance
+          ? DRIVER_PISTOL_STANCE_BRAKE_DRAG
+          : 0
       : this.brakeTimer > 0
         ? 0.82
         : 0;
     const targetBoost = manualMode
       ? manualInput.accelerateHeld && !manualInput.brakeHeld
-        ? 1
+        ? pistolStance
+          ? 0.72
+          : 1
         : 0
       : this.floorItTimer > 0
         ? 1
@@ -927,20 +945,27 @@ export class DriverSystem {
     failureSeverity: number,
     hasLatch: boolean,
     nitroActive: boolean,
+    pistolStance: boolean,
   ): void {
     const normalizedAxis = clamp(steerAxis, -1, 1);
     const eventPenalty = this.activeEvent === 'slipperyRoad' ? 0.22 : 0;
     const damagePenalty = failureSeverity * 0.24;
     const latchPenalty = hasLatch ? 0.12 : 0;
     const nitroBonus = nitroActive ? 1.08 : 1;
-    const controlScale = clamp(1 - eventPenalty - damagePenalty - latchPenalty, 0.42, 1);
+    const pistolPenalty = pistolStance ? DRIVER_PISTOL_STANCE_STEER_PENALTY : 0;
+    const controlScale = clamp(
+      1 - eventPenalty - damagePenalty - latchPenalty - pistolPenalty,
+      0.34,
+      1,
+    );
     const targetVelocity =
       normalizedAxis * this.config.player.strafeSpeed * controlScale * nitroBonus;
+    const responseScale = pistolStance ? DRIVER_PISTOL_STANCE_RESPONSE_MULTIPLIER : 1;
 
     this.manualSteerVelocity = approach(
       this.manualSteerVelocity,
       targetVelocity,
-      deltaTime * this.config.ride.inputHoldResponse * 3.2,
+      deltaTime * this.config.ride.inputHoldResponse * 3.2 * responseScale,
     );
 
     const roadLimit = Math.max(

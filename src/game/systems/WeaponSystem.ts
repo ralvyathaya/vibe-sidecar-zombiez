@@ -28,6 +28,8 @@ export class WeaponSystem {
   private shotgunUnlocked = false;
   private bazookaRestoreWeapon: Extract<WeaponKind, 'pistol' | 'shotgun'> = 'pistol';
   private weaponPolicy: WeaponPolicy = 'full';
+  private driverPistolStanceTimer = 0;
+  private readonly driverPistolStanceHoldSeconds = 1.45;
 
   constructor(camera: Camera, private readonly config: GameConfig) {
     this.bazookaWeapon = new BazookaWeapon(camera, config);
@@ -42,11 +44,13 @@ export class WeaponSystem {
     this.activeWeapon = 'pistol';
     this.shotgunUnlocked = false;
     this.bazookaRestoreWeapon = 'pistol';
+    this.driverPistolStanceTimer = 0;
     this.applyPistolViewmodelPolicy();
     this.bazookaWeapon.reset();
     this.bazookaWeapon.setEquipped(false);
     this.pistolWeapon.reset(player);
     this.pistolWeapon.setEquipped(true);
+    this.pistolWeapon.setPresentationVisible(this.weaponPolicy !== 'pistolOnly');
     this.shotgunWeapon.reset();
     this.shotgunWeapon.setEquipped(false);
 
@@ -102,6 +106,7 @@ export class WeaponSystem {
   }
 
   updateIdle(deltaTime: number): void {
+    this.updateDriverPistolStance(deltaTime, false);
     this.bazookaWeapon.updateIdle(deltaTime);
     this.pistolWeapon.updateIdle(deltaTime);
     this.shotgunWeapon.updateIdle(deltaTime);
@@ -193,11 +198,17 @@ export class WeaponSystem {
   setWeaponPolicy(policy: WeaponPolicy, player?: PlayerSystem): void {
     if (this.weaponPolicy === policy) {
       this.applyPistolViewmodelPolicy();
+      if (policy === 'full') {
+        this.driverPistolStanceTimer = 0;
+        this.pistolWeapon.setPresentationVisible(true);
+      }
       return;
     }
 
     this.weaponPolicy = policy;
+    this.driverPistolStanceTimer = 0;
     this.applyPistolViewmodelPolicy();
+    this.pistolWeapon.setPresentationVisible(policy !== 'pistolOnly');
     if (policy === 'pistolOnly' && player) {
       this.shotgunUnlocked = false;
       this.shotgunWeapon.setAmmo(0);
@@ -205,6 +216,26 @@ export class WeaponSystem {
       this.bazookaRestoreWeapon = 'pistol';
       this.equipPistol(player);
     }
+  }
+
+  updateDriverPistolStance(deltaTime: number, fireIntent: boolean): void {
+    if (this.weaponPolicy !== 'pistolOnly') {
+      this.driverPistolStanceTimer = 0;
+      this.pistolWeapon.setPresentationVisible(true);
+      return;
+    }
+
+    if (fireIntent) {
+      this.driverPistolStanceTimer = this.driverPistolStanceHoldSeconds;
+    } else {
+      this.driverPistolStanceTimer = Math.max(0, this.driverPistolStanceTimer - deltaTime);
+    }
+
+    this.pistolWeapon.setPresentationVisible(this.driverPistolStanceTimer > 0);
+  }
+
+  isDriverPistolStanceActive(): boolean {
+    return this.weaponPolicy === 'pistolOnly' && this.driverPistolStanceTimer > 0;
   }
 
   getPresentationState(role: RemotePresentationState['role']): RemotePresentationState {
