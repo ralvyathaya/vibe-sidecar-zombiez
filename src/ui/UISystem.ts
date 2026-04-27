@@ -701,10 +701,6 @@ export class UISystem {
       roomRow,
     );
 
-    const menuHint = document.createElement('div');
-    menuHint.className = 'overlay-menu-hint';
-    menuHint.textContent = 'Press Enter to start';
-
     menuLeft.append(
       this.overlayMenuLogo,
       menuEyebrow,
@@ -712,20 +708,13 @@ export class UISystem {
       this.overlayMenuCopy,
       this.overlayMenuStats,
       menuOptions,
-      menuHint,
     );
 
     const menuCenter = document.createElement('div');
     menuCenter.className = 'overlay-menu-center';
     const rolePanel = document.createElement('section');
     rolePanel.className = 'overlay-menu-role-panel';
-    const roleLabel = document.createElement('div');
-    roleLabel.className = 'overlay-menu-section-label';
-    roleLabel.textContent = 'Select Role';
-    const roleHint = document.createElement('p');
-    roleHint.className = 'overlay-role-hint';
-    roleHint.textContent = 'Pick Single Player to start as Police. Pick Co-op to choose Joe or Police.';
-    rolePanel.append(roleLabel, this.overlayMenuRoleSelect, roleHint, this.overlayMenuSoloButton, coopOptions);
+    rolePanel.append(this.overlayMenuRoleSelect, this.overlayMenuSoloButton, coopOptions);
     menuCenter.append(rolePanel);
 
     const menuRight = document.createElement('div');
@@ -1743,16 +1732,22 @@ export class UISystem {
     title.textContent = label;
 
     const featureList = document.createElement('span');
-    featureList.className = 'overlay-role-features';
+    featureList.className = 'overlay-role-callout-text';
     for (const feature of features) {
       const item = document.createElement('span');
-      item.className = 'overlay-role-feature';
+      item.className = 'overlay-role-callout-item';
       item.textContent = feature;
       featureList.append(item);
     }
 
-    body.append(title, featureList);
-    button.append(stage, body);
+    const callout = document.createElement('span');
+    callout.className = 'overlay-role-callout';
+    const calloutLine = document.createElement('span');
+    calloutLine.className = 'overlay-role-callout-line';
+    callout.append(calloutLine, featureList);
+
+    body.append(title);
+    button.append(stage, callout, body);
     button.addEventListener('click', () => {
       this.setSelectedRole(role);
     });
