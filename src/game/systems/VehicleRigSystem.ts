@@ -562,6 +562,8 @@ export class VehicleRigSystem {
     const laneCutJolt = ride?.laneCutJolt ?? 0;
     const potholeJolt = ride?.potholeJolt ?? 0;
     const barrelJolt = ride?.barrelJolt ?? 0;
+    const jumpHeight = ride?.jumpHeight ?? 0;
+    const jumpRatio = ride?.jumpRatio ?? 0;
     const engineTroubleWobble = ride?.engineTroubleWobble ?? 0;
     const engineTroubleWave = Math.sin(this.time * this.config.driver.engineTroubleWobbleFrequency);
     const engineTroubleSide =
@@ -626,11 +628,11 @@ export class VehicleRigSystem {
         engineTroubleSide +
         floorItPush +
         failureSwayX,
-      swayY + vibration * 0.45 + rideShake * 0.3 + wheelHop + failureSwayY,
+      swayY + vibration * 0.45 + rideShake * 0.3 + wheelHop + failureSwayY + jumpHeight,
       swayZ,
     );
     this.vehicleSpace.rotation.set(
-      vibration * 0.06 + rideShake * 0.18 + wheelHop * 0.4,
+      vibration * 0.06 + rideShake * 0.18 + wheelHop * 0.4 - Math.sin(jumpRatio * Math.PI) * 0.06,
       -turnShift * 0.08 +
         laneShift * 0.18 +
         cutOvershoot * 0.45 +

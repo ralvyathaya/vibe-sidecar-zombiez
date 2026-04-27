@@ -12,8 +12,8 @@ export type GameStateType = 'menu' | 'running' | 'paused' | 'dead';
 export type ZombieType = 'walker' | 'runner' | 'tank';
 export type HumanoidZombieType = 'walker' | 'runner' | 'tank';
 export type ZombieLifecycleState = 'inactive' | 'alive' | 'dying';
-export type WeaponKind = 'pistol' | 'shotgun' | 'bazooka';
-export type NetworkWeaponKind = 'handgun' | 'shotgun' | 'bazooka';
+export type WeaponKind = 'pistol' | 'shotgun' | 'bazooka' | 'assaultRifle';
+export type NetworkWeaponKind = 'handgun' | 'shotgun' | 'bazooka' | 'assaultRifle';
 export type FpsViewmodelKey =
   | 'driver_pistol'
   | 'gunner_handgun'
@@ -23,6 +23,8 @@ export type AmmoRoundStyle = 'bullet' | 'shell' | 'rocket';
 export type PickupType =
   | 'shotgun'
   | 'shotgunAmmo'
+  | 'assaultRifle'
+  | 'rifleAmmo'
   | 'bazooka'
   | 'medkit'
   | 'adrenaline'
@@ -49,7 +51,7 @@ export type PickupEffectType =
   | 'decoy'
   | 'weaponBoost';
 export type PickupRarity = 'common' | 'rare' | 'hot';
-export type CrosshairStyle = 'pistol' | 'shotgun' | 'bazooka';
+export type CrosshairStyle = 'pistol' | 'shotgun' | 'bazooka' | 'assaultRifle';
 export type CoopRole = 'solo' | 'driver' | 'gunner';
 export type GameplayRole = 'driver' | 'gunner';
 export type ControlProfile = 'legacyGunner' | 'coopGunner' | 'driver';
@@ -78,6 +80,10 @@ export type CoopConnectionState =
   | 'error';
 export type RunSegment = 'rest' | 'chaos' | 'dark';
 export type RunEventType = 'none' | 'berserkWave' | 'slipperyRoad' | 'blackoutStretch';
+export type RunSetpieceType = 'normal' | 'bossApproach' | 'rainstorm' | 'rampJump';
+export type BossPhase = 0 | 1 | 2 | 3;
+export type BossAttackPattern = 'singleLane' | 'lanePair' | 'sweep';
+export type BossEncounterStatus = 'inactive' | 'approach' | 'fighting' | 'retreating' | 'defeated';
 export type DriverIntentType =
   | 'floorIt'
   | 'brake'
@@ -97,7 +103,8 @@ export type ObstacleType =
   | 'barrel'
   | 'car'
   | 'brokenLane'
-  | 'pothole';
+  | 'pothole'
+  | 'ramp';
 
 export type Vec3Tuple = [number, number, number];
 export type WorldReactionType =
@@ -106,7 +113,8 @@ export type WorldReactionType =
   | 'scrape'
   | 'brokenLane'
   | 'barrel'
-  | 'shakeOff';
+  | 'shakeOff'
+  | 'rampJump';
 
 export interface FlashMaterial {
   emissive: {
@@ -137,6 +145,44 @@ export interface FpsViewmodelConfig {
   rotationDegrees: Vec3Tuple;
   scale: number;
   muzzleOffset: Vec3Tuple;
+}
+
+export interface BossProjectileState {
+  id: number;
+  active: boolean;
+  laneIndex: number;
+  laneX: number;
+  width: number;
+  telegraphTimer: number;
+  impactTimer: number;
+  damage: number;
+  pattern: BossAttackPattern;
+}
+
+export interface BossEncounterState {
+  status: BossEncounterStatus;
+  level: BossPhase;
+  health: number;
+  maxHealth: number;
+  timer: number;
+  duration: number;
+  phase: BossPhase;
+  activeProjectiles: BossProjectileState[];
+}
+
+export interface BossSnapshot {
+  status: BossEncounterStatus;
+  level: BossPhase;
+  healthRatio: number;
+  timerRatio: number;
+  phase: BossPhase;
+  activeTelegraphs: Array<{
+    id: number;
+    laneIndex: number;
+    laneX: number;
+    width: number;
+    warningRatio: number;
+  }>;
 }
 
 export interface VehiclePoseNodePatternConfig {
@@ -575,6 +621,67 @@ export interface GameConfig {
       muzzleFlashDuration: number;
     };
   };
+  assaultRifle: {
+    fireRate: number;
+    magazineSize: number;
+    reserveAmmo: number;
+    pickupAmmo: number;
+    reloadDuration: number;
+    range: number;
+    damagePerShot: number;
+    bossDamagePerShot: number;
+    cameraKick: number;
+    recoilRecovery: number;
+    unlockTimeSeconds: number;
+    scriptedPickupTimeSeconds: number;
+    tracer: {
+      duration: number;
+      width: number;
+      glowWidth: number;
+      color: number;
+      glowColor: number;
+      opacity: number;
+      missLength: number;
+    };
+    viewmodel: {
+      position: Vec3Tuple;
+      rotationDegrees: Vec3Tuple;
+      scale: number;
+      recoilBack: number;
+      recoilLift: number;
+      recoilPitchDegrees: number;
+      recoilRecovery: number;
+      muzzleOffset: Vec3Tuple;
+      muzzleFlashSize: number;
+      muzzleFlashDuration: number;
+    };
+  };
+  boss: {
+    enabled: boolean;
+    encounterTimes: number[];
+    approachDuration: number;
+    retreatDuration: number;
+    duration: number;
+    maxHealthByLevel: number[];
+    scoreBonusByLevel: number[];
+    spawnMultiplierWhileActive: number;
+    hoverPosition: Vec3Tuple;
+    hoverDrift: Vec3Tuple;
+    hitRadius: number;
+    projectileTelegraphDuration: number;
+    projectileImpactDuration: number;
+    projectileDamage: number;
+    projectileIntervalByLevel: number[];
+    projectileWidth: number;
+  };
+  rain: {
+    overlayMaxOpacity: number;
+    dropletCount: number;
+    streakCount: number;
+    fogMultiplier: number;
+    exposureMultiplier: number;
+    brakePenalty: number;
+  };
   enemies: {
     poolSize: number;
     spawnMinZ: number;
@@ -666,6 +773,16 @@ export interface GameConfig {
       flashDuration: number;
       flashSize: number;
     };
+    ramp: {
+      spawnChance: number;
+      spawnSpacingMin: number;
+      spawnSpacingMax: number;
+      width: number;
+      depth: number;
+      jumpDuration: number;
+      jumpHeight: number;
+      cameraKick: number;
+    };
     audio: {
       obstacleImpactPath: string;
       obstacleImpactVolume: number;
@@ -687,6 +804,7 @@ export interface GameConfig {
     supportUnlockTimeSeconds: number;
     unlockTimeSeconds: number;
     bazookaUnlockTimeSeconds: number;
+    rifleUnlockTimeSeconds: number;
     poolSize: number;
     spawnMinZ: number;
     spawnMaxZ: number;
@@ -703,6 +821,8 @@ export interface GameConfig {
     bazookaSpawnChance: number;
     bazookaPickupSpacingMin: number;
     bazookaPickupSpacingMax: number;
+    riflePickupSpacingMin: number;
+    riflePickupSpacingMax: number;
     shotgunPickupScale: number;
     ammoCrateScale: number;
     bazookaPickupScale: number;
@@ -896,6 +1016,7 @@ export interface CoopSnapshot {
   reward: Pick<RewardState, 'chainCount' | 'multiplier' | 'zombiesKilled' | 'bestChain'>;
   stats: CoopRunStats;
   presentation: RemotePresentationState;
+  boss: BossSnapshot;
 }
 
 export interface LoadoutState {
@@ -903,6 +1024,8 @@ export interface LoadoutState {
   shotgunUnlocked: boolean;
   shotgunAmmo: number;
   bazookaAmmo: number;
+  assaultRifleUnlocked: boolean;
+  rifleAmmo: number;
 }
 
 export interface RadarContact {
@@ -981,6 +1104,7 @@ export interface RideState {
   segmentElapsed: number;
   segmentDuration: number;
   activeEvent: RunEventType;
+  setpiece: RunSetpieceType;
   eventTimer: number;
   eventDuration: number;
   floorItMode: boolean;
@@ -988,6 +1112,9 @@ export interface RideState {
   nitroActive: boolean;
   engineTroubleMode: boolean;
   engineTroubleWobble: number;
+  jumpActive: boolean;
+  jumpRatio: number;
+  jumpHeight: number;
   laneCutJolt: number;
   potholeJolt: number;
   barrelJolt: number;

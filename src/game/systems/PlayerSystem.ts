@@ -202,6 +202,7 @@ export class PlayerSystem {
       bob -
       this.state.hitFlash * 0.05 +
       (ride?.cameraShake ?? 0) * Math.sin(this.time * 28) +
+      (ride?.jumpHeight ?? 0) * 0.42 +
       potholeHop +
       barrelHop;
 

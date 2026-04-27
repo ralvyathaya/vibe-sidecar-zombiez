@@ -136,6 +136,8 @@ export class RendererSystem {
     const fogMultiplier =
       activeEvent === 'blackoutStretch'
         ? this.config.pacing.events.blackoutFogMultiplier
+        : activeEvent === 'slipperyRoad'
+          ? this.config.rain.fogMultiplier
         : 1;
     this.currentClearColor = this.lerpColor(this.currentClearColor, target.clearColor, smoothing);
     this.currentFogColor = this.lerpColor(this.currentFogColor, target.fogColor, smoothing);
@@ -143,7 +145,12 @@ export class RendererSystem {
     this.currentFogFar = lerp(this.currentFogFar, target.fogFar * fogMultiplier, smoothing);
     this.currentExposure = lerp(
       this.currentExposure,
-      target.exposure * (activeEvent === 'blackoutStretch' ? 0.9 : 1),
+      target.exposure *
+        (activeEvent === 'blackoutStretch'
+          ? 0.9
+          : activeEvent === 'slipperyRoad'
+            ? this.config.rain.exposureMultiplier
+            : 1),
       smoothing,
     );
 

@@ -53,6 +53,7 @@ export class PickupSystem {
   private shotgunLoadPromise: Promise<void> | null = null;
   private bazookaLoadPromise: Promise<void> | null = null;
   private nextSpawnZ = -110;
+  private scriptedRifleSpawned = false;
   private scriptedBazookaSpawned = false;
   private criticalMedkitTimer = -1;
   private criticalMedkitCooldown = 0;
@@ -78,6 +79,7 @@ export class PickupSystem {
       this.config.pickups.spawnMinZ,
       this.config.pickups.spawnMaxZ,
     );
+    this.scriptedRifleSpawned = false;
     this.scriptedBazookaSpawned = false;
     this.criticalMedkitTimer = -1;
     this.criticalMedkitCooldown = 0;
@@ -105,6 +107,8 @@ export class PickupSystem {
     this.criticalMedkitCooldown = Math.max(0, this.criticalMedkitCooldown - deltaTime);
     const bazookaUnlocked =
       devWeapons || elapsedSeconds >= this.config.pickups.bazookaUnlockTimeSeconds;
+    const rifleUnlocked =
+      devWeapons || elapsedSeconds >= this.config.pickups.rifleUnlockTimeSeconds;
 
     for (const pickup of this.pickups) {
       if (!pickup.active) {
@@ -192,10 +196,24 @@ export class PickupSystem {
         this.scriptedBazookaSpawned = true;
       }
     }
+    if (
+      rifleUnlocked &&
+      !this.scriptedRifleSpawned &&
+      elapsedSeconds >= this.config.assaultRifle.scriptedPickupTimeSeconds &&
+      !loadout.assaultRifleUnlocked &&
+      !this.hasActiveKind('assaultRifle')
+    ) {
+      const slot = this.pickups.find((entry) => !entry.active);
+      if (slot) {
+        this.spawn(slot, loadout, player, bazookaUnlocked, elapsedSeconds, 'assaultRifle');
+        this.scriptedRifleSpawned = true;
+      }
+    }
     const desiredWeaponCount =
       weaponUnlocked ? (bazookaUnlocked ? 3 : loadout.shotgunUnlocked ? 2 : 1) : 0;
+    const desiredRifleCount = rifleUnlocked ? 1 : 0;
     const desiredSupportCount = supportUnlocked ? 2 : 0;
-    const desiredActiveCount = desiredWeaponCount + desiredSupportCount;
+    const desiredActiveCount = desiredWeaponCount + desiredRifleCount + desiredSupportCount;
     while (this.getActiveCount() < desiredActiveCount) {
       const slot = this.pickups.find((entry) => !entry.active);
       if (!slot) {
@@ -212,6 +230,8 @@ export class PickupSystem {
     return (
       kind === 'shotgun' ||
       kind === 'shotgunAmmo' ||
+      kind === 'assaultRifle' ||
+      kind === 'rifleAmmo' ||
       kind === 'bazooka' ||
       kind === 'weaponBoost'
     );
@@ -439,6 +459,13 @@ export class PickupSystem {
       } else if (!loadout.shotgunUnlocked || elapsedSeconds < this.config.pickups.unlockTimeSeconds) {
         kind = 'shotgun';
       } else if (
+        elapsedSeconds >= this.config.pickups.rifleUnlockTimeSeconds &&
+        !loadout.assaultRifleUnlocked &&
+        !this.hasActiveKind('assaultRifle') &&
+        Math.random() < 0.48
+      ) {
+        kind = 'assaultRifle';
+      } else if (
         bazookaUnlocked &&
         elapsedSeconds >= this.config.pickups.bazookaUnlockTimeSeconds &&
         elapsedSeconds <= 70 &&
@@ -446,6 +473,11 @@ export class PickupSystem {
         Math.random() < this.config.pickups.bazookaSpawnChance * 1.2
       ) {
         kind = 'bazooka';
+      } else if (
+        loadout.assaultRifleUnlocked &&
+        Math.random() < this.config.pickups.ammoCrateChance * 0.78
+      ) {
+        kind = 'rifleAmmo';
       } else if (loadout.shotgunUnlocked && Math.random() < this.config.pickups.ammoCrateChance) {
         kind = 'shotgunAmmo';
       } else {
@@ -490,6 +522,21 @@ export class PickupSystem {
         this.nextSpawnZ -= randomRange(
           this.config.pickups.shotgunPickupSpacingMin,
           this.config.pickups.shotgunPickupSpacingMax,
+        );
+      }
+      return;
+    }
+
+    if (kind === 'assaultRifle') {
+      pickup.ammo = this.config.assaultRifle.reserveAmmo;
+      pickup.width = 1.9;
+      pickup.depth = 1.35;
+      pickup.weaponBoostVariant.visible = true;
+      this.applyPickupColor(pickup, 0xffd58b);
+      if (consumeSpacing) {
+        this.nextSpawnZ -= randomRange(
+          this.config.pickups.riflePickupSpacingMin,
+          this.config.pickups.riflePickupSpacingMax,
         );
       }
       return;
@@ -633,6 +680,21 @@ export class PickupSystem {
       return;
     }
 
+    if (kind === 'rifleAmmo') {
+      pickup.ammo = this.config.assaultRifle.pickupAmmo;
+      pickup.width = 1.55;
+      pickup.depth = 1.55;
+      pickup.ammoCrateVariant.visible = true;
+      this.applyPickupColor(pickup, 0xc8f6a2);
+      if (consumeSpacing) {
+        this.nextSpawnZ -= randomRange(
+          this.config.pickups.ammoCrateSpacingMin,
+          this.config.pickups.ammoCrateSpacingMax,
+        );
+      }
+      return;
+    }
+
     pickup.ammo = randomInt(
       this.config.pickups.ammoCrateMin,
       this.config.pickups.ammoCrateMax,
@@ -661,7 +723,7 @@ export class PickupSystem {
     pickup.laneLocalX = 0;
     pickup.shotgunVariant.visible = pickup.kind === 'shotgun';
     pickup.bazookaVariant.visible = pickup.kind === 'bazooka';
-    pickup.ammoCrateVariant.visible = pickup.kind === 'shotgunAmmo';
+    pickup.ammoCrateVariant.visible = pickup.kind === 'shotgunAmmo' || pickup.kind === 'rifleAmmo';
     pickup.medkitVariant.visible = pickup.kind === 'medkit';
     pickup.adrenalineVariant.visible = pickup.kind === 'adrenaline';
     pickup.nitroVariant.visible = pickup.kind === 'nitroCan';
@@ -750,6 +812,26 @@ export class PickupSystem {
           risk: 'none',
           rarity: 'rare',
           label: 'Bazooka',
+          scoreBonus: 0,
+          chainBonus: 0,
+          duration: 0,
+        };
+      case 'assaultRifle':
+        return {
+          effect: 'weapon',
+          risk: 'none',
+          rarity: 'rare',
+          label: 'Assault Rifle',
+          scoreBonus: 0,
+          chainBonus: 0,
+          duration: 0,
+        };
+      case 'rifleAmmo':
+        return {
+          effect: 'ammo',
+          risk: 'none',
+          rarity: 'common',
+          label: 'Rifle Ammo',
           scoreBonus: 0,
           chainBonus: 0,
           duration: 0,
@@ -846,7 +928,7 @@ export class PickupSystem {
     const chance =
       kind === 'scoreCache' || kind === 'chainBoost' || kind === 'weaponBoost'
         ? 0.42
-        : kind === 'shotgun' || kind === 'bazooka' || kind === 'nitroCan'
+        : kind === 'shotgun' || kind === 'bazooka' || kind === 'assaultRifle' || kind === 'nitroCan'
           ? 0.28
           : kind === 'medkit'
             ? 0.1
@@ -858,7 +940,7 @@ export class PickupSystem {
     const risks: PickupRiskType[] =
       kind === 'nitroCan' || kind === 'weaponBoost'
         ? ['runnerSwarm', 'handlingPenalty', 'loudAggro']
-        : kind === 'adrenaline' || kind === 'shotgunAmmo'
+        : kind === 'adrenaline' || kind === 'shotgunAmmo' || kind === 'rifleAmmo'
           ? ['reloadJam', 'loudAggro', 'fogHaze']
           : ['runnerSwarm', 'fogHaze', 'loudAggro', 'handlingPenalty'];
     return risks[randomInt(0, risks.length - 1)] ?? 'runnerSwarm';
@@ -875,6 +957,7 @@ export class PickupSystem {
         (pickup.active &&
         (pickup.kind === 'medkit' ||
           pickup.kind === 'shotgunAmmo' ||
+          pickup.kind === 'rifleAmmo' ||
           pickup.kind === 'nitroCan')
           ? 1
           : 0),
@@ -1397,7 +1480,7 @@ export class PickupSystem {
     let volume = this.config.pickups.audio.pickupVolume;
     let playbackRate = randomRange(0.98, 1.04);
 
-    if (kind === 'shotgun') {
+    if (kind === 'shotgun' || kind === 'assaultRifle') {
       volume *= 1.1;
       playbackRate = randomRange(0.94, 0.99);
     } else if (kind === 'bazooka') {
@@ -1435,6 +1518,24 @@ export class PickupSystem {
 
     if (kind === 'bazooka') {
       return loadout.bazookaAmmo <= 0 ? 2.15 : 0.65;
+    }
+
+    if (kind === 'assaultRifle') {
+      return loadout.assaultRifleUnlocked ? 0.55 : elapsedSeconds < 75 ? 2.25 : 1.35;
+    }
+
+    if (kind === 'rifleAmmo') {
+      if (!loadout.assaultRifleUnlocked) {
+        return 0.18;
+      }
+      const rifleAmmoRatio = loadout.rifleAmmo / Math.max(this.config.assaultRifle.reserveAmmo, 1);
+      if (rifleAmmoRatio <= 0.25) {
+        return 1.75;
+      }
+      if (rifleAmmoRatio <= 0.55) {
+        return 1.18;
+      }
+      return 0.42;
     }
 
     if (kind === 'medkit') {
@@ -1546,10 +1647,19 @@ export class PickupSystem {
           : shotgunAmmoRatio <= 0.7
             ? 0.2
             : 0.05;
+    const rifleAmmoRatio = loadout.rifleAmmo / Math.max(this.config.assaultRifle.reserveAmmo, 1);
+    const rifleAmmoBias = !loadout.assaultRifleUnlocked
+      ? 0
+      : rifleAmmoRatio <= 0.25
+        ? 0.48
+        : rifleAmmoRatio <= 0.55
+          ? 0.28
+          : 0.08;
 
     return [
       { type: 'medkit', weight: medkitWeight },
       { type: 'shotgunAmmo', weight: ammoBias },
+      { type: 'rifleAmmo', weight: rifleAmmoBias },
       {
         type: 'adrenaline',
         weight:

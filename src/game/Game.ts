@@ -25,6 +25,7 @@ import { LoopingSound } from './audio/LoopingSound';
 import { SoundEffectPool } from './audio/SoundEffectPool';
 import { DebugTransformEditor, type DebugTransformBinding } from './debug/DebugTransformEditor';
 import { NetworkSystem } from './network/NetworkSystem';
+import { BossSystem } from './systems/BossSystem';
 import { DriverSystem } from './systems/DriverSystem';
 import { EnemySystem } from './systems/EnemySystem';
 import { InputSystem } from './systems/InputSystem';
@@ -43,6 +44,7 @@ type DeathCauseKey =
   | 'tank'
   | 'wreck'
   | 'barrel'
+  | 'bossProjectile'
   | 'road'
   | 'unknown';
 
@@ -55,6 +57,7 @@ export class Game {
   private readonly enemySystem: EnemySystem;
   private readonly spawnSystem: SpawnSystem;
   private readonly worldSystem: WorldSystem;
+  private readonly bossSystem: BossSystem;
   private readonly pickupSystem: PickupSystem;
   private readonly rewardSystem: RewardSystem;
   private readonly vehicleRigSystem: VehicleRigSystem;
@@ -109,6 +112,7 @@ export class Game {
   private pickupFogTimer = 0;
   private decoyTimer = 0;
   private weaponBoostTimer = 0;
+  private jumpTimer = 0;
   private armsAnchorDebugTransform: DebugTransformSnapshot = {
     position: [0, 0, 0],
     rotationDegrees: [0, 0, 0],
@@ -145,6 +149,7 @@ export class Game {
     this.rendererSystem.scene.add(this.rendererSystem.camera);
 
     this.worldSystem = new WorldSystem(this.rendererSystem.scene, GAME_CONFIG);
+    this.bossSystem = new BossSystem(this.rendererSystem.scene, GAME_CONFIG);
     this.pickupSystem = new PickupSystem(this.rendererSystem.scene, GAME_CONFIG);
     this.enemySystem = new EnemySystem(this.rendererSystem.scene, GAME_CONFIG);
     this.weaponSystem = new WeaponSystem(this.rendererSystem.camera, GAME_CONFIG);
@@ -302,6 +307,9 @@ export class Game {
         snapshot.presentation.currentWeapon,
         snapshot.presentation.firePulse,
       );
+      if (snapshot.boss) {
+        this.bossSystem.applySnapshot(snapshot.boss);
+      }
     };
     this.networkSystem.onRemoteStart = (seed) => {
       this.startRunFromNetwork(seed);
@@ -342,6 +350,7 @@ export class Game {
     this.weaponSystem.destroy();
     this.vehicleRigSystem.destroy();
     this.enemySystem.destroy();
+    this.bossSystem.destroy();
     this.worldSystem.destroy();
     this.pickupSystem.destroy();
     this.rewardSystem.destroy();
@@ -361,6 +370,7 @@ export class Game {
       );
       this.handleContextActions();
       this.updatePickupRiskEffects(deltaTime);
+      this.updateJumpState(simulationDelta);
       this.decayRoadFeedback(deltaTime);
       this.enemySystem.prewarmUpcomingAssets(this.spawnSystem.elapsedSeconds);
       this.worldSystem.prewarmDeferredAssets(this.spawnSystem.elapsedSeconds);
@@ -436,6 +446,9 @@ export class Game {
       this.frameRideState = preWorldRide;
 
       this.playerSystem.updateRunning(simulationDelta, this.inputSystem, preWorldRide);
+      this.spawnSystem.setSpawnPressureMultiplier(
+        this.bossSystem.isCombatActive() ? GAME_CONFIG.boss.spawnMultiplierWhileActive : 1,
+      );
       this.spawnSystem.update(
         simulationDelta,
         this.enemySystem,
@@ -459,6 +472,7 @@ export class Game {
 
       const preWeaponStatus = this.weaponSystem.getStatus(this.playerSystem);
       const preWeaponKills = this.rewardSystem.getState().zombiesKilled;
+      const preBossPulse = this.weaponSystem.getActiveWeaponFirePulseValue();
       this.weaponSystem.updateRunning(
         simulationDelta,
         this.inputSystem,
@@ -474,6 +488,7 @@ export class Game {
         localPresentation.firePulse,
       );
       this.updateGunnerStats(preWeaponStatus.ammoInMagazine, preWeaponKills);
+      this.applyWeaponDamageToBoss(preBossPulse);
 
       if (this.latchWasActive && !this.enemySystem.hasLatchedRunner()) {
         this.spawnSystem.notifyLatchResolved();
@@ -491,13 +506,36 @@ export class Game {
         this.playerSystem.state.strafeX,
         preWorldRide.forwardSpeed,
         preWorldRide.segment,
+        this.jumpTimer > 0,
       );
+      if (worldImpact.reaction === 'rampJump') {
+        this.triggerRampJump();
+      }
       this.applyWorldImpact(worldImpact);
       if (worldImpact.damage > 0) {
         this.driverSystem.notifyObstacleCollision(worldImpact.obstacleType);
         this.rewardSystem.breakChainFromDamage();
         this.lastDeathCause = this.resolveWorldDeathCause(worldImpact);
         this.playerSystem.applyDamage(worldImpact.damage);
+      }
+
+      const bossImpact = this.bossSystem.update(
+        simulationDelta,
+        this.spawnSystem.elapsedSeconds,
+        this.playerSystem.state.strafeX,
+      );
+      if (bossImpact.damage > 0) {
+        this.rewardSystem.breakChainFromDamage();
+        this.lastDeathCause = 'bossProjectile';
+        this.playerSystem.applyDamage(bossImpact.damage, bossImpact.sourceX);
+      }
+      const bossBonus = this.bossSystem.consumeScoreBonus();
+      if (bossBonus > 0) {
+        this.playerSystem.state.score += this.rewardSystem.registerPickupBonus(
+          'Boss Down',
+          bossBonus,
+          3,
+        );
       }
 
       loadout = this.weaponSystem.getLoadoutState();
@@ -596,6 +634,7 @@ export class Game {
       coopSession: this.coopSession,
       coopStats: this.coopStats,
       ride,
+      boss: this.bossSystem.getSnapshot(),
       elapsedSeconds: this.spawnSystem.elapsedSeconds,
       radarContacts: ride
         ? this.limitRadarContacts(
@@ -672,6 +711,8 @@ export class Game {
     return (
       pickupEvent.type === 'shotgun' ||
       pickupEvent.type === 'shotgunAmmo' ||
+      pickupEvent.type === 'assaultRifle' ||
+      pickupEvent.type === 'rifleAmmo' ||
       pickupEvent.type === 'bazooka' ||
       pickupEvent.type === 'weaponBoost'
     );
@@ -727,6 +768,56 @@ export class Game {
     this.inputSystem.setReloadJammed(this.reloadJamTimer > 0);
   }
 
+  private updateJumpState(deltaTime: number): void {
+    this.jumpTimer = Math.max(0, this.jumpTimer - deltaTime);
+  }
+
+  private triggerRampJump(): void {
+    const duration = GAME_CONFIG.world.ramp.jumpDuration;
+    if (this.jumpTimer > duration * 0.35) {
+      return;
+    }
+
+    this.jumpTimer = duration;
+    this.roadCameraShake = Math.max(this.roadCameraShake, GAME_CONFIG.world.ramp.cameraKick);
+    this.laneCutJolt = Math.max(this.laneCutJolt, 0.34);
+  }
+
+  private getJumpRatio(): number {
+    if (this.jumpTimer <= 0) {
+      return 0;
+    }
+
+    return clamp(
+      1 - this.jumpTimer / Math.max(GAME_CONFIG.world.ramp.jumpDuration, 0.001),
+      0,
+      1,
+    );
+  }
+
+  private getJumpHeight(): number {
+    const ratio = this.getJumpRatio();
+    return Math.sin(ratio * Math.PI) * GAME_CONFIG.world.ramp.jumpHeight;
+  }
+
+  private applyWeaponDamageToBoss(previousPulse: number): void {
+    const nextPulse = this.weaponSystem.getActiveWeaponFirePulseValue();
+    const pulseDelta = Math.max(0, nextPulse - previousPulse);
+    if (pulseDelta <= 0 || !this.bossSystem.isActive()) {
+      return;
+    }
+
+    const weapon = this.weaponSystem.getActiveWeaponKind();
+    const damaged = this.bossSystem.applyDamageFromCamera(
+      this.rendererSystem.camera,
+      weapon,
+      this.weaponSystem.getBossDamagePerShot(weapon) * pulseDelta,
+    );
+    if (damaged) {
+      this.roadAimShake = Math.max(this.roadAimShake, 0.006);
+    }
+  }
+
   private updateGunnerStats(previousAmmo: number, previousKills: number): void {
     const nextStatus = this.weaponSystem.getStatus(this.playerSystem);
     const shotsFired = Math.max(0, previousAmmo - nextStatus.ammoInMagazine);
@@ -767,6 +858,7 @@ export class Game {
       },
       stats: { ...this.coopStats },
       presentation: this.weaponSystem.getPresentationState(this.coopSession.role),
+      boss: this.bossSystem.getSnapshot(),
     };
     this.networkSystem.sendSnapshot(snapshot);
   }
@@ -910,9 +1002,23 @@ export class Game {
     },
   ): RideState {
     const latchActive = this.enemySystem.hasLatchedRunner();
+    const jumpRatio = this.getJumpRatio();
+    const jumpHeight = this.getJumpHeight();
+    const setpiece =
+      jumpHeight > 0
+        ? 'rampJump'
+        : this.bossSystem.isActive()
+          ? 'bossApproach'
+          : baseRide.activeEvent === 'slipperyRoad'
+            ? 'rainstorm'
+            : baseRide.setpiece;
     return {
       ...baseRide,
       supportCue: this.driverSystem.getSupportCue() ?? baseRide.supportCue,
+      setpiece,
+      jumpActive: jumpHeight > 0,
+      jumpRatio,
+      jumpHeight,
       worldX: this.playerSystem.state.strafeX || baseRide.worldX,
       laneRequestActive: laneRequestState.active,
       laneRequestDirection: laneRequestState.direction,
@@ -920,7 +1026,8 @@ export class Game {
       handlingPenalty: clamp(
         baseRide.handlingPenalty +
           this.roadHandlingPenalty +
-          (this.pickupHandlingTimer > 0 ? 0.18 : 0),
+          (this.pickupHandlingTimer > 0 ? 0.18 : 0) +
+          (baseRide.activeEvent === 'slipperyRoad' ? GAME_CONFIG.rain.brakePenalty : 0),
         0,
         0.92,
       ),
@@ -936,6 +1043,7 @@ export class Game {
         baseRide.cameraShake +
         this.roadCameraShake +
         (this.pickupHandlingTimer > 0 ? 0.018 : 0) +
+        (jumpHeight > 0 ? 0.01 : 0) +
         (latchActive ? GAME_CONFIG.ride.latchCameraShake : 0),
       latchActive,
       latchWiggle: this.latchEscapeProgress,
@@ -952,6 +1060,7 @@ export class Game {
         (baseRide.activeEvent === 'blackoutStretch'
           ? GAME_CONFIG.pacing.events.blackoutRadarMultiplier
           : 1) *
+        (baseRide.activeEvent === 'slipperyRoad' ? 0.84 : 1) *
         (this.pickupFogTimer > 0 ? 0.62 : 1),
       laneThreats,
     };
@@ -1195,6 +1304,7 @@ export class Game {
     this.spawnSystem.reset();
     this.worldSystem.reset();
     this.pickupSystem.reset();
+    this.bossSystem.reset();
     this.roadHandlingPenalty = 0;
     this.roadAimShake = 0;
     this.roadCameraShake = 0;
@@ -1213,6 +1323,7 @@ export class Game {
     this.pickupFogTimer = 0;
     this.decoyTimer = 0;
     this.weaponBoostTimer = 0;
+    this.jumpTimer = 0;
     this.inputSystem.setReloadJammed(false);
     this.resetCoopStats();
     this.syncStallLoop(false);
@@ -1449,6 +1560,11 @@ export class Game {
         return {
           title: 'BAD BARREL CALL',
           body: 'Something explosive joined the conversation and ended it badly.',
+        };
+      case 'bossProjectile':
+        return {
+          title: 'AIRSTRIKE DIRECT HIT',
+          body: 'The airborne boss painted the lane first. The bike stayed in the red zone.',
         };
       case 'road':
         return {

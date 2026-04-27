@@ -1,4 +1,5 @@
 import type {
+  BossSnapshot,
   CoopRunStats,
   CoopSessionState,
   GameStateType,
@@ -24,6 +25,7 @@ const WEAPON_ART: Record<WeaponStatus['weaponType'], string> = {
   pistol: '/ui/weapons/pistol.png',
   shotgun: '/ui/weapons/shotgun.png',
   bazooka: '/ui/weapons/bazooka.png',
+  assaultRifle: '/ui/weapons/pistol_glock.png',
 };
 const GUNNER_HANDGUN_HUD_ART = '/ui/weapons/pistol_glock.png';
 
@@ -58,6 +60,7 @@ type HUDSnapshot = {
   coopSession: CoopSessionState;
   coopStats: CoopRunStats;
   ride: RideState | null;
+  boss: BossSnapshot;
   elapsedSeconds: number;
   radarContacts: RadarContact[];
 };
@@ -187,6 +190,11 @@ export class UISystem {
   private readonly radarCaret = document.createElement('div');
   private readonly segmentChip = document.createElement('div');
   private readonly eventChip = document.createElement('div');
+  private readonly bossHud = document.createElement('div');
+  private readonly bossTitle = document.createElement('div');
+  private readonly bossMeta = document.createElement('div');
+  private readonly bossFill = document.createElement('div');
+  private readonly rainOverlay = document.createElement('div');
   private readonly buffPanel = document.createElement('div');
   private readonly adrenalineBuff = document.createElement('div');
   private readonly nitroBuff = document.createElement('div');
@@ -351,6 +359,16 @@ export class UISystem {
 
     this.segmentChip.className = 'segment-chip';
     this.eventChip.className = 'event-chip';
+    this.bossHud.className = 'boss-hud';
+    this.bossTitle.className = 'boss-title';
+    this.bossMeta.className = 'boss-meta';
+    const bossBar = document.createElement('div');
+    bossBar.className = 'boss-bar';
+    this.bossFill.className = 'boss-fill';
+    bossBar.append(this.bossFill);
+    this.bossHud.append(this.bossTitle, bossBar, this.bossMeta);
+    this.bossHud.hidden = true;
+    this.rainOverlay.className = 'rain-overlay';
     this.buffPanel.className = 'buff-panel';
     this.adrenalineBuff.className = 'buff-chip';
     this.adrenalineBuff.dataset.buff = 'adrenaline';
@@ -501,7 +519,7 @@ export class UISystem {
     hudTop.append(this.rewardHud, this.radarPanel, this.statsPanel);
     this.buffPanel.append(this.adrenalineBuff, this.nitroBuff);
     this.segmentChip.hidden = true;
-    hudMiddle.append(this.eventChip, this.buffPanel);
+    hudMiddle.append(this.bossHud, this.eventChip, this.buffPanel);
     hudBottom.append(leftPanel, this.ammoPanel);
     hud.append(hudTop, hudMiddle, hudBottom);
 
@@ -605,6 +623,7 @@ export class UISystem {
     this.overlayMenuCreateRoomButton.className = 'overlay-menu-toggle overlay-menu-toggle--coop';
     this.overlayMenuCreateRoomButton.type = 'button';
     this.overlayMenuCreateRoomButton.textContent = 'Create Room';
+    this.overlayMenuCreateRoomButton.title = 'Create room as Gunner';
     this.overlayMenuJoinRoomButton.className = 'overlay-menu-toggle overlay-menu-toggle--coop';
     this.overlayMenuJoinRoomButton.type = 'button';
     this.overlayMenuJoinRoomButton.textContent = 'Join Room';
@@ -834,6 +853,7 @@ export class UISystem {
       this.rewardCallout,
       this.reloadHint,
       this.crosshair,
+      this.rainOverlay,
       this.vignette,
       this.overlay,
     );
@@ -942,7 +962,8 @@ export class UISystem {
     this.setDataset(this.root, 'coopConnection', session.connection);
     this.setDataset(this.root, 'coopHost', session.isHost ? 'true' : 'false');
     this.setDataset(this.root, 'coopPeerConnected', session.peerConnected ? 'true' : 'false');
-    this.overlayMenuCreateRoomButton.textContent = `Create Room - ${this.formatRoleLabel(this.selectedRole)}`;
+    this.overlayMenuCreateRoomButton.textContent = 'Create Room';
+    this.overlayMenuCreateRoomButton.title = `Create room as ${this.formatRoleLabel(this.selectedRole)}`;
     this.overlayMenuJoinRoomButton.textContent = `Join As ${this.formatRoleLabel(this.selectedRole)}`;
     const roomButtonsEnabled = session.connection !== 'connecting';
     this.overlayMenuCreateRoomButton.dataset.enabled = roomButtonsEnabled ? 'true' : 'false';
@@ -1164,6 +1185,33 @@ export class UISystem {
     this.setText(this.eventChip, this.getEventLabel(activeEvent));
     this.setDataset(this.eventChip, 'event', activeEvent);
     this.setDataset(this.eventChip, 'visible', eventVisible ? 'true' : 'false');
+    const bossVisible = snapshot.boss.status !== 'inactive';
+    this.bossHud.hidden = !bossVisible;
+    this.setDataset(this.bossHud, 'status', snapshot.boss.status);
+    if (bossVisible) {
+      this.setText(
+        this.bossTitle,
+        snapshot.boss.status === 'defeated'
+          ? 'AIRBORNE BOSS DOWN'
+          : `AIRBORNE BOSS L${snapshot.boss.level}`,
+      );
+      this.setText(
+        this.bossMeta,
+        snapshot.boss.status === 'approach'
+          ? 'INCOMING'
+          : snapshot.boss.status === 'retreating'
+            ? 'RETREATING'
+            : snapshot.boss.status === 'defeated'
+              ? 'BONUS SECURED'
+              : `PHASE ${snapshot.boss.phase}`,
+      );
+      this.setTransformStyle(
+        this.bossFill,
+        `scaleX(${Math.max(0, Math.min(1, snapshot.boss.healthRatio)).toFixed(3)})`,
+      );
+    }
+    const rainVisible = snapshot.ride?.activeEvent === 'slipperyRoad';
+    this.setDataset(this.rainOverlay, 'visible', rainVisible ? 'true' : 'false');
     this.buffPanel.hidden = snapshot.player.nitroTimer <= 0;
     this.adrenalineBuff.hidden = true;
     this.nitroBuff.hidden = snapshot.player.nitroTimer <= 0;
@@ -1530,10 +1578,10 @@ export class UISystem {
 
     if (snapshot.ride?.activeEvent === 'slipperyRoad') {
       return {
-        key: 'event:slippery',
+        key: 'event:rain',
         mood: 'observing',
-        label: 'The road has betrayed us. Expect elegance to drop sharply.',
-        speaker: 'Driver  Unimpressed',
+        label: 'Rain just turned the road into soap. Brake early, steer clean.',
+        speaker: 'Driver  Weather Complaint',
         intent: 'event',
         showTimer: false,
         timerRatio: 0,
@@ -1670,7 +1718,7 @@ export class UISystem {
       return 'BERSERK WAVE';
     }
     if (eventType === 'slipperyRoad') {
-      return 'SLIPPERY ROAD';
+      return 'RAIN SLICK';
     }
     if (eventType === 'blackoutStretch') {
       return 'BLACKOUT';
@@ -1773,7 +1821,8 @@ export class UISystem {
     this.selectedRole = role;
     this.overlayMenuGunnerRoleButton.dataset.selected = role === 'gunner' ? 'true' : 'false';
     this.overlayMenuDriverRoleButton.dataset.selected = role === 'driver' ? 'true' : 'false';
-    this.overlayMenuCreateRoomButton.textContent = `Create Room - ${this.formatRoleLabel(role)}`;
+    this.overlayMenuCreateRoomButton.textContent = 'Create Room';
+    this.overlayMenuCreateRoomButton.title = `Create room as ${this.formatRoleLabel(role)}`;
     this.overlayMenuJoinRoomButton.textContent = `Join As ${this.formatRoleLabel(role)}`;
     if (emit) {
       this.onRoleSelect?.(role);

@@ -44,6 +44,7 @@ type ObstacleRecord = ActiveObstacle & {
   wreckVisualRoot: Group;
   brokenLaneVariant: Group;
   potholeVariant: Group;
+  rampVariant: Group;
   barrelVariant: Group;
   barrelVisualRoot: Group;
   barrelMarker: Sprite;
@@ -130,6 +131,7 @@ export class WorldSystem {
   private currentSegment: RunSegment = 'rest';
   private nextObstacleZ = -28;
   private nextBarrelEligibleZ = -86;
+  private nextRampEligibleZ = -142;
   private pendingGateSpawnZ: number | null = null;
   private pendingGateType: ObstacleType | null = null;
   private pendingGateLanes: number[] = [];
@@ -162,6 +164,7 @@ export class WorldSystem {
     this.currentSegment = 'rest';
     this.nextObstacleZ = -28;
     this.nextBarrelEligibleZ = -86;
+    this.nextRampEligibleZ = -142;
     this.pendingGateSpawnZ = null;
     this.pendingGateType = null;
     this.pendingGateLanes = [];
@@ -198,6 +201,7 @@ export class WorldSystem {
     playerX: number,
     forwardSpeed: number,
     segment: RunSegment,
+    jumpActive = false,
   ): WorldImpactResult {
     this.time += deltaTime;
     this.currentSegment = segment;
@@ -246,6 +250,16 @@ export class WorldSystem {
       const closeEnoughInX =
         Math.abs(obstacle.mesh.position.x - playerX) <
         obstacle.width * 0.5 + this.config.player.collisionRadius;
+
+      if (
+        jumpActive &&
+        obstacle.type !== 'ramp' &&
+        !obstacle.blocksLane &&
+        closeEnoughInZ &&
+        closeEnoughInX
+      ) {
+        continue;
+      }
 
       if (!obstacle.hasHitPlayer && closeEnoughInZ && closeEnoughInX) {
         obstacle.hasHitPlayer = true;
@@ -959,6 +973,7 @@ export class WorldSystem {
       const { group: wreckVariant, visualRoot: wreckVisualRoot } = this.createWreckVariant();
       const brokenLaneVariant = this.createBrokenLaneVariant();
       const potholeVariant = this.createPotholeVariant();
+      const rampVariant = this.createRampVariant();
       const {
         group: barrelVariant,
         visualRoot: barrelVisualRoot,
@@ -972,6 +987,7 @@ export class WorldSystem {
         wreckVariant,
         brokenLaneVariant,
         potholeVariant,
+        rampVariant,
         barrelVariant,
       );
       this.worldRoot.add(mesh);
@@ -1002,6 +1018,7 @@ export class WorldSystem {
         wreckVisualRoot,
         brokenLaneVariant,
         potholeVariant,
+        rampVariant,
         barrelVariant,
         barrelVisualRoot,
         barrelMarker,
@@ -1106,6 +1123,45 @@ export class WorldSystem {
     inner.position.y = -0.02;
     inner.scale.set(1.2, 0.01, 1.7);
     group.add(inner);
+
+    return group;
+  }
+
+  private createRampVariant(): Group {
+    const group = new Group();
+    group.visible = false;
+
+    const deckMaterial = new MeshStandardMaterial({
+      color: 0x5c4733,
+      flatShading: true,
+      roughness: 0.9,
+      metalness: 0.05,
+    });
+    const stripeMaterial = new MeshStandardMaterial({
+      color: 0xff9f38,
+      flatShading: true,
+      roughness: 0.82,
+      metalness: 0,
+    });
+
+    const deck = new Mesh(ROAD_BLOCK_GEOMETRY, deckMaterial);
+    deck.position.set(0, 0.2, 0);
+    deck.rotation.x = -0.28;
+    deck.scale.set(3.2, 0.22, 2.9);
+    group.add(deck);
+
+    for (let index = 0; index < 3; index += 1) {
+      const stripe = new Mesh(ROAD_BLOCK_GEOMETRY, stripeMaterial);
+      stripe.position.set(-1.05 + index * 1.05, 0.42, -0.55);
+      stripe.rotation.x = -0.28;
+      stripe.scale.set(0.18, 0.04, 1.9);
+      group.add(stripe);
+    }
+
+    const lip = new Mesh(ROAD_BLOCK_GEOMETRY, stripeMaterial);
+    lip.position.set(0, 0.58, -1.36);
+    lip.scale.set(3.4, 0.08, 0.16);
+    group.add(lip);
 
     return group;
   }
@@ -1247,8 +1303,12 @@ export class WorldSystem {
         : this.config.world.barrel.spawnChance;
     const canSpawnBarrel =
       !gateSlot && spawnZ <= this.nextBarrelEligibleZ && Math.random() < barrelChance;
+    const canSpawnRamp =
+      !gateSlot &&
+      spawnZ <= this.nextRampEligibleZ &&
+      Math.random() < this.config.world.ramp.spawnChance;
 
-    let type = gateSlot?.type ?? (canSpawnBarrel ? 'barrel' : this.chooseHazardType());
+    let type = gateSlot?.type ?? (canSpawnRamp ? 'ramp' : canSpawnBarrel ? 'barrel' : this.chooseHazardType());
     let laneIndex = gateSlot?.laneIndex ?? this.pickLaneIndexForType(type, spawnZ);
 
     if (this.wouldSealAllLanes(type, laneIndex, spawnZ)) {
@@ -1288,6 +1348,12 @@ export class WorldSystem {
           this.config.world.barrel.spawnSpacingMin,
           this.config.world.barrel.spawnSpacingMax,
         );
+    } else if (type === 'ramp') {
+      this.nextRampEligibleZ =
+        spawnZ - randomRange(
+          this.config.world.ramp.spawnSpacingMin,
+          this.config.world.ramp.spawnSpacingMax,
+        );
     }
   }
 
@@ -1303,6 +1369,7 @@ export class WorldSystem {
       { type: 'car', weight: 0.76 + chaosBonus * 0.42 },
       { type: 'wreck', weight: 0.58 + chaosBonus * 0.24 },
       { type: 'brokenLane', weight: this.config.world.brokenLane.spawnWeight + chaosBonus * 0.08 },
+      { type: 'pothole', weight: this.config.world.pothole.spawnWeight + darkBonus * 0.08 },
     ];
     const totalWeight = weights.reduce((sum, entry) => sum + entry.weight, 0);
     let roll = Math.random() * totalWeight;
@@ -1396,6 +1463,7 @@ export class WorldSystem {
     obstacle.wreckVariant.visible = type === 'wreck';
     obstacle.brokenLaneVariant.visible = type === 'brokenLane';
     obstacle.potholeVariant.visible = type === 'pothole';
+    obstacle.rampVariant.visible = type === 'ramp';
     obstacle.barrelVariant.visible = type === 'barrel';
     obstacle.barrelMarker.visible = type === 'barrel';
 
@@ -1466,6 +1534,18 @@ export class WorldSystem {
       obstacle.handlingPenalty = this.config.world.pothole.handlingPenalty;
       obstacle.aimShake = this.config.world.pothole.aimShake;
       obstacle.threatScore = 1.12;
+      obstacle.blocksLane = false;
+      obstacle.mesh.rotation.set(0, 0, 0);
+      return;
+    }
+
+    if (type === 'ramp') {
+      obstacle.width = this.config.world.ramp.width;
+      obstacle.depth = this.config.world.ramp.depth;
+      obstacle.damage = 0;
+      obstacle.handlingPenalty = 0;
+      obstacle.aimShake = this.config.world.ramp.cameraKick;
+      obstacle.threatScore = -0.65;
       obstacle.blocksLane = false;
       obstacle.mesh.rotation.set(0, 0, 0);
       return;
@@ -1955,6 +2035,9 @@ export class WorldSystem {
   }
 
   private getObstacleReaction(type: ObstacleType) {
+    if (type === 'ramp') {
+      return 'rampJump' as const;
+    }
     if (type === 'brokenLane') {
       return 'brokenLane' as const;
     }

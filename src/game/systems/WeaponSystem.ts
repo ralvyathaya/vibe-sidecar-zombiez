@@ -19,22 +19,27 @@ import type { InputSystem } from './InputSystem';
 import type { PlayerSystem } from './PlayerSystem';
 import type { RewardSystem } from './RewardSystem';
 import type { WorldSystem } from './WorldSystem';
+import { AssaultRifleWeapon } from '../weapons/AssaultRifleWeapon';
 
 export class WeaponSystem {
+  private readonly assaultRifleWeapon: AssaultRifleWeapon;
   private readonly bazookaWeapon: BazookaWeapon;
   private readonly pistolWeapon: PistolWeapon;
   private readonly shotgunWeapon: ShotgunWeapon;
   private activeWeapon: WeaponKind = 'pistol';
   private shotgunUnlocked = false;
-  private bazookaRestoreWeapon: Extract<WeaponKind, 'pistol' | 'shotgun'> = 'pistol';
+  private assaultRifleUnlocked = false;
+  private bazookaRestoreWeapon: Extract<WeaponKind, 'pistol' | 'shotgun' | 'assaultRifle'> = 'pistol';
   private weaponPolicy: WeaponPolicy = 'full';
   private driverPistolStanceTimer = 0;
   private readonly driverPistolStanceHoldSeconds = 1.45;
 
   constructor(camera: Camera, private readonly config: GameConfig) {
+    this.assaultRifleWeapon = new AssaultRifleWeapon(camera, config);
     this.bazookaWeapon = new BazookaWeapon(camera, config);
     this.pistolWeapon = new PistolWeapon(camera, config);
     this.shotgunWeapon = new ShotgunWeapon(camera, config);
+    this.assaultRifleWeapon.setEquipped(false);
     this.bazookaWeapon.setEquipped(false);
     this.pistolWeapon.setEquipped(true);
     this.shotgunWeapon.setEquipped(false);
@@ -43,9 +48,12 @@ export class WeaponSystem {
   reset(player: PlayerSystem): void {
     this.activeWeapon = 'pistol';
     this.shotgunUnlocked = false;
+    this.assaultRifleUnlocked = false;
     this.bazookaRestoreWeapon = 'pistol';
     this.driverPistolStanceTimer = 0;
     this.applyPistolViewmodelPolicy();
+    this.assaultRifleWeapon.reset();
+    this.assaultRifleWeapon.setEquipped(false);
     this.bazookaWeapon.reset();
     this.bazookaWeapon.setEquipped(false);
     this.pistolWeapon.reset(player);
@@ -60,9 +68,11 @@ export class WeaponSystem {
 
     if (this.config.debug.developmentWeapons) {
       this.shotgunUnlocked = true;
+      this.assaultRifleUnlocked = true;
       this.shotgunWeapon.setAmmo(this.config.shotgun.maxAmmo);
+      this.assaultRifleWeapon.grantInitialAmmo();
       this.bazookaWeapon.setAmmo(this.config.bazooka.maxAmmo);
-      this.bazookaRestoreWeapon = 'shotgun';
+      this.bazookaRestoreWeapon = 'assaultRifle';
       this.equipBazooka(player);
     }
   }
@@ -79,6 +89,7 @@ export class WeaponSystem {
       if (this.activeWeapon !== 'pistol') {
         this.equipPistol(player);
       }
+      this.assaultRifleWeapon.updateIdle(deltaTime);
       this.bazookaWeapon.updateBackground(deltaTime, player, enemies, world, rewards);
       this.pistolWeapon.updateRunning(deltaTime, input, player, enemies, world, rewards);
       return;
@@ -102,11 +113,20 @@ export class WeaponSystem {
       return;
     }
 
+    if (this.activeWeapon === 'assaultRifle') {
+      this.assaultRifleWeapon.updateRunning(deltaTime, input, player, enemies, world, rewards);
+      if (!this.assaultRifleWeapon.hasAmmoAvailable() && !this.assaultRifleWeapon.isRecentlyFiring()) {
+        this.equipPistol(player);
+      }
+      return;
+    }
+
     this.pistolWeapon.updateRunning(deltaTime, input, player, enemies, world, rewards);
   }
 
   updateIdle(deltaTime: number): void {
     this.updateDriverPistolStance(deltaTime, false);
+    this.assaultRifleWeapon.updateIdle(deltaTime);
     this.bazookaWeapon.updateIdle(deltaTime);
     this.pistolWeapon.updateIdle(deltaTime);
     this.shotgunWeapon.updateIdle(deltaTime);
@@ -125,6 +145,10 @@ export class WeaponSystem {
       return this.shotgunWeapon.getStatus();
     }
 
+    if (this.activeWeapon === 'assaultRifle') {
+      return this.assaultRifleWeapon.getStatus();
+    }
+
     return this.pistolWeapon.getStatus(player);
   }
 
@@ -135,6 +159,32 @@ export class WeaponSystem {
 
     if (pickup.type === 'bazooka') {
       this.applyBazookaPickup(player);
+      return;
+    }
+
+    if (pickup.type === 'assaultRifle') {
+      this.assaultRifleUnlocked = true;
+      this.assaultRifleWeapon.grantInitialAmmo();
+      if (this.activeWeapon === 'bazooka') {
+        this.bazookaRestoreWeapon = 'assaultRifle';
+      } else {
+        this.equipAssaultRifle(player);
+      }
+      return;
+    }
+
+    if (pickup.type === 'rifleAmmo') {
+      this.assaultRifleUnlocked = true;
+      this.assaultRifleWeapon.addReserveAmmo(pickup.ammo || this.config.assaultRifle.pickupAmmo);
+      if (this.activeWeapon === 'bazooka') {
+        if (this.assaultRifleWeapon.hasAmmoAvailable()) {
+          this.bazookaRestoreWeapon = 'assaultRifle';
+        }
+        return;
+      }
+      if (this.assaultRifleWeapon.hasAmmoAvailable() && this.activeWeapon !== 'shotgun') {
+        this.equipAssaultRifle(player);
+      }
       return;
     }
 
@@ -178,6 +228,8 @@ export class WeaponSystem {
         shotgunUnlocked: false,
         shotgunAmmo: 0,
         bazookaAmmo: 0,
+        assaultRifleUnlocked: false,
+        rifleAmmo: 0,
       };
     }
 
@@ -186,10 +238,13 @@ export class WeaponSystem {
       shotgunUnlocked: this.shotgunUnlocked,
       shotgunAmmo: this.shotgunWeapon.getAmmo(),
       bazookaAmmo: this.bazookaWeapon.getAmmo(),
+      assaultRifleUnlocked: this.assaultRifleUnlocked,
+      rifleAmmo: this.assaultRifleWeapon.getReserveAmmo(),
     };
   }
 
   destroy(): void {
+    this.assaultRifleWeapon.destroy();
     this.bazookaWeapon.destroy();
     this.pistolWeapon.destroy();
     this.shotgunWeapon.destroy();
@@ -211,7 +266,10 @@ export class WeaponSystem {
     this.pistolWeapon.setPresentationVisible(policy !== 'pistolOnly');
     if (policy === 'pistolOnly' && player) {
       this.shotgunUnlocked = false;
+      this.assaultRifleUnlocked = false;
       this.shotgunWeapon.setAmmo(0);
+      this.assaultRifleWeapon.reset();
+      this.assaultRifleWeapon.setEquipped(false);
       this.bazookaWeapon.setAmmo(0);
       this.bazookaRestoreWeapon = 'pistol';
       this.equipPistol(player);
@@ -262,6 +320,9 @@ export class WeaponSystem {
     if (target === 'bazookaViewmodel' || target === 'gunnerBazookaViewmodel') {
       return this.bazookaWeapon.getDebugViewmodelTransform();
     }
+    if (target === 'armsAnchor') {
+      return this.assaultRifleWeapon.getDebugViewmodelTransform();
+    }
     return null;
   }
 
@@ -283,6 +344,10 @@ export class WeaponSystem {
     }
     if (target === 'bazookaViewmodel' || target === 'gunnerBazookaViewmodel') {
       this.bazookaWeapon.setDebugViewmodelTransform(snapshot);
+      return;
+    }
+    if (target === 'armsAnchor') {
+      this.assaultRifleWeapon.setDebugViewmodelTransform(snapshot);
     }
   }
 
@@ -300,11 +365,36 @@ export class WeaponSystem {
     if (target === 'bazookaViewmodel' || target === 'gunnerBazookaViewmodel') {
       return this.bazookaWeapon.resetDebugViewmodelTransform();
     }
+    if (target === 'armsAnchor') {
+      return this.assaultRifleWeapon.resetDebugViewmodelTransform();
+    }
     return null;
+  }
+
+  getActiveWeaponKind(): WeaponKind {
+    return this.weaponPolicy === 'pistolOnly' ? 'pistol' : this.activeWeapon;
+  }
+
+  getActiveWeaponFirePulseValue(): number {
+    return this.getActiveWeaponFirePulse(this.getActiveWeaponKind());
+  }
+
+  getBossDamagePerShot(weapon = this.getActiveWeaponKind()): number {
+    if (weapon === 'bazooka') {
+      return this.config.bazooka.tankDamage;
+    }
+    if (weapon === 'shotgun') {
+      return this.config.shotgun.damagePerPellet * this.config.shotgun.pelletsPerShot * 0.45;
+    }
+    if (weapon === 'assaultRifle') {
+      return this.config.assaultRifle.bossDamagePerShot;
+    }
+    return this.config.weapon.damagePerShot;
   }
 
   private equipPistol(player: PlayerSystem): void {
     this.activeWeapon = 'pistol';
+    this.assaultRifleWeapon.setEquipped(false);
     this.bazookaWeapon.setEquipped(false);
     this.shotgunWeapon.setEquipped(false);
     this.pistolWeapon.setEquipped(true);
@@ -320,6 +410,7 @@ export class WeaponSystem {
   private equipShotgun(player: PlayerSystem): void {
     const wasShotgun = this.activeWeapon === 'shotgun';
     this.activeWeapon = 'shotgun';
+    this.assaultRifleWeapon.setEquipped(false);
     this.bazookaWeapon.setEquipped(false);
     this.pistolWeapon.cancelReload(player);
     this.pistolWeapon.setEquipped(false);
@@ -327,6 +418,16 @@ export class WeaponSystem {
     if (!wasShotgun) {
       this.shotgunWeapon.playEquipIntro();
     }
+  }
+
+  private equipAssaultRifle(player: PlayerSystem): void {
+    this.activeWeapon = 'assaultRifle';
+    this.bazookaWeapon.setEquipped(false);
+    this.shotgunWeapon.setEquipped(false);
+    this.pistolWeapon.cancelReload(player);
+    this.pistolWeapon.setEquipped(false);
+    this.assaultRifleWeapon.setEquipped(true);
+    player.state.reloading = false;
   }
 
   private applyBazookaPickup(player: PlayerSystem): void {
@@ -339,6 +440,7 @@ export class WeaponSystem {
 
   private equipBazooka(player: PlayerSystem): void {
     this.activeWeapon = 'bazooka';
+    this.assaultRifleWeapon.setEquipped(false);
     this.pistolWeapon.cancelReload(player);
     this.pistolWeapon.setEquipped(false);
     this.shotgunWeapon.setEquipped(false);
@@ -347,10 +449,14 @@ export class WeaponSystem {
   }
 
   private restoreAfterBazooka(player: PlayerSystem): void {
+    const shouldRestoreAssaultRifle =
+      this.bazookaRestoreWeapon === 'assaultRifle' && this.assaultRifleWeapon.hasAmmoAvailable();
     const shouldRestoreShotgun =
       this.bazookaRestoreWeapon === 'shotgun' && this.shotgunWeapon.getAmmo() > 0;
 
-    if (shouldRestoreShotgun) {
+    if (shouldRestoreAssaultRifle) {
+      this.equipAssaultRifle(player);
+    } else if (shouldRestoreShotgun) {
       this.equipShotgun(player);
     } else {
       this.equipPistol(player);
@@ -359,7 +465,11 @@ export class WeaponSystem {
     this.bazookaRestoreWeapon = 'pistol';
   }
 
-  private getWeaponToRestore(): Extract<WeaponKind, 'pistol' | 'shotgun'> {
+  private getWeaponToRestore(): Extract<WeaponKind, 'pistol' | 'shotgun' | 'assaultRifle'> {
+    if (this.activeWeapon === 'assaultRifle' && this.assaultRifleWeapon.hasAmmoAvailable()) {
+      return 'assaultRifle';
+    }
+
     if (this.activeWeapon === 'shotgun' && this.shotgunWeapon.getAmmo() > 0) {
       return 'shotgun';
     }
@@ -382,6 +492,9 @@ export class WeaponSystem {
     if (weapon === 'shotgun') {
       return this.shotgunWeapon.getFirePulse();
     }
+    if (weapon === 'assaultRifle') {
+      return this.assaultRifleWeapon.getFirePulse();
+    }
     return this.pistolWeapon.getFirePulse();
   }
 
@@ -391,6 +504,9 @@ export class WeaponSystem {
     }
     if (weapon === 'shotgun') {
       return this.shotgunWeapon.isRecentlyFiring();
+    }
+    if (weapon === 'assaultRifle') {
+      return this.assaultRifleWeapon.isRecentlyFiring();
     }
     return this.pistolWeapon.isRecentlyFiring();
   }

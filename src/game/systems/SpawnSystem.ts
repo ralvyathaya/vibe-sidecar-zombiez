@@ -17,6 +17,7 @@ export class SpawnSystem {
   private scriptedBerserkTriggered = false;
   private openingForcedWalkerSpawns = 3;
   private barrelClusterCooldown = 1.4;
+  private spawnPressureMultiplier = 1;
 
   constructor(private readonly config: GameConfig) {}
 
@@ -33,6 +34,11 @@ export class SpawnSystem {
     this.scriptedBerserkTriggered = false;
     this.openingForcedWalkerSpawns = 3;
     this.barrelClusterCooldown = 1.4;
+    this.spawnPressureMultiplier = 1;
+  }
+
+  setSpawnPressureMultiplier(multiplier: number): void {
+    this.spawnPressureMultiplier = Math.max(0.25, Math.min(1, multiplier));
   }
 
   notifyLatchResolved(): void {
@@ -74,6 +80,7 @@ export class SpawnSystem {
       ramp,
     ) *
       this.config.pacing.spawnIntervalMultiplier[segment] *
+      (1 / this.spawnPressureMultiplier) *
       (this.activeEvent === 'berserkWave'
         ? this.config.pacing.events.berserkSpawnMultiplier
         : 1);

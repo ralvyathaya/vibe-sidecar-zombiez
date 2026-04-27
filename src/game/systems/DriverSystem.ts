@@ -289,6 +289,7 @@ export class DriverSystem {
       segmentElapsed: this.segmentElapsed,
       segmentDuration: this.config.pacing.durations[this.segment],
       activeEvent: this.activeEvent,
+      setpiece: this.activeEvent === 'slipperyRoad' ? 'rainstorm' : 'normal',
       eventTimer: this.eventTimer,
       eventDuration: this.eventDuration,
       floorItMode: this.floorItTimer > 0 || (manualMode && this.manualBoostStrength > 0.04),
@@ -299,6 +300,9 @@ export class DriverSystem {
         this.engineTroubleTimer > 0
           ? (0.45 + engineTroubleAlpha * 0.55) * (1 + this.engineTroubleRoughness * 0.2)
           : 0,
+      jumpActive: false,
+      jumpRatio: 0,
+      jumpHeight: 0,
       laneCutJolt: 0,
       potholeJolt: 0,
       barrelJolt: 0,
