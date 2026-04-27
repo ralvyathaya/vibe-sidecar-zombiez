@@ -117,10 +117,12 @@ export class Game {
   private coopSession: CoopSessionState = {
     role: 'solo',
     selectedRole: 'gunner',
+    isHost: false,
     activeProfile: 'legacyGunner',
     connection: 'offline',
     roomCode: '',
     peerConnected: false,
+    peerRole: null,
     canStartRun: true,
     statusText: 'Solo with bot fallback',
     relayUrl: '',
@@ -1001,7 +1003,7 @@ export class Game {
       if (!this.coopSession.canStartRun) {
         this.uiSystem.setCoopSession({
           ...this.coopSession,
-          statusText: 'Waiting for host to start this room.',
+          statusText: this.getBlockedStartStatusText('start'),
         });
         return;
       }
@@ -1028,7 +1030,7 @@ export class Game {
     if (!this.coopSession.canStartRun) {
       this.uiSystem.setCoopSession({
         ...this.coopSession,
-        statusText: 'Waiting for host to restart this room.',
+        statusText: this.getBlockedStartStatusText('restart'),
       });
       return;
     }
@@ -1062,6 +1064,18 @@ export class Game {
     if (this.inputSystem.shouldUsePointerLock()) {
       this.inputSystem.requestPointerLock();
     }
+  }
+
+  private getBlockedStartStatusText(action: 'start' | 'restart'): string {
+    if (this.coopSession.isHost && !this.coopSession.peerConnected) {
+      return `Room ${this.coopSession.roomCode || ''} needs the other seat before ${action}.`;
+    }
+
+    if (!this.coopSession.isHost && this.coopSession.roomCode) {
+      return `Room owner starts the ${action === 'start' ? 'run' : 'retry'}.`;
+    }
+
+    return `Cannot ${action} from the current room state.`;
   }
 
   private startRunFromNetwork(seed: number): void {

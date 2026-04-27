@@ -850,10 +850,12 @@ export interface CoopRunStats {
 export interface CoopSessionState {
   role: CoopRole;
   selectedRole: GameplayRole;
+  isHost: boolean;
   activeProfile: ControlProfile;
   connection: CoopConnectionState;
   roomCode: string;
   peerConnected: boolean;
+  peerRole: GameplayRole | null;
   canStartRun: boolean;
   statusText: string;
   relayUrl: string;

@@ -254,6 +254,7 @@ export class UISystem {
   private mobileControlsEnabled = false;
   private selectedRole: GameplayRole = 'gunner';
   private menuPlayMode: MenuPlayMode = 'single';
+  private coopSession: CoopSessionState | null = null;
 
   constructor(host: HTMLElement) {
     this.root.className = 'ui-root';
@@ -641,6 +642,11 @@ export class UISystem {
       this.onJoinCoopRoom?.(this.overlayMenuRoomInput.value, this.selectedRole);
     });
     this.overlayMenuSoloButton.addEventListener('click', () => {
+      if (this.menuPlayMode === 'coop') {
+        this.onPrimaryAction?.();
+        return;
+      }
+
       this.onSinglePlayerAction?.();
     });
     this.overlayStateSfxToggle.addEventListener('click', () => {
@@ -925,23 +931,127 @@ export class UISystem {
   }
 
   setCoopSession(session: CoopSessionState): void {
-    this.setText(this.overlayMenuCoopStatus, session.statusText);
+    this.coopSession = { ...session };
+    this.renderCoopLobbyStatus(session);
     this.setSelectedRole(session.selectedRole, false);
     this.setDataset(this.root, 'coopRole', session.role);
     this.setDataset(this.root, 'selectedRole', session.selectedRole);
     this.setDataset(this.root, 'controlProfile', session.activeProfile);
     this.setDataset(this.root, 'coopConnection', session.connection);
+    this.setDataset(this.root, 'coopHost', session.isHost ? 'true' : 'false');
+    this.setDataset(this.root, 'coopPeerConnected', session.peerConnected ? 'true' : 'false');
     this.overlayMenuCreateRoomButton.textContent = `Create Room - ${this.formatRoleLabel(this.selectedRole)}`;
     this.overlayMenuJoinRoomButton.textContent = `Join As ${this.formatRoleLabel(this.selectedRole)}`;
-    this.overlayMenuCreateRoomButton.dataset.enabled =
-      session.canStartRun && session.connection !== 'offline' && session.connection !== 'fallback'
-        ? 'true'
-        : 'false';
-    this.overlayMenuJoinRoomButton.dataset.enabled =
-      session.connection === 'joined' || session.connection === 'connected' ? 'true' : 'false';
-    this.overlayMenuSoloButton.dataset.enabled = session.role === 'solo' ? 'true' : 'false';
+    const roomButtonsEnabled = session.connection !== 'connecting';
+    this.overlayMenuCreateRoomButton.dataset.enabled = roomButtonsEnabled ? 'true' : 'false';
+    this.overlayMenuJoinRoomButton.dataset.enabled = roomButtonsEnabled ? 'true' : 'false';
+    this.overlayMenuCreateRoomButton.disabled = !roomButtonsEnabled;
+    this.overlayMenuJoinRoomButton.disabled = !roomButtonsEnabled;
     if (session.roomCode && this.overlayMenuRoomInput.value !== session.roomCode) {
       this.overlayMenuRoomInput.value = session.roomCode;
+    }
+    this.syncMenuActionButton();
+  }
+
+  private renderCoopLobbyStatus(session: CoopSessionState): void {
+    this.overlayMenuCoopStatus.replaceChildren();
+
+    if (!session.roomCode) {
+      const line = document.createElement('div');
+      line.className = 'overlay-menu-lobby-line';
+      line.textContent = session.statusText;
+      this.overlayMenuCoopStatus.append(line);
+      return;
+    }
+
+    const header = document.createElement('div');
+    header.className = 'overlay-menu-lobby-header';
+
+    const label = document.createElement('span');
+    label.className = 'overlay-menu-lobby-label';
+    label.textContent = session.isHost ? 'Your Lobby' : 'Joined Lobby';
+
+    const code = document.createElement('span');
+    code.className = 'overlay-menu-lobby-code';
+    code.textContent = session.roomCode;
+    code.title = 'Room code';
+
+    header.append(label, code);
+
+    const slots = document.createElement('div');
+    slots.className = 'overlay-menu-lobby-slots';
+    slots.append(
+      this.createLobbySlot('driver', session),
+      this.createLobbySlot('gunner', session),
+    );
+
+    const line = document.createElement('div');
+    line.className = 'overlay-menu-lobby-line';
+    line.textContent = session.statusText;
+
+    this.overlayMenuCoopStatus.append(header, slots, line);
+  }
+
+  private createLobbySlot(role: GameplayRole, session: CoopSessionState): HTMLElement {
+    const slot = document.createElement('div');
+    slot.className = 'overlay-menu-lobby-slot';
+    slot.dataset.role = role;
+
+    const roleLabel = document.createElement('span');
+    roleLabel.className = 'overlay-menu-lobby-slot-role';
+    roleLabel.textContent = this.formatRoleLabel(role);
+
+    const state = document.createElement('span');
+    state.className = 'overlay-menu-lobby-slot-state';
+
+    if (session.role === role) {
+      slot.dataset.state = 'you';
+      state.textContent = 'You';
+    } else if (session.peerRole === role) {
+      slot.dataset.state = 'joined';
+      state.textContent = 'Joined';
+    } else {
+      slot.dataset.state = 'open';
+      state.textContent = 'Open';
+    }
+
+    slot.append(roleLabel, state);
+    return slot;
+  }
+
+  private syncMenuActionButton(): void {
+    if (this.menuPlayMode === 'single') {
+      this.overlayMenuSoloButton.hidden = false;
+      this.overlayMenuSoloButton.disabled = false;
+      this.overlayMenuSoloButton.textContent = 'Start Game';
+      this.overlayMenuSoloButton.dataset.enabled = 'true';
+      return;
+    }
+
+    const session = this.coopSession;
+    const hasRoom = Boolean(
+      session?.roomCode &&
+      session.connection !== 'offline' &&
+      session.connection !== 'error',
+    );
+
+    this.overlayMenuSoloButton.hidden = !hasRoom;
+    if (!session || !hasRoom) {
+      this.overlayMenuSoloButton.disabled = true;
+      this.overlayMenuSoloButton.dataset.enabled = 'false';
+      this.overlayMenuSoloButton.textContent = 'Start Co-op';
+      return;
+    }
+
+    const canStartCoop = session.isHost && session.peerConnected && session.canStartRun;
+    this.overlayMenuSoloButton.disabled = !canStartCoop;
+    this.overlayMenuSoloButton.dataset.enabled = canStartCoop ? 'true' : 'false';
+    if (canStartCoop) {
+      this.overlayMenuSoloButton.textContent = 'Start Co-op';
+    } else if (session.isHost) {
+      this.overlayMenuSoloButton.textContent = 'Waiting For Partner';
+    } else {
+      this.overlayMenuSoloButton.textContent = 'Waiting For Host';
     }
   }
 
@@ -1682,13 +1792,13 @@ export class UISystem {
     this.overlayMenuCoopModeButton.dataset.selected = mode === 'coop' ? 'true' : 'false';
     this.overlayMenuDriverRoleButton.disabled = mode === 'single';
     this.overlayMenuDriverRoleButton.dataset.locked = mode === 'single' ? 'singleplayer' : 'false';
-    this.overlayMenuSoloButton.hidden = mode !== 'single';
 
     if (mode === 'single') {
       this.setSelectedRole('gunner', emit);
     } else if (emit) {
       this.onRoleSelect?.(this.selectedRole);
     }
+    this.syncMenuActionButton();
   }
 
   private createMenuPoint(text: string): HTMLElement {

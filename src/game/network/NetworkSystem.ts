@@ -9,7 +9,7 @@ import type {
 
 type RelayEnvelope =
   | { type: 'created'; roomCode: string; role: CoopRole; seed: number }
-  | { type: 'joined'; roomCode: string; role: CoopRole; seed: number }
+  | { type: 'joined'; roomCode: string; role: CoopRole; peerRole?: GameplayRole | null; seed: number }
   | { type: 'peerJoined'; role: CoopRole }
   | { type: 'peerLeft' }
   | { type: 'input'; frame: RemoteInputFrame }
@@ -40,10 +40,12 @@ export class NetworkSystem {
   private session: CoopSessionState = {
     role: 'solo',
     selectedRole: 'gunner',
+    isHost: false,
     activeProfile: 'legacyGunner',
     connection: 'offline',
     roomCode: '',
     peerConnected: false,
+    peerRole: null,
     canStartRun: true,
     statusText: 'Solo with bot fallback',
     relayUrl: this.resolveRelayUrl(),
@@ -64,10 +66,12 @@ export class NetworkSystem {
     this.setSession({
       role,
       selectedRole: role,
+      isHost: false,
       activeProfile: this.profileForOnlineRole(role),
       connection: 'connecting',
       roomCode: '',
       peerConnected: false,
+      peerRole: null,
       canStartRun: false,
       statusText: 'Creating online room...',
     });
@@ -81,10 +85,12 @@ export class NetworkSystem {
       this.setSession({
         role,
         selectedRole: role,
+        isHost: false,
         activeProfile: this.profileForOnlineRole(role),
         connection: 'error',
         roomCode: normalizedCode,
         peerConnected: false,
+        peerRole: null,
         canStartRun: false,
         statusText: 'Room code must be 4-6 letters/numbers.',
       });
@@ -94,10 +100,12 @@ export class NetworkSystem {
     this.setSession({
       role,
       selectedRole: role,
+      isHost: false,
       activeProfile: this.profileForOnlineRole(role),
       connection: 'connecting',
       roomCode: normalizedCode,
       peerConnected: false,
+      peerRole: null,
       canStartRun: false,
       statusText: `Joining room ${normalizedCode}...`,
     });
@@ -110,10 +118,12 @@ export class NetworkSystem {
     this.setSession({
       role: 'solo',
       selectedRole: 'gunner',
+      isHost: false,
       activeProfile: 'legacyGunner',
       connection: 'fallback',
       roomCode: '',
       peerConnected: false,
+      peerRole: null,
       canStartRun: true,
       statusText: 'Solo with bot fallback',
     });
@@ -125,10 +135,12 @@ export class NetworkSystem {
     this.setSession({
       role,
       selectedRole: profile === 'driver' ? 'driver' : 'gunner',
+      isHost: false,
       activeProfile: profile,
       connection: 'fallback',
       roomCode: '',
       peerConnected: false,
+      peerRole: null,
       canStartRun: true,
       statusText: `Debug local profile: ${profile}`,
     });
@@ -206,6 +218,7 @@ export class NetworkSystem {
           this.setSession({
             connection: this.session.connection === 'offline' ? 'offline' : 'fallback',
             peerConnected: false,
+            peerRole: null,
             canStartRun: true,
             statusText: 'Relay disconnected. Continuing with bot fallback.',
           });
@@ -215,6 +228,7 @@ export class NetworkSystem {
           this.setSession({
             connection: 'fallback',
             peerConnected: false,
+            peerRole: null,
             canStartRun: true,
             statusText: 'Relay unavailable. Continuing with bot fallback.',
           });
@@ -224,6 +238,7 @@ export class NetworkSystem {
         this.setSession({
           connection: 'fallback',
           peerConnected: false,
+          peerRole: null,
           canStartRun: true,
           statusText: 'Relay unavailable. Continuing with bot fallback.',
         });
@@ -243,10 +258,12 @@ export class NetworkSystem {
       this.setSession({
         role: 'solo',
         selectedRole: 'gunner',
+        isHost: false,
         activeProfile: 'legacyGunner',
         connection: 'offline',
         roomCode: '',
         peerConnected: false,
+        peerRole: null,
         canStartRun: true,
         statusText: 'Solo with bot fallback',
       });
@@ -266,38 +283,44 @@ export class NetworkSystem {
         this.setSession({
           role: message.role,
           selectedRole: message.role === 'driver' ? 'driver' : 'gunner',
+          isHost: true,
           activeProfile: this.profileForOnlineRole(message.role === 'driver' ? 'driver' : 'gunner'),
           connection: 'hosting',
           roomCode: message.roomCode,
           peerConnected: false,
-          canStartRun: true,
-          statusText: `Room ${message.roomCode} ready. Share it with a gunner.`,
+          peerRole: null,
+          canStartRun: false,
+          statusText: `Lobby ${message.roomCode}. Share the code and wait for the empty slot.`,
         });
         break;
       case 'joined':
         this.setSession({
           role: message.role,
           selectedRole: message.role === 'driver' ? 'driver' : 'gunner',
+          isHost: false,
           activeProfile: this.profileForOnlineRole(message.role === 'driver' ? 'driver' : 'gunner'),
           connection: 'joined',
           roomCode: message.roomCode,
           peerConnected: true,
+          peerRole: message.peerRole ?? null,
           canStartRun: false,
-          statusText: `Joined ${message.roomCode}. Waiting for host start.`,
+          statusText: `Joined lobby ${message.roomCode}. Room owner starts the run.`,
         });
         break;
       case 'peerJoined':
         this.setSession({
           connection: 'connected',
           peerConnected: true,
-          canStartRun: this.session.canStartRun,
-          statusText: `${this.session.roomCode || 'Room'} connected: ${message.role.toUpperCase()} online.`,
+          peerRole: message.role === 'driver' ? 'driver' : 'gunner',
+          canStartRun: this.session.isHost,
+          statusText: `${this.session.roomCode || 'Room'} ready. Both seats are filled.`,
         });
         break;
       case 'peerLeft':
         this.setSession({
           connection: 'fallback',
           peerConnected: false,
+          peerRole: null,
           canStartRun: true,
           statusText: 'Partner left. Bot fallback is active.',
         });
@@ -319,6 +342,7 @@ export class NetworkSystem {
         this.setSession({
           connection: 'error',
           peerConnected: false,
+          peerRole: null,
           canStartRun: false,
           statusText: message.message,
         });

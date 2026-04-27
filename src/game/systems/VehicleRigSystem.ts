@@ -1,6 +1,7 @@
 import {
   AdditiveBlending,
   Box3,
+  BoxGeometry,
   Camera,
   CanvasTexture,
   ConeGeometry,
@@ -59,6 +60,15 @@ type WorldFireFlash = {
   light: PointLight;
 };
 
+type WorldFireTracer = {
+  group: Group;
+  material: MeshBasicMaterial;
+  beam: Mesh;
+  active: boolean;
+  life: number;
+  maxLife: number;
+};
+
 export class VehicleRigSystem {
   private static readonly WHEEL_BLUR_MIN_SPEED = 3.8;
   private static readonly WHEEL_BLUR_MAX_OPACITY = 1.0;
@@ -93,6 +103,10 @@ export class VehicleRigSystem {
   private readonly worldFireFlashes: Record<GameplayRole, WorldFireFlash> = {
     driver: this.createWorldFireFlash('DriverWorldMuzzleFlash'),
     gunner: this.createWorldFireFlash('GunnerWorldMuzzleFlash'),
+  };
+  private readonly worldFireTracers: Record<GameplayRole, WorldFireTracer[]> = {
+    driver: this.createWorldFireTracerPool('DriverWorldTracer'),
+    gunner: this.createWorldFireTracerPool('GunnerWorldTracer'),
   };
   private readonly baseRigOffset = new Vector3();
   private readonly baseModelPosition = new Vector3();
@@ -727,7 +741,7 @@ export class VehicleRigSystem {
 
   triggerRemoteFire(
     role: CoopRole,
-    _currentWeapon: NetworkWeaponKind,
+    currentWeapon: NetworkWeaponKind,
     firePulse: number,
   ): void {
     if (firePulse <= 0) {
@@ -743,18 +757,28 @@ export class VehicleRigSystem {
     const duration = this.config.vehicle.stage1Rig.posePulseDuration;
     this.poseTimers[presentationRole] = duration;
     this.muzzleTimers[presentationRole] = Math.min(duration, 0.12);
-    this.worldFireFlashes[presentationRole].group.visible = true;
+    if (presentationRole !== this.activeRole) {
+      this.worldFireFlashes[presentationRole].group.visible = true;
+      this.spawnWorldFireTracer(presentationRole, currentWeapon);
+    }
   }
 
   destroy(): void {
     this.vehicleRig.removeFromParent();
     this.worldFireFlashes.driver.group.removeFromParent();
     this.worldFireFlashes.gunner.group.removeFromParent();
+    for (const tracer of [...this.worldFireTracers.driver, ...this.worldFireTracers.gunner]) {
+      tracer.group.removeFromParent();
+    }
     this.disposeObject(this.loadedScene);
     this.wheelBlurTexture.dispose();
     for (const flash of Object.values(this.worldFireFlashes)) {
       flash.mesh.geometry.dispose();
       flash.material.dispose();
+    }
+    for (const tracer of [...this.worldFireTracers.driver, ...this.worldFireTracers.gunner]) {
+      tracer.beam.geometry.dispose();
+      tracer.material.dispose();
     }
   }
 
@@ -802,6 +826,9 @@ export class VehicleRigSystem {
     if (this.loadedScene) {
       this.worldFireFlashes.driver.group.removeFromParent();
       this.worldFireFlashes.gunner.group.removeFromParent();
+      for (const tracer of [...this.worldFireTracers.driver, ...this.worldFireTracers.gunner]) {
+        tracer.group.removeFromParent();
+      }
       this.modelRoot.remove(this.loadedScene);
       this.disposeObject(this.loadedScene);
     }
@@ -923,6 +950,8 @@ export class VehicleRigSystem {
 
     this.attachWorldFireFlash('driver');
     this.attachWorldFireFlash('gunner');
+    this.attachWorldFireTracers('driver');
+    this.attachWorldFireTracers('gunner');
     this.updatePosePulses(0);
   }
 
@@ -950,6 +979,23 @@ export class VehicleRigSystem {
         : this.config.vehicle.stage1Rig.gunnerWorldMuzzleOffset),
     );
     flash.group.visible = false;
+  }
+
+  private attachWorldFireTracers(role: GameplayRole): void {
+    const hand = this.poseBindings[role].hand?.node;
+    const parent = hand ?? this.modelRoot;
+    for (const tracer of this.worldFireTracers[role]) {
+      tracer.group.removeFromParent();
+      parent.add(tracer.group);
+      tracer.group.position.set(
+        ...(role === 'driver'
+          ? this.config.vehicle.stage1Rig.driverWorldMuzzleOffset
+          : this.config.vehicle.stage1Rig.gunnerWorldMuzzleOffset),
+      );
+      tracer.group.visible = false;
+      tracer.active = false;
+      tracer.life = 0;
+    }
   }
 
   private applyWheelSpin(): void {
@@ -994,6 +1040,7 @@ export class VehicleRigSystem {
         : 0;
       this.applyRoleFirePose(role, poseAlpha);
       this.updateWorldFireFlash(role, this.muzzleTimers[role] / duration);
+      this.updateWorldFireTracers(role, deltaTime);
     }
   }
 
@@ -1057,6 +1104,80 @@ export class VehicleRigSystem {
     flash.mesh.scale.setScalar(0.18 + alpha * 0.22);
     flash.material.opacity = alpha * 0.85;
     flash.light.intensity = alpha * 2.8;
+  }
+
+  private spawnWorldFireTracer(role: GameplayRole, weapon: NetworkWeaponKind): void {
+    const tracerCount = weapon === 'shotgun' ? 5 : 1;
+    const baseLength =
+      weapon === 'bazooka'
+        ? 18
+        : weapon === 'shotgun'
+          ? 10
+          : 14;
+    const thickness =
+      weapon === 'bazooka'
+        ? 0.12
+        : weapon === 'shotgun'
+          ? 0.055
+          : 0.045;
+    const life =
+      weapon === 'bazooka'
+        ? 0.18
+        : weapon === 'shotgun'
+          ? 0.14
+          : 0.16;
+
+    for (let index = 0; index < tracerCount; index += 1) {
+      const tracer = this.worldFireTracers[role].find((entry) => !entry.active);
+      if (!tracer) {
+        return;
+      }
+
+      const spread = weapon === 'shotgun' ? 0.42 : weapon === 'bazooka' ? 0.08 : 0.14;
+      const pulse = this.lastFirePulse[role];
+      const randomA = this.visualPulseNoise(role, pulse, index * 3 + 1);
+      const randomB = this.visualPulseNoise(role, pulse, index * 3 + 2);
+      const randomC = this.visualPulseNoise(role, pulse, index * 3 + 3);
+      const length = baseLength * (0.82 + randomA * 0.36);
+      tracer.active = true;
+      tracer.life = life;
+      tracer.maxLife = life;
+      tracer.group.visible = true;
+      tracer.group.rotation.set(
+        (randomB - 0.5) * spread,
+        (randomC - 0.5) * spread,
+        0,
+      );
+      tracer.beam.position.set(0, 0, -length * 0.5);
+      tracer.beam.scale.set(thickness, thickness, length);
+      tracer.material.opacity = weapon === 'bazooka' ? 0.72 : 0.58;
+      tracer.material.color.setHex(weapon === 'bazooka' ? 0xff8f4d : 0xffcf77);
+    }
+  }
+
+  private visualPulseNoise(role: GameplayRole, pulse: number, salt: number): number {
+    const roleOffset = role === 'driver' ? 17.17 : 31.31;
+    const value = Math.sin(pulse * 12.9898 + salt * 78.233 + roleOffset) * 43758.5453;
+    return value - Math.floor(value);
+  }
+
+  private updateWorldFireTracers(role: GameplayRole, deltaTime: number): void {
+    for (const tracer of this.worldFireTracers[role]) {
+      if (!tracer.active) {
+        continue;
+      }
+
+      tracer.life = Math.max(0, tracer.life - deltaTime);
+      const alpha = tracer.maxLife > 0 ? tracer.life / tracer.maxLife : 0;
+      tracer.material.opacity = MathUtils.clamp(alpha, 0, 1) * 0.62;
+      if (tracer.life > 0) {
+        continue;
+      }
+
+      tracer.active = false;
+      tracer.group.visible = false;
+      tracer.material.opacity = 0;
+    }
   }
 
   private createWheelBlurMeshes(node: Object3D): Array<{ mesh: Mesh; baseRotation: Euler }> {
@@ -1133,6 +1254,35 @@ export class VehicleRigSystem {
     group.visible = false;
     group.add(mesh, light);
     return { group, material, mesh, light };
+  }
+
+  private createWorldFireTracerPool(name: string): WorldFireTracer[] {
+    const tracers: WorldFireTracer[] = [];
+    for (let index = 0; index < 8; index += 1) {
+      const material = new MeshBasicMaterial({
+        color: 0xffcf77,
+        transparent: true,
+        opacity: 0,
+        blending: AdditiveBlending,
+        depthWrite: false,
+        depthTest: false,
+      });
+      const beam = new Mesh(new BoxGeometry(1, 1, 1), material);
+      const group = new Group();
+      group.name = `${name}${index + 1}`;
+      group.visible = false;
+      beam.renderOrder = 12;
+      group.add(beam);
+      tracers.push({
+        group,
+        material,
+        beam,
+        active: false,
+        life: 0,
+        maxLife: 0,
+      });
+    }
+    return tracers;
   }
 
   private findNodesByPatterns(root: Object3D, patterns: string[]): Object3D[] {

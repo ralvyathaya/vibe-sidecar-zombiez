@@ -2019,7 +2019,6 @@ body {
   color: #ffc36f;
 }
 
-.ui-root[data-menu-play-mode="coop"] .overlay-menu-solo-action,
 .ui-root[data-menu-play-mode="single"] .overlay-menu-options--coop {
   display: none;
 }
@@ -2043,6 +2042,77 @@ body {
   line-height: 1.25;
   letter-spacing: 0.06em;
   color: rgba(244, 234, 218, 0.82);
+}
+
+.overlay-menu-lobby-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+
+.overlay-menu-lobby-label {
+  color: rgba(244, 234, 218, 0.66);
+  font-size: 0.54rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.overlay-menu-lobby-code {
+  padding: 3px 7px;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 174, 60, 0.42);
+  background: rgba(255, 154, 29, 0.12);
+  color: #ffad3d;
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+}
+
+.overlay-menu-lobby-slots {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 7px;
+}
+
+.overlay-menu-lobby-slot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 6px 7px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 231, 190, 0.12);
+  background: rgba(5, 6, 7, 0.36);
+}
+
+.overlay-menu-lobby-slot[data-state="you"],
+.overlay-menu-lobby-slot[data-state="joined"] {
+  border-color: rgba(255, 166, 48, 0.44);
+  background: rgba(255, 148, 35, 0.1);
+}
+
+.overlay-menu-lobby-slot[data-state="open"] {
+  border-style: dashed;
+  opacity: 0.72;
+}
+
+.overlay-menu-lobby-slot-role {
+  color: #f3dfbd;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.overlay-menu-lobby-slot-state {
+  color: rgba(244, 234, 218, 0.62);
+  font-size: 0.52rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.overlay-menu-lobby-line {
+  color: rgba(244, 234, 218, 0.72);
 }
 
 .overlay-menu-room-row {

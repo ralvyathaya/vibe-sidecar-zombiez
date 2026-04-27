@@ -121,6 +121,9 @@ wss.on('connection', (socket) => {
 
       detachPeer(socket);
       const requestedRole = message.role === 'driver' ? 'driver' : 'gunner';
+      const peerRole =
+        Array.from(room.roles.values()).find((role) => role === 'driver' || role === 'gunner') ??
+        null;
       const occupiedRoles = new Set(room.roles.values());
       const resolvedRole = occupiedRoles.has(requestedRole)
         ? requestedRole === 'driver' ? 'gunner' : 'driver'
@@ -130,6 +133,7 @@ wss.on('connection', (socket) => {
         type: 'joined',
         roomCode: room.code,
         role: resolvedRole,
+        peerRole,
         seed: room.seed,
       });
       broadcast(room, socket, { type: 'peerJoined', role: resolvedRole });
