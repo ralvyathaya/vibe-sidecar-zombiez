@@ -29,7 +29,8 @@ const GUNNER_HANDGUN_HUD_ART = '/ui/Layer 1.png';
 
 const MENU_LOGO = '/ui/menu/logo-game.png';
 const MENU_LOGO_SMALL = '/ui/menu/logo-game-small.png';
-const MENU_LOGO_SRCSET = `${MENU_LOGO_SMALL} 368w, ${MENU_LOGO} 737w`;
+const GAME_TITLE = 'Joe Must Drive';
+const MENU_LOGO_SRCSET = `${MENU_LOGO_SMALL} 243w, ${MENU_LOGO} 486w`;
 const ROLE_CHARACTER_ART: Record<GameplayRole, string> = {
   gunner: '/ui/characters/gunner.png',
   driver: '/ui/characters/driver.png',
@@ -535,8 +536,8 @@ export class UISystem {
     this.overlayStateLogo.className = 'overlay-state-logo';
     this.overlayStateLogo.src = MENU_LOGO;
     this.overlayStateLogo.srcset = MENU_LOGO_SRCSET;
-    this.overlayStateLogo.sizes = '(max-width: 900px) 28vw, 260px';
-    this.overlayStateLogo.alt = 'Sidecar of the Dead';
+    this.overlayStateLogo.sizes = '(max-width: 720px) 190px, (max-width: 900px) 260px, 300px';
+    this.overlayStateLogo.alt = GAME_TITLE;
     this.overlayStateLogo.decoding = 'async';
     this.overlayStateTitle.className = 'overlay-state-title';
     this.overlayStateSubtitle.className = 'overlay-state-subtitle';
@@ -555,8 +556,8 @@ export class UISystem {
     this.overlayMenuLogo.className = 'overlay-menu-logo';
     this.overlayMenuLogo.src = MENU_LOGO;
     this.overlayMenuLogo.srcset = MENU_LOGO_SRCSET;
-    this.overlayMenuLogo.sizes = '(max-width: 900px) 30vw, 286px';
-    this.overlayMenuLogo.alt = 'Sidecar of the Dead';
+    this.overlayMenuLogo.sizes = '(max-width: 720px) 190px, (max-width: 900px) 260px, 300px';
+    this.overlayMenuLogo.alt = GAME_TITLE;
     this.overlayMenuLogo.decoding = 'async';
     this.overlayMenuStartButton.className = 'overlay-menu-playmode';
     this.overlayMenuStartButton.type = 'button';

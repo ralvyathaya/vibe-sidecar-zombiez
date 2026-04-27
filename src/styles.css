@@ -1286,7 +1286,7 @@ body {
 }
 
 .overlay-state-logo {
-  width: clamp(126px, min(18vw, 34vh), 260px);
+  width: clamp(138px, min(21vw, 36vh), 300px);
   height: auto;
   object-fit: contain;
   filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.34));
@@ -1633,7 +1633,7 @@ body {
 }
 
 .overlay-menu-logo {
-  width: clamp(148px, min(20vw, 34vh), 246px);
+  width: clamp(170px, min(24vw, 36vh), 300px);
   height: auto;
   object-fit: contain;
   filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.36));
@@ -2972,7 +2972,7 @@ body {
   }
 
   .overlay-state-logo {
-    width: clamp(108px, min(27vw, 31vh), 210px);
+    width: clamp(120px, min(29vw, 32vh), 240px);
   }
 
   .overlay-state-title {
@@ -2997,7 +2997,7 @@ body {
   }
 
   .overlay-menu-logo {
-    width: clamp(120px, min(30vw, 34vh), 230px);
+    width: clamp(128px, min(31vw, 34vh), 250px);
   }
 
   .overlay-menu-playmode,
@@ -3286,7 +3286,7 @@ body {
   }
 
   .overlay-menu-logo {
-    width: clamp(104px, min(28vw, 30vh), 178px);
+    width: clamp(110px, min(28vw, 30vh), 190px);
   }
 
   .overlay-menu-playmode,
@@ -3325,7 +3325,7 @@ body {
   }
 
   .overlay-state-logo {
-    width: clamp(92px, min(24vw, 26vh), 160px);
+    width: clamp(96px, min(25vw, 26vh), 174px);
   }
 
   .latch-warning {
