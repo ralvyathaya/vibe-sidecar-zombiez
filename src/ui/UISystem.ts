@@ -90,6 +90,7 @@ type MenuPlayMode = 'single' | 'coop';
 export class UISystem {
   onPrimaryAction?: () => void;
   onRestartAction?: () => void;
+  onReturnToLobbyAction?: () => void;
   onSfxPreferenceChange?: (enabled: boolean) => void;
   onMusicPreferenceChange?: (enabled: boolean) => void;
   onMobileLaneHoldChange?: (direction: -1 | 1, active: boolean) => void;
@@ -139,6 +140,7 @@ export class UISystem {
   private readonly overlayStateActions = document.createElement('div');
   private readonly overlayStatePrimaryButton = document.createElement('button');
   private readonly overlayStateSecondaryButton = document.createElement('button');
+  private readonly overlayStateLobbyButton = document.createElement('button');
   private readonly overlayStateHint = document.createElement('div');
   private readonly overlayStateControlsPanel = document.createElement('section');
   private readonly overlayStateSummaryPanel = document.createElement('section');
@@ -547,6 +549,9 @@ export class UISystem {
     this.overlayStateSecondaryButton.className =
       'overlay-state-button overlay-state-button--secondary';
     this.overlayStateSecondaryButton.type = 'button';
+    this.overlayStateLobbyButton.className =
+      'overlay-state-button overlay-state-button--secondary overlay-state-button--lobby';
+    this.overlayStateLobbyButton.type = 'button';
     this.overlayStateHint.className = 'overlay-state-hint';
     this.overlayStateControlsPanel.className = 'overlay-state-panel overlay-state-panel--controls';
     this.overlayStateSummaryPanel.className = 'overlay-state-panel overlay-state-panel--summary';
@@ -623,6 +628,9 @@ export class UISystem {
     });
     this.overlayStateSecondaryButton.addEventListener('click', () => {
       this.onRestartAction?.();
+    });
+    this.overlayStateLobbyButton.addEventListener('click', () => {
+      this.onReturnToLobbyAction?.();
     });
     this.overlayMenuStartButton.addEventListener('click', () => {
       this.setMenuPlayMode('single');
@@ -796,6 +804,7 @@ export class UISystem {
     this.overlayStateActions.append(
       this.overlayStatePrimaryButton,
       this.overlayStateSecondaryButton,
+      this.overlayStateLobbyButton,
     );
     this.overlayStateLeft.append(
       this.overlayStateLogo,
@@ -862,6 +871,8 @@ export class UISystem {
         this.overlayStatePrimaryButton.textContent = 'Resume Run';
         this.overlayStateSecondaryButton.textContent = 'Restart Game';
         this.overlayStateSecondaryButton.hidden = false;
+        this.overlayStateLobbyButton.textContent = 'Return To Lobby';
+        this.overlayStateLobbyButton.hidden = false;
         this.overlayStateControlsPanel.hidden = false;
         this.overlayStateSummaryPanel.hidden = true;
         this.overlayStateCausePanel.hidden = true;
@@ -879,6 +890,7 @@ export class UISystem {
         this.overlayStateSubtitle.textContent = this.deathSubtitle;
         this.overlayStatePrimaryButton.textContent = 'Retry Game';
         this.overlayStateSecondaryButton.hidden = true;
+        this.overlayStateLobbyButton.hidden = true;
         this.overlayStateControlsPanel.hidden = true;
         this.overlayStateSummaryPanel.hidden = false;
         this.overlayStateCausePanel.hidden = false;

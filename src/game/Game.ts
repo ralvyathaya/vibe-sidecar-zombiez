@@ -217,7 +217,7 @@ export class Game {
         !this.suppressUnlockPause &&
         this.inputSystem.shouldUsePointerLock()
       ) {
-        this.setState('paused');
+        this.pauseRun(true);
       }
 
       if (this.suppressUnlockPause) {
@@ -230,6 +230,9 @@ export class Game {
     };
     this.uiSystem.onRestartAction = () => {
       this.triggerRestartAction();
+    };
+    this.uiSystem.onReturnToLobbyAction = () => {
+      this.triggerReturnToLobbyAction();
     };
     this.uiSystem.onSfxPreferenceChange = (enabled) => {
       this.audioPreferences.sfxEnabled = enabled;
@@ -305,6 +308,15 @@ export class Game {
     };
     this.networkSystem.onRemoteRetry = (seed) => {
       this.startRunFromNetwork(seed);
+    };
+    this.networkSystem.onRemotePause = () => {
+      this.pauseRun(false);
+    };
+    this.networkSystem.onRemoteResume = () => {
+      this.resumeRun(false);
+    };
+    this.networkSystem.onRemoteReturnToLobby = () => {
+      this.returnToMainLobby(false);
     };
     this.uiSystem.setAudioPreferences(this.audioPreferences);
     this.uiSystem.setTouchControlsEnabled(this.inputSystem.usesTouchControls());
@@ -1024,13 +1036,7 @@ export class Game {
       return;
     }
 
-    this.blurOverlayFocus();
-    SoundEffectPool.unlockAudio();
-    this.inputSystem.clearTransientInput();
-    this.setState('running');
-    if (this.inputSystem.shouldUsePointerLock()) {
-      this.inputSystem.requestPointerLock();
-    }
+    this.resumeRun(true);
   }
 
   private triggerRestartAction(): void {
@@ -1047,6 +1053,64 @@ export class Game {
     }
 
     this.startRun('retry');
+  }
+
+  private triggerReturnToLobbyAction(): void {
+    if (!this.beginOverlayAction()) {
+      return;
+    }
+
+    this.returnToMainLobby(true);
+  }
+
+  private pauseRun(broadcast: boolean): void {
+    if (this.state !== 'running') {
+      return;
+    }
+
+    if (broadcast) {
+      this.networkSystem.sendPause();
+    }
+
+    this.setState('paused');
+    if (this.inputSystem.isPointerLocked()) {
+      this.suppressUnlockPause = true;
+      void document.exitPointerLock();
+    }
+  }
+
+  private resumeRun(broadcast: boolean): void {
+    if (this.state !== 'paused') {
+      return;
+    }
+
+    if (broadcast) {
+      this.networkSystem.sendResume();
+    }
+
+    this.blurOverlayFocus();
+    SoundEffectPool.unlockAudio();
+    this.inputSystem.clearTransientInput();
+    this.setState('running');
+    if (this.inputSystem.shouldUsePointerLock()) {
+      this.inputSystem.requestPointerLock();
+    }
+  }
+
+  private returnToMainLobby(broadcast: boolean): void {
+    if (broadcast) {
+      this.networkSystem.sendReturnToLobby();
+    }
+
+    this.blurOverlayFocus();
+    this.inputSystem.clearTransientInput();
+    this.resetGame();
+    this.setState('menu');
+    this.uiSystem.setCoopSession(this.coopSession);
+    if (this.inputSystem.isPointerLocked()) {
+      this.suppressUnlockPause = true;
+      void document.exitPointerLock();
+    }
   }
 
   private startSinglePlayerRun(): void {

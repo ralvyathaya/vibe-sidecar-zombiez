@@ -7,6 +7,8 @@ import type {
   RemoteInputFrame,
 } from '../../core/types';
 
+type RelayControlAction = 'start' | 'retry' | 'pause' | 'resume' | 'lobby';
+
 type RelayEnvelope =
   | { type: 'created'; roomCode: string; role: CoopRole; seed: number }
   | { type: 'joined'; roomCode: string; role: CoopRole; peerRole?: GameplayRole | null; seed: number }
@@ -14,7 +16,7 @@ type RelayEnvelope =
   | { type: 'peerLeft' }
   | { type: 'input'; frame: RemoteInputFrame }
   | { type: 'snapshot'; snapshot: CoopSnapshot }
-  | { type: 'control'; action: 'start' | 'retry'; seed: number }
+  | { type: 'control'; action: RelayControlAction; seed?: number }
   | { type: 'error'; message: string }
   | { type: 'pong' };
 
@@ -23,7 +25,7 @@ type OutgoingRelayMessage =
   | { type: 'join'; roomCode: string; role: CoopRole }
   | { type: 'input'; frame: RemoteInputFrame }
   | { type: 'snapshot'; snapshot: CoopSnapshot }
-  | { type: 'control'; action: 'start' | 'retry'; seed: number }
+  | { type: 'control'; action: RelayControlAction; seed?: number }
   | { type: 'ping' };
 
 const ROOM_CODE_PATTERN = /^[A-Z0-9]{4,6}$/;
@@ -34,6 +36,9 @@ export class NetworkSystem {
   onRemoteSnapshot?: (snapshot: CoopSnapshot) => void;
   onRemoteStart?: (seed: number) => void;
   onRemoteRetry?: (seed: number) => void;
+  onRemotePause?: () => void;
+  onRemoteResume?: () => void;
+  onRemoteReturnToLobby?: () => void;
 
   private socket: WebSocket | null = null;
   private pingTimer = 0;
@@ -192,6 +197,30 @@ export class NetworkSystem {
     this.send({ type: 'control', action: 'retry', seed });
   }
 
+  sendPause(): void {
+    if (!this.canSendRealtime()) {
+      return;
+    }
+
+    this.send({ type: 'control', action: 'pause' });
+  }
+
+  sendResume(): void {
+    if (!this.canSendRealtime()) {
+      return;
+    }
+
+    this.send({ type: 'control', action: 'resume' });
+  }
+
+  sendReturnToLobby(): void {
+    if (!this.canSendRealtime()) {
+      return;
+    }
+
+    this.send({ type: 'control', action: 'lobby' });
+  }
+
   destroy(): void {
     this.disconnect();
   }
@@ -333,9 +362,19 @@ export class NetworkSystem {
         break;
       case 'control':
         if (message.action === 'retry') {
-          this.onRemoteRetry?.(message.seed);
-        } else {
-          this.onRemoteStart?.(message.seed);
+          if (typeof message.seed === 'number') {
+            this.onRemoteRetry?.(message.seed);
+          }
+        } else if (message.action === 'start') {
+          if (typeof message.seed === 'number') {
+            this.onRemoteStart?.(message.seed);
+          }
+        } else if (message.action === 'pause') {
+          this.onRemotePause?.();
+        } else if (message.action === 'resume') {
+          this.onRemoteResume?.();
+        } else if (message.action === 'lobby') {
+          this.onRemoteReturnToLobby?.();
         }
         break;
       case 'error':
