@@ -530,6 +530,41 @@ body {
   opacity: 0;
 }
 
+.ui-root[data-state="menu"] .hud,
+.ui-root[data-state="paused"] .hud,
+.ui-root[data-state="dead"] .hud,
+.ui-root[data-state="menu"] .mobile-controls,
+.ui-root[data-state="paused"] .mobile-controls,
+.ui-root[data-state="dead"] .mobile-controls,
+.ui-root[data-state="menu"] .lane-request-hud,
+.ui-root[data-state="paused"] .lane-request-hud,
+.ui-root[data-state="dead"] .lane-request-hud,
+.ui-root[data-state="menu"] .driver-panel,
+.ui-root[data-state="paused"] .driver-panel,
+.ui-root[data-state="dead"] .driver-panel,
+.ui-root[data-state="menu"] .latch-warning,
+.ui-root[data-state="paused"] .latch-warning,
+.ui-root[data-state="dead"] .latch-warning,
+.ui-root[data-state="menu"] .reward-callout,
+.ui-root[data-state="paused"] .reward-callout,
+.ui-root[data-state="dead"] .reward-callout,
+.ui-root[data-state="menu"] .accolade-banner,
+.ui-root[data-state="paused"] .accolade-banner,
+.ui-root[data-state="dead"] .accolade-banner,
+.ui-root[data-state="menu"] .reload-hint,
+.ui-root[data-state="paused"] .reload-hint,
+.ui-root[data-state="dead"] .reload-hint,
+.ui-root[data-state="menu"] .crosshair,
+.ui-root[data-state="paused"] .crosshair,
+.ui-root[data-state="dead"] .crosshair,
+.ui-root[data-state="menu"] .rain-overlay,
+.ui-root[data-state="paused"] .rain-overlay,
+.ui-root[data-state="dead"] .rain-overlay {
+  opacity: 0 !important;
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .radar-panel {
   width: min(440px, 54vw);
   pointer-events: none;
