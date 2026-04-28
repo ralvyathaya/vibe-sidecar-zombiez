@@ -966,7 +966,8 @@ export class UISystem {
         this.overlayStateSubtitle.textContent = this.deathSubtitle;
         this.overlayStatePrimaryButton.textContent = 'Retry Game';
         this.overlayStateSecondaryButton.hidden = true;
-        this.overlayStateLobbyButton.hidden = true;
+        this.overlayStateLobbyButton.textContent = 'Return To Lobby';
+        this.overlayStateLobbyButton.hidden = false;
         this.overlayStateControlsPanel.hidden = true;
         this.overlayStateSummaryPanel.hidden = false;
         this.overlayStateCausePanel.hidden = false;
