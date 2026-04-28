@@ -189,10 +189,7 @@ export class ShotgunWeapon {
     });
     this.gunshotSound.prime();
     this.delaySound.prime();
-    this.resolvedCockingDuration = Math.max(
-      0.78,
-      this.config.shotgun.viewmodel.spinDuration + 0.28,
-    );
+    this.resolvedCockingDuration = this.config.shotgun.viewmodel.spinDuration;
 
     this.viewmodelRoot.name = 'ShotgunViewmodel';
     this.contentRoot.name = 'ShotgunContentRoot';
@@ -770,7 +767,7 @@ export class ShotgunWeapon {
 
     const handleMetadata = () => {
       if (Number.isFinite(probe.duration) && probe.duration > 0) {
-        this.resolvedCockingDuration = clamp(probe.duration + 0.22, 0.78, 1.08);
+        this.resolvedCockingDuration = probe.duration;
       }
       cleanup();
     };
@@ -845,6 +842,15 @@ export class ShotgunWeapon {
       1 / this.config.shotgun.fireRate,
       this.getPumpDelayAfterShot() + this.resolvedCockingDuration,
     );
+  }
+
+  private getCockingPoseRatio(): number {
+    if (this.cockingTimer <= 0 || this.resolvedCockingDuration <= 0) {
+      return 0;
+    }
+
+    const progress = 1 - this.cockingTimer / this.resolvedCockingDuration;
+    return Math.sin(clamp(progress, 0, 1) * Math.PI);
   }
 
   private getPumpDelayAfterShot(): number {
@@ -1191,6 +1197,7 @@ export class ShotgunWeapon {
   private applyViewmodelPose(): void {
     const recoilBack = this.config.shotgun.viewmodel.recoilBack * this.fireKick;
     const recoilLift = this.config.shotgun.viewmodel.recoilLift * this.fireKick;
+    const cockingPose = this.getCockingPoseRatio();
     const recoilPitch =
       MathUtils.degToRad(this.config.shotgun.viewmodel.recoilPitchDegrees) * this.fireKick * 0.28;
     const recoilRoll =
@@ -1208,8 +1215,13 @@ export class ShotgunWeapon {
 
     this.contentRoot.position.set(
       -this.config.shotgun.viewmodel.pumpTravel * this.pumpOffset,
-      0,
-      0,
+      -0.16 * cockingPose,
+      0.11 * cockingPose,
+    );
+    this.contentRoot.rotation.set(
+      MathUtils.degToRad(8) * cockingPose,
+      MathUtils.degToRad(-4) * cockingPose,
+      MathUtils.degToRad(-10) * cockingPose,
     );
   }
 

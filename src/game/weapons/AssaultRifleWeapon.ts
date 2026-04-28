@@ -377,7 +377,7 @@ export class AssaultRifleWeapon {
   ): void {
     this.ammo -= 1;
     this.cooldown = 1 / this.config.assaultRifle.fireRate;
-    this.fireKick = Math.min(1, this.fireKick + 0.16);
+    this.fireKick = Math.min(1, this.fireKick + 0.32);
     this.muzzleFlashTimer = this.config.assaultRifle.viewmodel.muzzleFlashDuration;
     this.firingTimer = 0.11;
     this.firePulse += 1;
@@ -474,6 +474,7 @@ export class AssaultRifleWeapon {
 
     this.reloadTimer = this.config.assaultRifle.reloadDuration;
     this.reloadElapsed = 0;
+    this.fireKick = 0;
     this.reloadSound.play(
       this.config.weapon.audio.reloadVolume * 0.9,
       randomRange(0.96, 1.02),
@@ -527,20 +528,45 @@ export class AssaultRifleWeapon {
   }
 
   private applyViewmodelPose(): void {
+    const reloadDip = this.getReloadDipRatio();
+    const viewmodel = this.config.assaultRifle.viewmodel;
     this.viewmodelRoot.position.set(
-      this.basePosition.x - this.fireKick * this.config.assaultRifle.viewmodel.recoilBack,
-      this.basePosition.y + Math.sin(this.fireKick * Math.PI) * this.config.assaultRifle.viewmodel.recoilLift,
-      this.basePosition.z,
+      this.basePosition.x -
+        this.fireKick * viewmodel.recoilBack * 0.25 +
+        reloadDip * viewmodel.reloadSideShift,
+      this.basePosition.y +
+        Math.sin(this.fireKick * Math.PI) * viewmodel.recoilLift -
+        reloadDip * viewmodel.reloadDip,
+      this.basePosition.z + this.fireKick * viewmodel.recoilBack + reloadDip * viewmodel.reloadPushBack,
     );
     this.viewmodelRoot.rotation.set(
       this.baseRotation.x -
-        MathUtils.degToRad(this.config.assaultRifle.viewmodel.recoilPitchDegrees) * this.fireKick,
+        MathUtils.degToRad(viewmodel.recoilPitchDegrees) * this.fireKick +
+        MathUtils.degToRad(viewmodel.reloadPitchDegrees) * reloadDip,
       this.baseRotation.y,
-      this.baseRotation.z + Math.sin(this.fireKick * Math.PI) * 0.012,
+      this.baseRotation.z +
+        Math.sin(this.fireKick * Math.PI) * 0.018 +
+        MathUtils.degToRad(viewmodel.reloadRollDegrees) * reloadDip,
     );
     this.viewmodelRoot.scale.setScalar(this.debugViewmodelScale);
     this.viewmodelRoot.visible = this.equipped;
     this.worldEffectsRoot.visible = this.equipped;
+  }
+
+  private getReloadDipRatio(): number {
+    if (!this.isReloading()) {
+      return 0;
+    }
+
+    const duration = Math.max(this.config.assaultRifle.reloadDuration, 0.001);
+    const progress = clamp(this.reloadElapsed / duration, 0, 1);
+    const easeIn = this.smoothstep(clamp(progress / 0.22, 0, 1));
+    const easeOut = 1 - this.smoothstep(clamp((progress - 0.72) / 0.28, 0, 1));
+    return Math.min(easeIn, easeOut);
+  }
+
+  private smoothstep(value: number): number {
+    return value * value * (3 - 2 * value);
   }
 
   private prepareModel(model: Object3D): void {

@@ -655,6 +655,11 @@ export interface GameConfig {
       recoilLift: number;
       recoilPitchDegrees: number;
       recoilRecovery: number;
+      reloadDip: number;
+      reloadSideShift: number;
+      reloadPushBack: number;
+      reloadPitchDegrees: number;
+      reloadRollDegrees: number;
       muzzleOffset: Vec3Tuple;
       muzzleFlashSize: number;
       muzzleFlashDuration: number;
