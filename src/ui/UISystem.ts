@@ -10,6 +10,7 @@ import type {
   RideState,
   WeaponStatus,
 } from '../core/types';
+import { GAME_CONFIG } from '../core/config';
 import { formatDistance } from '../core/utils';
 import { SoundEffectPool } from '../game/audio/SoundEffectPool';
 
@@ -61,8 +62,20 @@ type HUDSnapshot = {
   coopStats: CoopRunStats;
   ride: RideState | null;
   boss: BossSnapshot;
+  lightningFlashRatio: number;
   elapsedSeconds: number;
   radarContacts: RadarContact[];
+};
+
+type ScreenRainDrop = {
+  x: number;
+  y: number;
+  radius: number;
+  speed: number;
+  opacity: number;
+  drift: number;
+  phase: number;
+  near: boolean;
 };
 
 type DriverPresentation = {
@@ -194,7 +207,7 @@ export class UISystem {
   private readonly bossTitle = document.createElement('div');
   private readonly bossMeta = document.createElement('div');
   private readonly bossFill = document.createElement('div');
-  private readonly rainOverlay = document.createElement('div');
+  private readonly rainOverlay = document.createElement('canvas');
   private readonly buffPanel = document.createElement('div');
   private readonly adrenalineBuff = document.createElement('div');
   private readonly nitroBuff = document.createElement('div');
@@ -249,6 +262,12 @@ export class UISystem {
   });
   private readonly ammoRounds: HTMLSpanElement[] = [];
   private readonly radarDots: HTMLSpanElement[] = [];
+  private readonly screenRainDrops: ScreenRainDrop[] = [];
+  private rainContext: CanvasRenderingContext2D | null = null;
+  private rainCanvasWidth = 0;
+  private rainCanvasHeight = 0;
+  private rainCanvasDpr = 1;
+  private rainClock = 0;
   private audioPreferences: AudioPreferenceState = {
     sfxEnabled: true,
     musicEnabled: true,
@@ -369,6 +388,9 @@ export class UISystem {
     this.bossHud.append(this.bossTitle, bossBar, this.bossMeta);
     this.bossHud.hidden = true;
     this.rainOverlay.className = 'rain-overlay';
+    this.rainOverlay.setAttribute('aria-hidden', 'true');
+    this.rainContext = this.rainOverlay.getContext('2d');
+    this.seedScreenRainDrops();
     this.buffPanel.className = 'buff-panel';
     this.adrenalineBuff.className = 'buff-chip';
     this.adrenalineBuff.dataset.buff = 'adrenaline';
@@ -1218,8 +1240,12 @@ export class UISystem {
         `scaleX(${Math.max(0, Math.min(1, snapshot.boss.healthRatio)).toFixed(3)})`,
       );
     }
-    const rainVisible = snapshot.ride?.activeEvent === 'slipperyRoad';
+    const rainVisible =
+      GAME_CONFIG.rain.enabled &&
+      snapshot.gameState === 'running' &&
+      snapshot.ride?.activeEvent === 'slipperyRoad';
     this.setDataset(this.rainOverlay, 'visible', rainVisible ? 'true' : 'false');
+    this.renderScreenRain(deltaTime, rainVisible, snapshot.lightningFlashRatio);
     this.buffPanel.hidden = snapshot.player.nitroTimer <= 0;
     this.adrenalineBuff.hidden = true;
     this.nitroBuff.hidden = snapshot.player.nitroTimer <= 0;
@@ -2029,6 +2055,145 @@ export class UISystem {
     if (node.textContent !== value) {
       node.textContent = value;
     }
+  }
+
+  private seedScreenRainDrops(): void {
+    this.screenRainDrops.length = 0;
+    const count = Math.max(0, Math.floor(GAME_CONFIG.rain.screenDropletCount));
+    for (let index = 0; index < count; index += 1) {
+      this.screenRainDrops.push(this.createScreenRainDrop(true));
+    }
+  }
+
+  private createScreenRainDrop(spreadVertically = false): ScreenRainDrop {
+    const near = Math.random() < 0.34;
+    return {
+      x: Math.random(),
+      y: spreadVertically ? Math.random() : -0.06 - Math.random() * 0.12,
+      radius: near ? 1.25 + Math.random() * 2.55 : 0.55 + Math.random() * 1.35,
+      speed: near ? 0.18 + Math.random() * 0.34 : 0.08 + Math.random() * 0.2,
+      opacity: near ? 0.12 + Math.random() * 0.18 : 0.05 + Math.random() * 0.11,
+      drift: GAME_CONFIG.rain.wind * 0.018 + (Math.random() * 2 - 1) * 0.018,
+      phase: Math.random() * Math.PI * 2,
+      near,
+    };
+  }
+
+  private resetScreenRainDrop(drop: ScreenRainDrop, spreadVertically = false): void {
+    const near = Math.random() < 0.34;
+    drop.x = Math.random();
+    drop.y = spreadVertically ? Math.random() : -0.06 - Math.random() * 0.12;
+    drop.radius = near ? 1.25 + Math.random() * 2.55 : 0.55 + Math.random() * 1.35;
+    drop.speed = near ? 0.18 + Math.random() * 0.34 : 0.08 + Math.random() * 0.2;
+    drop.opacity = near ? 0.12 + Math.random() * 0.18 : 0.05 + Math.random() * 0.11;
+    drop.drift = GAME_CONFIG.rain.wind * 0.018 + (Math.random() * 2 - 1) * 0.018;
+    drop.phase = Math.random() * Math.PI * 2;
+    drop.near = near;
+  }
+
+  private resizeRainCanvas(): void {
+    const width = Math.max(1, this.root.clientWidth || window.innerWidth || 1);
+    const height = Math.max(1, this.root.clientHeight || window.innerHeight || 1);
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.75);
+
+    if (
+      this.rainCanvasWidth === width &&
+      this.rainCanvasHeight === height &&
+      this.rainCanvasDpr === dpr
+    ) {
+      return;
+    }
+
+    this.rainCanvasWidth = width;
+    this.rainCanvasHeight = height;
+    this.rainCanvasDpr = dpr;
+    this.rainOverlay.width = Math.ceil(width * dpr);
+    this.rainOverlay.height = Math.ceil(height * dpr);
+    this.rainOverlay.style.width = `${width}px`;
+    this.rainOverlay.style.height = `${height}px`;
+    this.rainContext?.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  private renderScreenRain(deltaTime: number, visible: boolean, lightningFlashRatio: number): void {
+    if (!this.rainContext) {
+      return;
+    }
+
+    this.resizeRainCanvas();
+    const ctx = this.rainContext;
+    const width = this.rainCanvasWidth;
+    const height = this.rainCanvasHeight;
+    ctx.clearRect(0, 0, width, height);
+
+    if (!visible) {
+      return;
+    }
+
+    this.rainClock += deltaTime;
+    const intensity = Math.max(0, GAME_CONFIG.rain.intensity);
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+
+    for (let index = 0; index < this.screenRainDrops.length; index += 1) {
+      const drop = this.screenRainDrops[index];
+      drop.y += drop.speed * deltaTime * (0.72 + intensity * 0.5);
+      drop.x += drop.drift * deltaTime + Math.sin(this.rainClock * 1.8 + drop.phase) * 0.0005;
+
+      if (drop.y > 1.08 || drop.x < -0.06 || drop.x > 1.06) {
+        this.resetScreenRainDrop(drop);
+        continue;
+      }
+
+      const x = drop.x * width;
+      const y = drop.y * height;
+      const radius = drop.radius * (drop.near ? 1.3 : 1);
+      const opacity = drop.opacity * intensity;
+      const gradient = ctx.createRadialGradient(
+        x - radius * 0.25,
+        y - radius * 0.25,
+        0,
+        x,
+        y,
+        radius * 2.6,
+      );
+      gradient.addColorStop(0, `rgba(218, 238, 255, ${opacity * 0.72})`);
+      gradient.addColorStop(0.45, `rgba(156, 205, 245, ${opacity * 0.28})`);
+      gradient.addColorStop(1, 'rgba(156, 205, 245, 0)');
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.ellipse(x, y, radius * 0.82, radius * 1.55, 0.14, 0, Math.PI * 2);
+      ctx.fill();
+
+      if (drop.near) {
+        ctx.strokeStyle = `rgba(190, 226, 255, ${opacity * 0.32})`;
+        ctx.lineWidth = Math.max(0.6, radius * 0.22);
+        ctx.beginPath();
+        ctx.moveTo(x, y + radius * 1.2);
+        ctx.lineTo(x + GAME_CONFIG.rain.wind * 1.8, y + radius * 3.35);
+        ctx.stroke();
+      }
+    }
+
+    if (lightningFlashRatio > 0) {
+      const flash = Math.min(1, lightningFlashRatio);
+      const glow = ctx.createRadialGradient(
+        width * 0.5,
+        height * 0.05,
+        0,
+        width * 0.5,
+        height * 0.08,
+        Math.max(width, height) * 0.9,
+      );
+      glow.addColorStop(0, `rgba(220, 238, 255, ${0.18 * flash})`);
+      glow.addColorStop(0.34, `rgba(180, 218, 255, ${0.1 * flash})`);
+      glow.addColorStop(1, 'rgba(180, 218, 255, 0)');
+      ctx.fillStyle = glow;
+      ctx.fillRect(0, 0, width, height);
+      ctx.fillStyle = `rgba(230, 242, 255, ${0.055 * flash})`;
+      ctx.fillRect(0, 0, width, height);
+    }
+
+    ctx.restore();
   }
 
   private setDataset(element: HTMLElement, key: string, value: string): void {

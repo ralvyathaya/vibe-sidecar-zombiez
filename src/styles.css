@@ -173,6 +173,7 @@ body {
 .hud {
   position: absolute;
   inset: 0;
+  z-index: 4;
   padding: 20px;
   display: flex;
   flex-direction: column;
@@ -2529,25 +2530,24 @@ body {
   inset: 0;
   pointer-events: none;
   opacity: 0;
-  background:
-    radial-gradient(circle at 18% 22%, rgba(180, 224, 255, 0.22) 0 2px, transparent 4px),
-    radial-gradient(circle at 72% 18%, rgba(180, 224, 255, 0.18) 0 1px, transparent 4px),
-    radial-gradient(circle at 44% 72%, rgba(180, 224, 255, 0.16) 0 2px, transparent 5px),
-    repeating-linear-gradient(
-      103deg,
-      transparent 0 34px,
-      rgba(142, 198, 238, 0.1) 36px 38px,
-      transparent 40px 78px
-    );
   mix-blend-mode: screen;
-  filter: blur(0.2px);
+  filter: saturate(1.05);
   transition: opacity 180ms ease;
-  z-index: 6;
+  z-index: 1;
 }
 
 .rain-overlay[data-visible="true"] {
-  opacity: 0.64;
-  animation: rain-sheet 720ms linear infinite;
+  opacity: 1;
+}
+
+.reward-callout,
+.accolade-banner,
+.reload-hint,
+.crosshair,
+.lane-request-hud,
+.driver-panel,
+.latch-warning {
+  z-index: 5;
 }
 
 .segment-chip {
@@ -3124,16 +3124,6 @@ body {
 
 .latch-key:last-child {
   animation-delay: 0.12s;
-}
-
-@keyframes rain-sheet {
-  from {
-    background-position: 0 0, 0 0, 0 0, 0 0;
-  }
-
-  to {
-    background-position: 8px 18px, -12px 22px, 16px 30px, 0 84px;
-  }
 }
 
 @keyframes boss-warning-pulse {
