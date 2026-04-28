@@ -4,10 +4,13 @@ import {
   BufferGeometry,
   Color,
   DirectionalLight,
+  DynamicDrawUsage,
   Float32BufferAttribute,
   Fog,
   Group,
   HemisphereLight,
+  LineBasicMaterial,
+  LineSegments,
   Mesh,
   MeshBasicMaterial,
   PCFSoftShadowMap,
@@ -17,6 +20,7 @@ import {
   Scene,
   SRGBColorSpace,
   SphereGeometry,
+  Vector3,
   WebGLRenderer,
 } from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
@@ -25,6 +29,33 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { SpeedShaderPass } from './post/SpeedShaderPass';
 import type { GameConfig, RideState, RunEventType, RunSegment } from './types';
 import { approach, getRuntimePerformanceProfile, lerp } from './utils';
+
+type WorldRainDrop = {
+  x: number;
+  y: number;
+  z: number;
+  length: number;
+  speed: number;
+  wind: number;
+};
+
+type WorldRainLayer = {
+  geometry: BufferGeometry;
+  material: LineBasicMaterial;
+  lines: LineSegments;
+  positions: Float32Array;
+  drops: WorldRainDrop[];
+  xSpread: number;
+  yMin: number;
+  yMax: number;
+  zNear: number;
+  zFar: number;
+  lengthMin: number;
+  lengthMax: number;
+  speedMin: number;
+  speedMax: number;
+  baseOpacity: number;
+};
 
 export class RendererSystem {
   readonly scene = new Scene();
@@ -46,6 +77,12 @@ export class RendererSystem {
   private speedEffectTime = 0;
   private speedEffectSpeed = 0;
   private speedEffectIntensity = 0;
+  private readonly rainCameraPosition = new Vector3();
+  private readonly worldRainLayers: WorldRainLayer[] = [];
+  private lightningLight: DirectionalLight | null = null;
+  private lightningDelay = 0;
+  private lightningFlashTimer = 0;
+  private lightningFlashRatio = 0;
 
   constructor(
     private readonly mount: HTMLElement,
@@ -92,6 +129,8 @@ export class RendererSystem {
     this.addSun();
     this.addStars();
     this.addClouds();
+    this.addWorldRain();
+    this.lightningDelay = this.rollLightningDelay();
     const renderPass = new RenderPass(this.scene, this.camera);
     this.speedPass = new SpeedShaderPass({
       // Edge-only streaks: sparse continuous lines, much calmer than the previous
@@ -162,6 +201,64 @@ export class RendererSystem {
     this.renderer.toneMappingExposure = this.currentExposure;
   }
 
+  updateRain(deltaTime: number, ride: RideState | null, running: boolean): void {
+    const active = Boolean(
+      this.config.rain.enabled &&
+        running &&
+        ride?.activeEvent === 'slipperyRoad',
+    );
+    const rainIntensity = active ? Math.max(0, this.config.rain.intensity) : 0;
+
+    for (const layer of this.worldRainLayers) {
+      layer.lines.visible = active;
+    }
+
+    if (!active) {
+      this.lightningFlashTimer = 0;
+      this.lightningFlashRatio = 0;
+      if (this.lightningLight) {
+        this.lightningLight.intensity = 0;
+      }
+      return;
+    }
+
+    this.camera.getWorldPosition(this.rainCameraPosition);
+    const forwardSpeed = Math.max(10, ride?.forwardSpeed ?? this.config.player.forwardSpeed);
+    for (const layer of this.worldRainLayers) {
+      this.updateWorldRainLayer(layer, deltaTime, forwardSpeed, rainIntensity);
+    }
+
+    if (this.config.rain.lightningEnabled) {
+      this.lightningDelay -= deltaTime;
+      if (this.lightningDelay <= 0) {
+        this.lightningFlashTimer = this.config.rain.lightningFlashDuration;
+        this.lightningDelay = this.rollLightningDelay();
+      }
+    }
+
+    if (this.lightningFlashTimer > 0) {
+      this.lightningFlashTimer = Math.max(0, this.lightningFlashTimer - deltaTime);
+      const duration = Math.max(0.001, this.config.rain.lightningFlashDuration);
+      const ratio = this.lightningFlashTimer / duration;
+      this.lightningFlashRatio = Math.pow(Math.sin(ratio * Math.PI), 0.42);
+    } else {
+      this.lightningFlashRatio = 0;
+    }
+
+    if (this.lightningLight) {
+      this.lightningLight.intensity =
+        this.lightningFlashRatio * this.config.rain.lightningSceneIntensity;
+    }
+    if (this.lightningFlashRatio > 0) {
+      this.renderer.toneMappingExposure =
+        this.currentExposure + this.lightningFlashRatio * 0.38;
+    }
+  }
+
+  getLightningFlashRatio(): number {
+    return this.lightningFlashRatio;
+  }
+
   updateSpeedEffect(deltaTime: number, ride: RideState | null): void {
     this.speedEffectTime += deltaTime;
     const targetSpeed = ride
@@ -203,6 +300,10 @@ export class RendererSystem {
     const fillLight = new DirectionalLight(0x47566e, 0.08);
     fillLight.position.set(12, 10, 14);
     this.scene.add(fillLight);
+
+    this.lightningLight = new DirectionalLight(0xd9ecff, 0);
+    this.lightningLight.position.set(-2, 12, -8);
+    this.scene.add(this.lightningLight);
   }
 
   private addSun(): void {
@@ -299,6 +400,201 @@ export class RendererSystem {
       cloud.position.set(spec.position[0], spec.position[1], spec.position[2]);
       this.scene.add(cloud);
     }
+  }
+
+  private addWorldRain(): void {
+    this.worldRainLayers.push(
+      this.createWorldRainLayer({
+        count: this.config.rain.worldNearDropCount,
+        xSpread: 20,
+        yMin: -1.2,
+        yMax: 14,
+        zNear: -7,
+        zFar: -58,
+        lengthMin: 0.22,
+        lengthMax: 0.76,
+        speedMin: 12,
+        speedMax: 24,
+        opacity: 0.34,
+      }),
+      this.createWorldRainLayer({
+        count: this.config.rain.worldFarDropCount,
+        xSpread: 54,
+        yMin: 2,
+        yMax: 30,
+        zNear: -34,
+        zFar: -150,
+        lengthMin: 0.34,
+        lengthMax: 1.12,
+        speedMin: 15,
+        speedMax: 30,
+        opacity: 0.22,
+      }),
+    );
+  }
+
+  private createWorldRainLayer(options: {
+    count: number;
+    xSpread: number;
+    yMin: number;
+    yMax: number;
+    zNear: number;
+    zFar: number;
+    lengthMin: number;
+    lengthMax: number;
+    speedMin: number;
+    speedMax: number;
+    opacity: number;
+  }): WorldRainLayer {
+    const count = Math.max(0, Math.floor(options.count));
+    const positions = new Float32Array(count * 2 * 3);
+    const colors = new Float32Array(count * 2 * 3);
+    const drops: WorldRainDrop[] = [];
+    const geometry = new BufferGeometry();
+
+    for (let index = 0; index < count; index += 1) {
+      const brightness = 0.54 + Math.random() * 0.42;
+      colors[index * 6] = 0.48 * brightness;
+      colors[index * 6 + 1] = 0.68 * brightness;
+      colors[index * 6 + 2] = 0.95 * brightness;
+      colors[index * 6 + 3] = 0.62 * brightness;
+      colors[index * 6 + 4] = 0.82 * brightness;
+      colors[index * 6 + 5] = brightness;
+      drops.push(this.createWorldRainDrop(options, true));
+    }
+
+    geometry.setAttribute(
+      'position',
+      new Float32BufferAttribute(positions, 3).setUsage(DynamicDrawUsage),
+    );
+    geometry.setAttribute('color', new Float32BufferAttribute(colors, 3));
+
+    const material = new LineBasicMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: options.opacity,
+      depthWrite: false,
+      fog: true,
+    });
+    const lines = new LineSegments(geometry, material);
+    lines.visible = false;
+    lines.frustumCulled = false;
+    lines.renderOrder = 2;
+    this.scene.add(lines);
+
+    const layer: WorldRainLayer = {
+      geometry,
+      material,
+      lines,
+      positions,
+      drops,
+      xSpread: options.xSpread,
+      yMin: options.yMin,
+      yMax: options.yMax,
+      zNear: options.zNear,
+      zFar: options.zFar,
+      lengthMin: options.lengthMin,
+      lengthMax: options.lengthMax,
+      speedMin: options.speedMin,
+      speedMax: options.speedMax,
+      baseOpacity: options.opacity,
+    };
+    this.writeWorldRainPositions(layer);
+    return layer;
+  }
+
+  private createWorldRainDrop(
+    options: {
+      xSpread: number;
+      yMin: number;
+      yMax: number;
+      zNear: number;
+      zFar: number;
+      lengthMin: number;
+      lengthMax: number;
+      speedMin: number;
+      speedMax: number;
+    },
+    spreadVertically = false,
+  ): WorldRainDrop {
+    const camera = this.rainCameraPosition;
+    return {
+      x: camera.x + (Math.random() * 2 - 1) * options.xSpread,
+      y:
+        camera.y +
+        (spreadVertically
+          ? options.yMin + Math.random() * (options.yMax - options.yMin)
+          : options.yMax + Math.random() * 3),
+      z: camera.z + options.zFar + Math.random() * (options.zNear - options.zFar),
+      length: options.lengthMin + Math.random() * (options.lengthMax - options.lengthMin),
+      speed: options.speedMin + Math.random() * (options.speedMax - options.speedMin),
+      wind: (Math.random() * 2 - 1) * 0.56,
+    };
+  }
+
+  private resetWorldRainDrop(layer: WorldRainLayer, drop: WorldRainDrop): void {
+    const next = this.createWorldRainDrop(layer);
+    drop.x = next.x;
+    drop.y = next.y;
+    drop.z = next.z;
+    drop.length = next.length;
+    drop.speed = next.speed;
+    drop.wind = next.wind;
+  }
+
+  private updateWorldRainLayer(
+    layer: WorldRainLayer,
+    deltaTime: number,
+    forwardSpeed: number,
+    intensity: number,
+  ): void {
+    const camera = this.rainCameraPosition;
+    const fallScale = 0.72 + intensity * 0.55;
+    const roadMotion = forwardSpeed * (0.22 + intensity * 0.05);
+    const wind = this.config.rain.wind;
+
+    for (const drop of layer.drops) {
+      drop.y -= drop.speed * fallScale * deltaTime;
+      drop.x += (wind + drop.wind) * deltaTime;
+      drop.z += roadMotion * deltaTime;
+
+      if (
+        drop.y < camera.y + layer.yMin ||
+        drop.z > camera.z + 8 ||
+        Math.abs(drop.x - camera.x) > layer.xSpread * 1.18
+      ) {
+        this.resetWorldRainDrop(layer, drop);
+      }
+    }
+
+    layer.material.opacity = layer.baseOpacity * Math.min(1.35, intensity);
+    this.writeWorldRainPositions(layer);
+  }
+
+  private writeWorldRainPositions(layer: WorldRainLayer): void {
+    const wind = this.config.rain.wind;
+    for (let index = 0; index < layer.drops.length; index += 1) {
+      const drop = layer.drops[index];
+      const offset = index * 6;
+      const slant = (wind + drop.wind) * drop.length * 0.035;
+      layer.positions[offset] = drop.x;
+      layer.positions[offset + 1] = drop.y;
+      layer.positions[offset + 2] = drop.z;
+      layer.positions[offset + 3] = drop.x - slant;
+      layer.positions[offset + 4] = drop.y - drop.length;
+      layer.positions[offset + 5] = drop.z + drop.length * 0.025;
+    }
+
+    const positionAttribute = layer.geometry.getAttribute('position');
+    positionAttribute.needsUpdate = true;
+  }
+
+  private rollLightningDelay(): number {
+    return (
+      this.config.rain.lightningIntervalMin +
+      Math.random() *
+        Math.max(0.1, this.config.rain.lightningIntervalMax - this.config.rain.lightningIntervalMin)
+    );
   }
 
   private resize(): void {

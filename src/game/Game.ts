@@ -576,6 +576,7 @@ export class Game {
         'dark',
         finalRide.activeEvent,
       );
+      this.rendererSystem.updateRain(simulationDelta, finalRide, true);
       this.rendererSystem.updateSpeedEffect(simulationDelta, finalRide);
       this.vehicleRigSystem.update(
         simulationDelta,
@@ -607,6 +608,7 @@ export class Game {
         ),
       );
       this.rendererSystem.updateAtmosphere(deltaTime, 'dark', idleRide.activeEvent);
+      this.rendererSystem.updateRain(deltaTime, idleRide, false);
       this.rendererSystem.updateSpeedEffect(deltaTime, null);
       this.playerSystem.updateIdle(deltaTime);
       this.vehicleRigSystem.update(
@@ -635,6 +637,7 @@ export class Game {
       coopStats: this.coopStats,
       ride,
       boss: this.bossSystem.getSnapshot(),
+      lightningFlashRatio: this.rendererSystem.getLightningFlashRatio(),
       elapsedSeconds: this.spawnSystem.elapsedSeconds,
       radarContacts: ride
         ? this.limitRadarContacts(

@@ -677,9 +677,18 @@ export interface GameConfig {
     projectileWidth: number;
   };
   rain: {
+    enabled: boolean;
+    intensity: number;
+    wind: number;
+    lightningEnabled: boolean;
     overlayMaxOpacity: number;
-    dropletCount: number;
-    streakCount: number;
+    worldNearDropCount: number;
+    worldFarDropCount: number;
+    screenDropletCount: number;
+    lightningIntervalMin: number;
+    lightningIntervalMax: number;
+    lightningFlashDuration: number;
+    lightningSceneIntensity: number;
     fogMultiplier: number;
     exposureMultiplier: number;
     brakePenalty: number;
