@@ -498,9 +498,10 @@ export const GAME_CONFIG: GameConfig = {
       missLength: 54,
     },
     viewmodel: {
+      assetPath: '/models/viewmodels/assault-rifle.glb',
       position: [0.28, -0.42, -0.72],
       rotationDegrees: [1.6, -90, -1.8],
-      scale: 1,
+      scale: 1.55,
       recoilBack: 0.045,
       recoilLift: 0.012,
       recoilPitchDegrees: 3.4,

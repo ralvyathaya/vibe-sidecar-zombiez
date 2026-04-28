@@ -320,7 +320,7 @@ export class WeaponSystem {
     if (target === 'bazookaViewmodel' || target === 'gunnerBazookaViewmodel') {
       return this.bazookaWeapon.getDebugViewmodelTransform();
     }
-    if (target === 'armsAnchor') {
+    if (target === 'assaultRifleViewmodel' || target === 'armsAnchor') {
       return this.assaultRifleWeapon.getDebugViewmodelTransform();
     }
     return null;
@@ -346,7 +346,7 @@ export class WeaponSystem {
       this.bazookaWeapon.setDebugViewmodelTransform(snapshot);
       return;
     }
-    if (target === 'armsAnchor') {
+    if (target === 'assaultRifleViewmodel' || target === 'armsAnchor') {
       this.assaultRifleWeapon.setDebugViewmodelTransform(snapshot);
     }
   }
@@ -365,7 +365,7 @@ export class WeaponSystem {
     if (target === 'bazookaViewmodel' || target === 'gunnerBazookaViewmodel') {
       return this.bazookaWeapon.resetDebugViewmodelTransform();
     }
-    if (target === 'armsAnchor') {
+    if (target === 'assaultRifleViewmodel' || target === 'armsAnchor') {
       return this.assaultRifleWeapon.resetDebugViewmodelTransform();
     }
     return null;

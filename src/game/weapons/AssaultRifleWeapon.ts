@@ -2,11 +2,13 @@ import {
   AdditiveBlending,
   BoxGeometry,
   Camera,
+  Color,
   Group,
   MathUtils,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
+  Object3D,
   OctahedronGeometry,
   PointLight,
   Quaternion,
@@ -96,6 +98,7 @@ export class AssaultRifleWeapon {
   private readonly tracers: TracerEffect[] = [];
   private readonly basePosition: Vector3;
   private readonly baseRotation = new Vector3();
+  private loadedScene: Object3D | null = null;
 
   private ammo = 0;
   private reserveAmmo = 0;
@@ -151,7 +154,6 @@ export class AssaultRifleWeapon {
     this.muzzleFlash.visible = false;
     this.muzzleAnchor.add(this.muzzleFlash);
 
-    this.createProceduralViewmodel();
     this.createTracerPool();
     this.contentRoot.add(this.viewmodelKeyLight, this.viewmodelFillLight, this.muzzleAnchor);
     this.viewmodelRoot.add(this.contentRoot);
@@ -159,6 +161,7 @@ export class AssaultRifleWeapon {
     this.camera.parent?.add(this.worldEffectsRoot);
     this.applyViewmodelPose();
     this.setEquipped(false);
+    void this.loadViewmodel();
   }
 
   reset(): void {
@@ -185,8 +188,39 @@ export class AssaultRifleWeapon {
     this.gunshotSound.destroy();
     this.emptySound.destroy();
     this.reloadSound.destroy();
+    this.disposeObject(this.loadedScene);
     this.viewmodelRoot.removeFromParent();
     this.worldEffectsRoot.removeFromParent();
+  }
+
+  private async loadViewmodel(): Promise<void> {
+    try {
+      const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
+      const loader = new GLTFLoader();
+      const gltf = await loader.loadAsync(this.config.assaultRifle.viewmodel.assetPath);
+      gltf.scene.name = 'AssaultRifleGlbViewmodel';
+      // The source rifle is authored lengthwise on local Z; the weapon code expects
+      // the barrel on local X so muzzle/recoil tuning stays consistent.
+      gltf.scene.rotation.y = Math.PI * 0.5;
+      this.mountModel(gltf.scene);
+    } catch (error) {
+      console.warn('Failed to load assault rifle GLB, using fallback viewmodel.', error);
+      this.mountModel(this.createProceduralViewmodel());
+    }
+  }
+
+  private mountModel(model: Object3D): void {
+    if (this.loadedScene) {
+      this.contentRoot.remove(this.loadedScene);
+      this.disposeObject(this.loadedScene);
+    }
+
+    this.prepareModel(model);
+    model.position.set(0, 0, 0);
+    this.loadedScene = model;
+    this.contentRoot.add(model);
+    this.muzzleAnchor.position.set(...this.config.assaultRifle.viewmodel.muzzleOffset);
+    this.applyViewmodelPose();
   }
 
   updateRunning(
@@ -509,7 +543,48 @@ export class AssaultRifleWeapon {
     this.worldEffectsRoot.visible = this.equipped;
   }
 
-  private createProceduralViewmodel(): void {
+  private prepareModel(model: Object3D): void {
+    if (model.userData.sidecarPrepared === true) {
+      return;
+    }
+    model.userData.sidecarPrepared = true;
+
+    model.traverse((object) => {
+      object.frustumCulled = false;
+      const maybeMesh = object as Mesh;
+      if (!maybeMesh.isMesh) {
+        return;
+      }
+
+      maybeMesh.renderOrder = 10;
+      maybeMesh.castShadow = false;
+      maybeMesh.receiveShadow = false;
+      const materials = Array.isArray(maybeMesh.material)
+        ? maybeMesh.material
+        : [maybeMesh.material];
+      for (const material of materials) {
+        const standardMaterial = material as Partial<MeshStandardMaterial> & {
+          color?: Color;
+        };
+
+        if (standardMaterial.color instanceof Color) {
+          standardMaterial.color.multiply(new Color(0.96, 0.94, 0.91));
+        }
+
+        if (typeof standardMaterial.roughness === 'number') {
+          standardMaterial.roughness = MathUtils.clamp(standardMaterial.roughness, 0.42, 0.82);
+        }
+
+        if (typeof standardMaterial.metalness === 'number') {
+          standardMaterial.metalness = Math.min(standardMaterial.metalness, 0.18);
+        }
+      }
+    });
+  }
+
+  private createProceduralViewmodel(): Object3D {
+    const root = new Group();
+    root.name = 'AssaultRifleFallbackModel';
     const darkMetal = new MeshStandardMaterial({
       color: 0x25292e,
       roughness: 0.72,
@@ -552,7 +627,27 @@ export class AssaultRifleWeapon {
       }),
     );
     hand.position.set(0.28, -0.18, 0.02);
-    this.contentRoot.add(receiver, barrel, stock, magazine, grip, hand);
+    root.add(receiver, barrel, stock, magazine, grip, hand);
+    return root;
+  }
+
+  private disposeObject(object: Object3D | null): void {
+    if (!object) {
+      return;
+    }
+
+    object.traverse((entry) => {
+      const mesh = entry as Mesh;
+      if (!mesh.isMesh) {
+        return;
+      }
+
+      mesh.geometry?.dispose();
+      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const material of materials) {
+        material?.dispose();
+      }
+    });
   }
 
   private createTracerPool(): void {

@@ -68,6 +68,7 @@ export type DebugTransformTarget =
   | 'gunnerHandgunViewmodel'
   | 'gunnerShotgunViewmodel'
   | 'gunnerBazookaViewmodel'
+  | 'assaultRifleViewmodel'
   | 'armsAnchor';
 export type VehicleWheelSpinAxis = 'x' | 'y' | 'z';
 export type CoopConnectionState =
@@ -646,6 +647,7 @@ export interface GameConfig {
       missLength: number;
     };
     viewmodel: {
+      assetPath: string;
       position: Vec3Tuple;
       rotationDegrees: Vec3Tuple;
       scale: number;

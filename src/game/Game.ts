@@ -1424,6 +1424,11 @@ export class Game {
         'Gunner Bazooka Viewmodel',
         'Police bazooka FPS GLB transform under the camera.',
       ),
+      assaultRifleViewmodel: this.createWeaponDebugBinding(
+        'assaultRifleViewmodel',
+        'Assault Rifle Viewmodel',
+        'M4 assault rifle GLB transform under the FPS camera.',
+      ),
       armsAnchor: {
         label: 'Arms Anchor',
         description: 'Reserved transform for future hand/arms GLB mounting.',
