@@ -12,8 +12,8 @@ import type {
   WeaponStatus,
 } from '../../core/types';
 import { BazookaWeapon } from '../weapons/BazookaWeapon';
-import { PistolWeapon } from '../weapons/PistolWeapon';
-import { ShotgunWeapon } from '../weapons/ShotgunWeapon';
+import { PistolWeapon, type PistolTraceDebugSettings } from '../weapons/PistolWeapon';
+import { ShotgunWeapon, type ShotgunSprayDebugSettings } from '../weapons/ShotgunWeapon';
 import type { EnemySystem } from './EnemySystem';
 import type { InputSystem } from './InputSystem';
 import type { PlayerSystem } from './PlayerSystem';
@@ -369,6 +369,34 @@ export class WeaponSystem {
       return this.assaultRifleWeapon.resetDebugViewmodelTransform();
     }
     return null;
+  }
+
+  getDebugPistolTraceTuning(): PistolTraceDebugSettings {
+    return this.pistolWeapon.getDebugTraceTuning();
+  }
+
+  setDebugPistolTraceTuning(
+    settings: Partial<PistolTraceDebugSettings>,
+  ): PistolTraceDebugSettings {
+    return this.pistolWeapon.setDebugTraceTuning(settings);
+  }
+
+  resetDebugPistolTraceTuning(): PistolTraceDebugSettings {
+    return this.pistolWeapon.resetDebugTraceTuning();
+  }
+
+  getDebugShotgunSprayTuning(): ShotgunSprayDebugSettings {
+    return this.shotgunWeapon.getDebugSprayTuning();
+  }
+
+  setDebugShotgunSprayTuning(
+    settings: Partial<ShotgunSprayDebugSettings>,
+  ): ShotgunSprayDebugSettings {
+    return this.shotgunWeapon.setDebugSprayTuning(settings);
+  }
+
+  resetDebugShotgunSprayTuning(): ShotgunSprayDebugSettings {
+    return this.shotgunWeapon.resetDebugSprayTuning();
   }
 
   getActiveWeaponKind(): WeaponKind {

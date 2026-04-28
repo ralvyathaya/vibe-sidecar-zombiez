@@ -69,6 +69,27 @@ type WorldFireTracer = {
   maxLife: number;
 };
 
+export type VehicleHeadlightDebugSettings = {
+  positionX: number;
+  positionY: number;
+  positionZ: number;
+  targetX: number;
+  targetY: number;
+  targetZ: number;
+  fillTargetX: number;
+  fillTargetY: number;
+  fillTargetZ: number;
+  intensity: number;
+  distance: number;
+  fillIntensity: number;
+  fillDistance: number;
+  nearIntensity: number;
+  nearDistance: number;
+  hotspotOpacity: number;
+  spillOpacity: number;
+  glowOpacity: number;
+};
+
 export class VehicleRigSystem {
   private static readonly WHEEL_BLUR_MIN_SPEED = 3.8;
   private static readonly WHEEL_BLUR_MAX_OPACITY = 1.0;
@@ -124,6 +145,8 @@ export class VehicleRigSystem {
   private readonly baseHeadlightPosition = new Vector3();
   private readonly baseHeadlightTargetPosition = new Vector3();
   private readonly baseHeadlightFillTargetPosition = new Vector3();
+  private readonly headlightDebugDefaults: VehicleHeadlightDebugSettings;
+  private headlightDebug: VehicleHeadlightDebugSettings;
   private readonly perspectiveCamera: PerspectiveCamera | null;
   private readonly baseFov: number;
   private readonly runtimeProfile = getRuntimePerformanceProfile();
@@ -214,6 +237,27 @@ export class VehicleRigSystem {
     this.baseHeadlightPosition.set(...rig.headlightPosition);
     this.baseHeadlightTargetPosition.set(...rig.headlightTargetPosition);
     this.baseHeadlightFillTargetPosition.set(...rig.headlightFillTargetPosition);
+    this.headlightDebugDefaults = {
+      positionX: rig.headlightPosition[0],
+      positionY: rig.headlightPosition[1],
+      positionZ: rig.headlightPosition[2],
+      targetX: rig.headlightTargetPosition[0],
+      targetY: rig.headlightTargetPosition[1],
+      targetZ: rig.headlightTargetPosition[2],
+      fillTargetX: rig.headlightFillTargetPosition[0],
+      fillTargetY: rig.headlightFillTargetPosition[1],
+      fillTargetZ: rig.headlightFillTargetPosition[2],
+      intensity: rig.headlightIntensity,
+      distance: rig.headlightDistance,
+      fillIntensity: rig.headlightFillIntensity,
+      fillDistance: rig.headlightFillDistance,
+      nearIntensity: rig.nearFillIntensity,
+      nearDistance: rig.nearFillDistance,
+      hotspotOpacity: 0.03,
+      spillOpacity: 0.018,
+      glowOpacity: 0.045,
+    };
+    this.headlightDebug = { ...this.headlightDebugDefaults };
 
     this.headlightPivot.name = 'VehicleHeadlightPivot';
     this.headlightTarget.name = 'VehicleHeadlightTarget';
@@ -475,6 +519,27 @@ export class VehicleRigSystem {
     return this.getRoleSeatTransform(role);
   }
 
+  getDebugHeadlightTuning(): VehicleHeadlightDebugSettings {
+    return { ...this.headlightDebug };
+  }
+
+  setDebugHeadlightTuning(
+    settings: Partial<VehicleHeadlightDebugSettings>,
+  ): VehicleHeadlightDebugSettings {
+    this.headlightDebug = this.resolveHeadlightDebugSettings({
+      ...this.headlightDebug,
+      ...settings,
+    });
+    this.applyHeadlightDebugStatic();
+    return this.getDebugHeadlightTuning();
+  }
+
+  resetDebugHeadlightTuning(): VehicleHeadlightDebugSettings {
+    this.headlightDebug = { ...this.headlightDebugDefaults };
+    this.applyHeadlightDebugStatic();
+    return this.getDebugHeadlightTuning();
+  }
+
   reset(): void {
     this.time = 0;
     this.hitShake = 0;
@@ -504,13 +569,28 @@ export class VehicleRigSystem {
     );
     this.sidecarLatchAnchor.position.copy(this.baseLatchPosition);
     this.sidecarLatchAnchor.rotation.set(0, 0, 0);
-    this.headlightPivot.position.copy(this.baseHeadlightPosition);
+    this.headlightPivot.position.set(
+      this.headlightDebug.positionX,
+      this.headlightDebug.positionY,
+      this.headlightDebug.positionZ,
+    );
     this.headlightPivot.rotation.set(0, 0, 0);
-    this.headlightTarget.position.copy(this.baseHeadlightTargetPosition);
-    this.headlightFillTarget.position.copy(this.baseHeadlightFillTargetPosition);
-    this.headlight.intensity = this.config.vehicle.stage1Rig.headlightIntensity;
-    this.headlightFill.intensity = this.config.vehicle.stage1Rig.headlightFillIntensity;
-    this.nearFill.intensity = this.config.vehicle.stage1Rig.nearFillIntensity;
+    this.headlightTarget.position.set(
+      this.headlightDebug.targetX,
+      this.headlightDebug.targetY,
+      this.headlightDebug.targetZ,
+    );
+    this.headlightFillTarget.position.set(
+      this.headlightDebug.fillTargetX,
+      this.headlightDebug.fillTargetY,
+      this.headlightDebug.fillTargetZ,
+    );
+    this.headlight.intensity = this.headlightDebug.intensity;
+    this.headlight.distance = this.headlightDebug.distance;
+    this.headlightFill.intensity = this.headlightDebug.fillIntensity;
+    this.headlightFill.distance = this.headlightDebug.fillDistance;
+    this.nearFill.intensity = this.headlightDebug.nearIntensity;
+    this.nearFill.distance = this.headlightDebug.nearDistance;
     if (this.perspectiveCamera) {
       this.currentFov = this.baseFov;
       this.perspectiveCamera.fov = this.baseFov;
@@ -658,9 +738,9 @@ export class VehicleRigSystem {
       this.baseLatchPosition.z,
     );
     this.headlightPivot.position.set(
-      this.baseHeadlightPosition.x + laneShift * 0.28,
-      this.baseHeadlightPosition.y + rideShake * 0.22 + wheelHop * 0.45,
-      this.baseHeadlightPosition.z,
+      this.headlightDebug.positionX + laneShift * 0.28,
+      this.headlightDebug.positionY + rideShake * 0.22 + wheelHop * 0.45,
+      this.headlightDebug.positionZ,
     );
     this.headlightPivot.rotation.set(
       wheelHop * 0.55 + rideShake * 0.18,
@@ -668,42 +748,42 @@ export class VehicleRigSystem {
       slamRoll * 0.2,
     );
     this.headlightTarget.position.set(
-      this.baseHeadlightTargetPosition.x + laneShift * 0.2,
-      this.baseHeadlightTargetPosition.y,
-      this.baseHeadlightTargetPosition.z,
+      this.headlightDebug.targetX + laneShift * 0.2,
+      this.headlightDebug.targetY,
+      this.headlightDebug.targetZ,
     );
     const headlightFailureDrop = 1 - Math.min(0.3, (ride?.failureSeverity ?? 0) * 0.16);
     this.headlightFillTarget.position.set(
-      this.baseHeadlightFillTargetPosition.x + laneShift * 0.28,
-      this.baseHeadlightFillTargetPosition.y - rideShake * 0.02,
-      this.baseHeadlightFillTargetPosition.z,
+      this.headlightDebug.fillTargetX + laneShift * 0.28,
+      this.headlightDebug.fillTargetY - rideShake * 0.02,
+      this.headlightDebug.fillTargetZ,
     );
     this.headlight.intensity =
-      rig.headlightIntensity *
+      this.headlightDebug.intensity *
       (running ? 1 : 0.86) *
       headlightFailureDrop;
-    this.headlight.distance = rig.headlightDistance;
-    this.headlightFill.distance = rig.headlightFillDistance;
+    this.headlight.distance = this.headlightDebug.distance;
+    this.headlightFill.distance = this.headlightDebug.fillDistance;
     this.headlightFill.intensity =
-      rig.headlightFillIntensity *
+      this.headlightDebug.fillIntensity *
       (running ? 1 : 0.88) *
       headlightFailureDrop;
-    this.nearFill.distance = rig.nearFillDistance;
+    this.nearFill.distance = this.headlightDebug.nearDistance;
     this.nearFill.intensity =
-      rig.nearFillIntensity *
+      this.headlightDebug.nearIntensity *
       (running ? 1 : 0.9) *
       headlightFailureDrop;
     (this.headlightCone.material as MeshBasicMaterial).opacity = 0;
     (this.headlightBeamSheet.material as MeshBasicMaterial).opacity = 0;
     (this.headlightRoadSplash.material as MeshBasicMaterial).opacity = 0;
     (this.headlightHotspot.material as MeshBasicMaterial).opacity =
-      (running ? 0.03 : 0.018) * headlightFailureDrop;
+      this.headlightDebug.hotspotOpacity * (running ? 1 : 0.6) * headlightFailureDrop;
     (this.headlightSideSpillLeft.material as MeshBasicMaterial).opacity =
-      (running ? 0.018 : 0.012) * headlightFailureDrop;
+      this.headlightDebug.spillOpacity * (running ? 1 : 0.67) * headlightFailureDrop;
     (this.headlightSideSpillRight.material as MeshBasicMaterial).opacity =
-      (running ? 0.018 : 0.012) * headlightFailureDrop;
+      this.headlightDebug.spillOpacity * (running ? 1 : 0.67) * headlightFailureDrop;
     (this.headlightGlow.material as SpriteMaterial).opacity =
-      (running ? 0.045 : 0.03) * headlightFailureDrop;
+      this.headlightDebug.glowOpacity * (running ? 1 : 0.67) * headlightFailureDrop;
     this.headlightHotspot.scale.set(
       0.72,
       0.64,
@@ -814,6 +894,55 @@ export class VehicleRigSystem {
 
   private toTuple(vector: Vector3): Vec3Tuple {
     return [vector.x, vector.y, vector.z];
+  }
+
+  private applyHeadlightDebugStatic(): void {
+    this.headlightPivot.position.set(
+      this.headlightDebug.positionX,
+      this.headlightDebug.positionY,
+      this.headlightDebug.positionZ,
+    );
+    this.headlightTarget.position.set(
+      this.headlightDebug.targetX,
+      this.headlightDebug.targetY,
+      this.headlightDebug.targetZ,
+    );
+    this.headlightFillTarget.position.set(
+      this.headlightDebug.fillTargetX,
+      this.headlightDebug.fillTargetY,
+      this.headlightDebug.fillTargetZ,
+    );
+    this.headlight.intensity = this.headlightDebug.intensity;
+    this.headlight.distance = this.headlightDebug.distance;
+    this.headlightFill.intensity = this.headlightDebug.fillIntensity;
+    this.headlightFill.distance = this.headlightDebug.fillDistance;
+    this.nearFill.intensity = this.headlightDebug.nearIntensity;
+    this.nearFill.distance = this.headlightDebug.nearDistance;
+  }
+
+  private resolveHeadlightDebugSettings(
+    settings: VehicleHeadlightDebugSettings,
+  ): VehicleHeadlightDebugSettings {
+    return {
+      positionX: MathUtils.clamp(settings.positionX, -8, 8),
+      positionY: MathUtils.clamp(settings.positionY, -4, 8),
+      positionZ: MathUtils.clamp(settings.positionZ, -12, 8),
+      targetX: MathUtils.clamp(settings.targetX, -28, 28),
+      targetY: MathUtils.clamp(settings.targetY, -8, 12),
+      targetZ: MathUtils.clamp(settings.targetZ, -80, 20),
+      fillTargetX: MathUtils.clamp(settings.fillTargetX, -34, 34),
+      fillTargetY: MathUtils.clamp(settings.fillTargetY, -8, 14),
+      fillTargetZ: MathUtils.clamp(settings.fillTargetZ, -90, 24),
+      intensity: MathUtils.clamp(settings.intensity, 0, 8),
+      distance: MathUtils.clamp(settings.distance, 1, 90),
+      fillIntensity: MathUtils.clamp(settings.fillIntensity, 0, 5),
+      fillDistance: MathUtils.clamp(settings.fillDistance, 1, 90),
+      nearIntensity: MathUtils.clamp(settings.nearIntensity, 0, 4),
+      nearDistance: MathUtils.clamp(settings.nearDistance, 1, 35),
+      hotspotOpacity: MathUtils.clamp(settings.hotspotOpacity, 0, 0.35),
+      spillOpacity: MathUtils.clamp(settings.spillOpacity, 0, 0.3),
+      glowOpacity: MathUtils.clamp(settings.glowOpacity, 0, 0.6),
+    };
   }
 
   private async loadVehicleModel(): Promise<void> {

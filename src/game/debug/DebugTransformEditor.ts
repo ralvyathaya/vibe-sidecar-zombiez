@@ -13,16 +13,37 @@ export type DebugTransformBinding = {
   reset: () => DebugTransformSnapshot;
 };
 
+export type DebugTuningSnapshot = Record<string, number>;
+
+export type DebugTuningField = {
+  key: string;
+  label: string;
+  step?: number;
+  min?: number;
+  max?: number;
+};
+
+export type DebugTuningBinding = {
+  label: string;
+  description: string;
+  fields: DebugTuningField[];
+  get: () => DebugTuningSnapshot;
+  set: (snapshot: DebugTuningSnapshot) => void;
+  reset: () => DebugTuningSnapshot;
+};
+
 type DebugTransformEditorOptions = {
   host: HTMLElement;
   enabled: boolean;
   initialProfile: ControlProfile;
   targets: Partial<Record<DebugTransformTarget, DebugTransformBinding>>;
+  tunings?: Record<string, DebugTuningBinding>;
   onProfileChange: (profile: ControlProfile) => void;
   onStartLocalRun: (profile: ControlProfile) => void;
 };
 
 const STORAGE_KEY = 'sidecar-of-the-dead.debug-transforms.v1';
+const TUNING_STORAGE_KEY = 'sidecar-of-the-dead.debug-tunings.v1';
 const PROFILE_LABELS: Record<ControlProfile, string> = {
   legacyGunner: 'Legacy Gunner',
   coopGunner: 'Co-op Gunner',
@@ -33,13 +54,17 @@ export class DebugTransformEditor {
   private readonly root = document.createElement('div');
   private readonly profileSelect = document.createElement('select');
   private readonly targetSelect = document.createElement('select');
+  private readonly tuningSelect = document.createElement('select');
+  private readonly tuningFields = document.createElement('div');
   private readonly status = document.createElement('div');
   private readonly inputs: Record<keyof DebugTransformSnapshot, HTMLInputElement[]> = {
     position: [],
     rotationDegrees: [],
     scale: [],
   };
+  private readonly tuningInputs = new Map<string, HTMLInputElement>();
   private readonly targets: Partial<Record<DebugTransformTarget, DebugTransformBinding>>;
+  private readonly tunings: Record<string, DebugTuningBinding>;
   private readonly enabled: boolean;
   private selectedProfile: ControlProfile;
 
@@ -47,6 +72,7 @@ export class DebugTransformEditor {
     this.enabled = options.enabled;
     this.selectedProfile = options.initialProfile;
     this.targets = options.targets;
+    this.tunings = options.tunings ?? {};
 
     if (!this.enabled) {
       return;
@@ -55,7 +81,9 @@ export class DebugTransformEditor {
     this.buildUi();
     this.options.host.append(this.root);
     this.applyStoredDrafts();
+    this.applyStoredTuningDrafts();
     this.syncTargetFields();
+    this.syncTuningFields();
     window.addEventListener('keydown', this.handleKeyDown);
   }
 
@@ -178,8 +206,57 @@ export class DebugTransformEditor {
     });
     actions.append(applyTargetButton, resetButton, copyButton);
 
+    const tuningRow = this.createRow('Tuning');
+    for (const tuningKey of Object.keys(this.tunings)) {
+      const binding = this.tunings[tuningKey];
+      if (!binding) {
+        continue;
+      }
+      const option = document.createElement('option');
+      option.value = tuningKey;
+      option.textContent = binding.label;
+      this.tuningSelect.append(option);
+    }
+    if (this.tuningSelect.options.length === 0) {
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = 'No tunings';
+      this.tuningSelect.append(option);
+      this.tuningSelect.disabled = true;
+    }
+    this.styleControl(this.tuningSelect);
+    this.tuningSelect.addEventListener('change', () => {
+      this.syncTuningFields();
+    });
+    tuningRow.append(this.tuningSelect);
+
+    this.tuningFields.style.cssText = 'display:grid;gap:7px;margin:10px 0 12px';
+
+    const tuningActions = document.createElement('div');
+    tuningActions.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap';
+    const applyTuningButton = this.createButton('Apply Tuning');
+    applyTuningButton.addEventListener('click', () => {
+      this.applyCurrentTuning();
+    });
+    const resetTuningButton = this.createButton('Reset Tuning');
+    resetTuningButton.addEventListener('click', () => {
+      this.resetCurrentTuning();
+    });
+    tuningActions.append(applyTuningButton, resetTuningButton);
+
     this.status.style.cssText = 'min-height:18px;margin-top:10px;font-size:12px;color:#d9c8aa';
-    this.root.append(title, hint, profileRow, targetRow, fields, actions, this.status);
+    this.root.append(
+      title,
+      hint,
+      profileRow,
+      targetRow,
+      fields,
+      actions,
+      tuningRow,
+      this.tuningFields,
+      tuningActions,
+      this.status,
+    );
   }
 
   private createRow(label: string): HTMLElement {
@@ -257,6 +334,11 @@ export class DebugTransformEditor {
     return this.targets[value] ? value : null;
   }
 
+  private getCurrentTuningKey(): string | null {
+    const value = this.tuningSelect.value;
+    return value && this.tunings[value] ? value : null;
+  }
+
   private syncTargetFields(): void {
     const target = this.getCurrentTarget();
     if (!target) {
@@ -306,6 +388,84 @@ export class DebugTransformEditor {
     this.setStatus(`Reset ${binding.label}`);
   }
 
+  private syncTuningFields(): void {
+    this.tuningFields.replaceChildren();
+    this.tuningInputs.clear();
+
+    const tuningKey = this.getCurrentTuningKey();
+    if (!tuningKey) {
+      return;
+    }
+
+    const binding = this.tunings[tuningKey];
+    if (!binding) {
+      return;
+    }
+
+    const snapshot = binding.get();
+    for (const field of binding.fields) {
+      const row = document.createElement('label');
+      row.style.cssText = 'display:grid;grid-template-columns:132px 1fr;gap:8px;align-items:center';
+      const text = document.createElement('span');
+      text.textContent = field.label;
+      text.style.cssText = 'font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#d9c8aa';
+
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.step = String(field.step ?? 0.01);
+      if (typeof field.min === 'number') {
+        input.min = String(field.min);
+      }
+      if (typeof field.max === 'number') {
+        input.max = String(field.max);
+      }
+      this.styleControl(input);
+      input.value = this.formatNumber(snapshot[field.key] ?? 0);
+      input.addEventListener('change', () => {
+        this.applyCurrentTuning();
+      });
+      this.tuningInputs.set(field.key, input);
+      row.append(text, input);
+      this.tuningFields.append(row);
+    }
+
+    this.setStatus(binding.description);
+  }
+
+  private applyCurrentTuning(): void {
+    const tuningKey = this.getCurrentTuningKey();
+    if (!tuningKey) {
+      return;
+    }
+
+    const binding = this.tunings[tuningKey];
+    if (!binding) {
+      return;
+    }
+
+    const snapshot = this.readTuningFields(binding);
+    binding.set(snapshot);
+    this.saveTuningDraft(tuningKey, snapshot);
+    this.setStatus(`Applied ${binding.label}`);
+  }
+
+  private resetCurrentTuning(): void {
+    const tuningKey = this.getCurrentTuningKey();
+    if (!tuningKey) {
+      return;
+    }
+
+    const binding = this.tunings[tuningKey];
+    if (!binding) {
+      return;
+    }
+
+    const snapshot = binding.reset();
+    this.writeTuningFields(snapshot);
+    this.removeTuningDraft(tuningKey);
+    this.setStatus(`Reset ${binding.label}`);
+  }
+
   private writeFields(snapshot: DebugTransformSnapshot): void {
     this.writeTuple(this.inputs.position, snapshot.position);
     this.writeTuple(this.inputs.rotationDegrees, snapshot.rotationDegrees);
@@ -328,6 +488,21 @@ export class DebugTransformEditor {
       rotationDegrees: this.readTuple(this.inputs.rotationDegrees, [0, 0, 0]),
       scale: this.readTuple(this.inputs.scale, [1, 1, 1]),
     };
+  }
+
+  private writeTuningFields(snapshot: DebugTuningSnapshot): void {
+    for (const [key, input] of this.tuningInputs) {
+      input.value = this.formatNumber(snapshot[key] ?? 0);
+    }
+  }
+
+  private readTuningFields(binding: DebugTuningBinding): DebugTuningSnapshot {
+    const snapshot: DebugTuningSnapshot = {};
+    for (const field of binding.fields) {
+      const parsed = Number(this.tuningInputs.get(field.key)?.value);
+      snapshot[field.key] = Number.isFinite(parsed) ? parsed : binding.get()[field.key] ?? 0;
+    }
+    return snapshot;
   }
 
   private readTuple(inputs: HTMLInputElement[], fallback: Vec3Tuple): Vec3Tuple {
@@ -369,6 +544,38 @@ export class DebugTransformEditor {
     }
   }
 
+  private getStoredTuningDrafts(): Record<string, DebugTuningSnapshot> {
+    try {
+      const raw = window.localStorage.getItem(TUNING_STORAGE_KEY);
+      if (!raw) {
+        return {};
+      }
+      return JSON.parse(raw) as Record<string, DebugTuningSnapshot>;
+    } catch {
+      return {};
+    }
+  }
+
+  private saveTuningDraft(tuningKey: string, snapshot: DebugTuningSnapshot): void {
+    try {
+      const drafts = this.getStoredTuningDrafts();
+      drafts[tuningKey] = snapshot;
+      window.localStorage.setItem(TUNING_STORAGE_KEY, JSON.stringify(drafts));
+    } catch {
+      this.setStatus('Could not save tuning draft to localStorage.');
+    }
+  }
+
+  private removeTuningDraft(tuningKey: string): void {
+    try {
+      const drafts = this.getStoredTuningDrafts();
+      delete drafts[tuningKey];
+      window.localStorage.setItem(TUNING_STORAGE_KEY, JSON.stringify(drafts));
+    } catch {
+      this.setStatus('Could not update tuning draft.');
+    }
+  }
+
   private applyStoredDrafts(): void {
     const drafts = this.getStoredDrafts();
     for (const target of Object.keys(drafts) as DebugTransformTarget[]) {
@@ -381,14 +588,40 @@ export class DebugTransformEditor {
     }
   }
 
+  private applyStoredTuningDrafts(): void {
+    const drafts = this.getStoredTuningDrafts();
+    for (const tuningKey of Object.keys(drafts)) {
+      const binding = this.tunings[tuningKey];
+      const snapshot = drafts[tuningKey];
+      if (!binding || !snapshot) {
+        continue;
+      }
+      binding.set(snapshot);
+    }
+  }
+
   private async copyJson(): Promise<void> {
-    const payload: Partial<Record<DebugTransformTarget, DebugTransformSnapshot>> = {};
+    const payload: {
+      transforms: Partial<Record<DebugTransformTarget, DebugTransformSnapshot>>;
+      tunings: Record<string, DebugTuningSnapshot>;
+    } = {
+      transforms: {},
+      tunings: {},
+    };
     for (const target of Object.keys(this.targets) as DebugTransformTarget[]) {
       const binding = this.targets[target];
       if (!binding) {
         continue;
       }
-      payload[target] = binding.get();
+      payload.transforms[target] = binding.get();
+    }
+
+    for (const tuningKey of Object.keys(this.tunings)) {
+      const binding = this.tunings[tuningKey];
+      if (!binding) {
+        continue;
+      }
+      payload.tunings[tuningKey] = binding.get();
     }
 
     const json = JSON.stringify(payload, null, 2);

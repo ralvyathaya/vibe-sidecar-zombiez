@@ -52,6 +52,14 @@ type TracerEffect = {
   length: number;
 };
 
+export type PistolTraceDebugSettings = {
+  duration: number;
+  width: number;
+  glowWidth: number;
+  opacity: number;
+  missLength: number;
+};
+
 export class PistolWeapon {
   private static readonly DEFAULT_VIEWMODEL_KEY: Extract<
     FpsViewmodelKey,
@@ -104,6 +112,8 @@ export class PistolWeapon {
   private readonly traceEnd = new Vector3();
   private readonly traceDirection = new Vector3();
   private readonly viewmodelVariants = new Map<FpsViewmodelKey, Object3D>();
+  private readonly traceDebugDefaults: PistolTraceDebugSettings;
+  private traceDebug: PistolTraceDebugSettings;
 
   private loadedScene: Object3D | null = null;
   private currentViewmodelKey: Extract<
@@ -132,6 +142,14 @@ export class PistolWeapon {
     private readonly config: GameConfig,
   ) {
     const viewmodel = this.getCurrentFpsConfig();
+    this.traceDebugDefaults = {
+      duration: this.config.weapon.tracer.duration,
+      width: this.config.weapon.tracer.width,
+      glowWidth: this.config.weapon.tracer.glowWidth,
+      opacity: this.config.weapon.tracer.opacity,
+      missLength: this.config.weapon.tracer.missLength,
+    };
+    this.traceDebug = { ...this.traceDebugDefaults };
     const [rotX, rotY, rotZ] = viewmodel.rotationDegrees;
     this.basePosition = new Vector3(...viewmodel.position);
     this.debugViewmodelScale = viewmodel.scale;
@@ -364,6 +382,23 @@ export class PistolWeapon {
     this.muzzleAnchor.position.set(...viewmodel.muzzleOffset);
     this.applyViewmodelPose(false);
     return this.getDebugViewmodelTransform();
+  }
+
+  getDebugTraceTuning(): PistolTraceDebugSettings {
+    return { ...this.traceDebug };
+  }
+
+  setDebugTraceTuning(settings: Partial<PistolTraceDebugSettings>): PistolTraceDebugSettings {
+    this.traceDebug = this.resolveTraceDebugSettings({
+      ...this.traceDebug,
+      ...settings,
+    });
+    return this.getDebugTraceTuning();
+  }
+
+  resetDebugTraceTuning(): PistolTraceDebugSettings {
+    this.traceDebug = { ...this.traceDebugDefaults };
+    return this.getDebugTraceTuning();
   }
 
   destroy(): void {
@@ -601,8 +636,8 @@ export class PistolWeapon {
 
     this.traceDirection.divideScalar(length);
     tracer.active = true;
-    tracer.life = this.config.weapon.tracer.duration;
-    tracer.maxLife = this.config.weapon.tracer.duration;
+    tracer.life = this.traceDebug.duration;
+    tracer.maxLife = this.traceDebug.duration;
     tracer.length = length;
     tracer.group.visible = true;
     tracer.group.position.copy(start);
@@ -613,21 +648,21 @@ export class PistolWeapon {
     tracer.tip.position.set(length, 0, 0);
     tracer.beam.scale.set(
       length,
-      this.config.weapon.tracer.width,
-      this.config.weapon.tracer.width,
+      this.traceDebug.width,
+      this.traceDebug.width,
     );
     tracer.glow.scale.set(
       length,
-      this.config.weapon.tracer.glowWidth,
-      this.config.weapon.tracer.glowWidth,
+      this.traceDebug.glowWidth,
+      this.traceDebug.glowWidth,
     );
-    tracer.tip.scale.setScalar(this.config.weapon.tracer.glowWidth * 1.25);
+    tracer.tip.scale.setScalar(this.traceDebug.glowWidth * 1.25);
 
-    (tracer.beam.material as MeshBasicMaterial).opacity = this.config.weapon.tracer.opacity;
+    (tracer.beam.material as MeshBasicMaterial).opacity = this.traceDebug.opacity;
     (tracer.glow.material as MeshBasicMaterial).opacity =
-      this.config.weapon.tracer.opacity * 0.36;
+      this.traceDebug.opacity * 0.36;
     (tracer.tip.material as MeshBasicMaterial).opacity =
-      this.config.weapon.tracer.opacity * 0.82;
+      this.traceDebug.opacity * 0.82;
   }
 
   private updateTracers(deltaTime: number): void {
@@ -648,11 +683,11 @@ export class PistolWeapon {
 
       const alpha = clamp(tracer.life / tracer.maxLife, 0, 1);
       (tracer.beam.material as MeshBasicMaterial).opacity =
-        this.config.weapon.tracer.opacity * alpha;
+        this.traceDebug.opacity * alpha;
       (tracer.glow.material as MeshBasicMaterial).opacity =
-        this.config.weapon.tracer.opacity * 0.36 * alpha;
+        this.traceDebug.opacity * 0.36 * alpha;
       (tracer.tip.material as MeshBasicMaterial).opacity =
-        this.config.weapon.tracer.opacity * 0.82 * alpha;
+        this.traceDebug.opacity * 0.82 * alpha;
     }
   }
 
@@ -712,7 +747,7 @@ export class PistolWeapon {
       .copy(this.muzzleWorld)
       .addScaledVector(
         this.traceDirection,
-        Math.min(this.config.weapon.range, this.config.weapon.tracer.missLength),
+        Math.min(this.config.weapon.range, this.traceDebug.missLength),
       );
 
     const hitLatched = enemies.raycastLatchedRunner(
@@ -938,6 +973,18 @@ export class PistolWeapon {
 
   private resolveUniformScale(scale: Vec3Tuple): number {
     return Math.max(0.001, (scale[0] + scale[1] + scale[2]) / 3);
+  }
+
+  private resolveTraceDebugSettings(
+    settings: PistolTraceDebugSettings,
+  ): PistolTraceDebugSettings {
+    return {
+      duration: clamp(settings.duration, 0.02, 0.6),
+      width: clamp(settings.width, 0.002, 0.35),
+      glowWidth: clamp(settings.glowWidth, 0.002, 0.75),
+      opacity: clamp(settings.opacity, 0, 2.5),
+      missLength: clamp(settings.missLength, 2, this.config.weapon.range),
+    };
   }
 
   private applySlidePose(): void {

@@ -56,6 +56,21 @@ type ImpactBurst = {
   maxLife: number;
 };
 
+export type ShotgunSprayDebugSettings = {
+  spread: number;
+  spreadKick: number;
+  pelletsPerShot: number;
+  pelletVisualCount: number;
+  pelletTraceMinLength: number;
+  pelletTraceMaxLength: number;
+  pelletTraceDuration: number;
+  pelletTraceMuzzleForward: number;
+  pelletTraceWidth: number;
+  pelletTraceGlowWidth: number;
+  pelletJitter: number;
+  burstAimDistance: number;
+};
+
 export class ShotgunWeapon {
   private readonly viewmodelRoot = new Group();
   private readonly contentRoot = new Group();
@@ -114,6 +129,8 @@ export class ShotgunWeapon {
   private readonly delaySound: SoundEffectPool;
   private readonly basePosition: Vector3;
   private readonly baseRotation = new Vector3();
+  private readonly sprayDebugDefaults: ShotgunSprayDebugSettings;
+  private sprayDebug: ShotgunSprayDebugSettings;
 
   private loadedScene: Object3D | null = null;
   private gunshotTimingProbe: HTMLAudioElement | null = null;
@@ -139,6 +156,21 @@ export class ShotgunWeapon {
     private readonly config: GameConfig,
   ) {
     const viewmodel = this.config.fpsViewmodels.gunner_shotgun;
+    this.sprayDebugDefaults = {
+      spread: this.config.shotgun.spread,
+      spreadKick: this.config.shotgun.spreadKick,
+      pelletsPerShot: this.config.shotgun.pelletsPerShot,
+      pelletVisualCount: this.config.shotgun.pelletVisualCount,
+      pelletTraceMinLength: this.config.shotgun.pelletTraceMinLength,
+      pelletTraceMaxLength: this.config.shotgun.pelletTraceMaxLength,
+      pelletTraceDuration: this.config.shotgun.pelletTraceDuration,
+      pelletTraceMuzzleForward: this.config.shotgun.pelletTraceMuzzleForward,
+      pelletTraceWidth: 0.09,
+      pelletTraceGlowWidth: 0.24,
+      pelletJitter: 0.38,
+      burstAimDistance: clamp(this.config.shotgun.pelletTraceMaxLength * 0.22, 4.2, 7.2),
+    };
+    this.sprayDebug = { ...this.sprayDebugDefaults };
     const [rotX, rotY, rotZ] = viewmodel.rotationDegrees;
     this.basePosition = new Vector3(...viewmodel.position);
     this.debugViewmodelScale = viewmodel.scale;
@@ -388,6 +420,25 @@ export class ShotgunWeapon {
     return this.getDebugViewmodelTransform();
   }
 
+  getDebugSprayTuning(): ShotgunSprayDebugSettings {
+    return { ...this.sprayDebug };
+  }
+
+  setDebugSprayTuning(
+    settings: Partial<ShotgunSprayDebugSettings>,
+  ): ShotgunSprayDebugSettings {
+    this.sprayDebug = this.resolveSprayDebugSettings({
+      ...this.sprayDebug,
+      ...settings,
+    });
+    return this.getDebugSprayTuning();
+  }
+
+  resetDebugSprayTuning(): ShotgunSprayDebugSettings {
+    this.sprayDebug = { ...this.sprayDebugDefaults };
+    return this.getDebugSprayTuning();
+  }
+
   destroy(): void {
     this.camera.remove(this.viewmodelRoot);
     this.worldEffectsRoot.removeFromParent();
@@ -484,6 +535,7 @@ export class ShotgunWeapon {
     world: WorldSystem,
     rewards: RewardSystem,
   ): void {
+    const pelletCount = Math.max(1, Math.round(this.sprayDebug.pelletsPerShot));
     const visualPelletIndices = this.getRepresentativePelletIndices();
 
     this.cooldown = this.getCycleDuration();
@@ -507,8 +559,8 @@ export class ShotgunWeapon {
 
     const rewardEvents: RewardEvent[] = [];
 
-    for (let pelletIndex = 0; pelletIndex < this.config.shotgun.pelletsPerShot; pelletIndex += 1) {
-      this.samplePelletScreenPoint(pelletIndex, this.config.shotgun.pelletsPerShot);
+    for (let pelletIndex = 0; pelletIndex < pelletCount; pelletIndex += 1) {
+      this.samplePelletScreenPoint(pelletIndex, pelletCount);
       this.pelletRaycaster.setFromCamera(this.spreadCrosshair, this.camera);
       this.pelletDirection.copy(this.pelletRaycaster.ray.direction);
 
@@ -532,8 +584,8 @@ export class ShotgunWeapon {
         // hit logic, but converts it into a muzzle-originating direction so the
         // visible blast opens outward as a fan from the barrel.
         const visibleLength = randomRange(
-          this.config.shotgun.pelletTraceMinLength,
-          this.config.shotgun.pelletTraceMaxLength,
+          this.sprayDebug.pelletTraceMinLength,
+          this.sprayDebug.pelletTraceMaxLength,
         );
         this.resolvePelletBurstDirection();
         this.spawnPelletStreak(this.muzzleWorld, this.pelletBurstDirection, visibleLength);
@@ -603,11 +655,7 @@ export class ShotgunWeapon {
       this.muzzleForwardWorld.copy(this.pelletDirection);
     }
 
-    const burstAimDistance = clamp(
-      this.config.shotgun.pelletTraceMaxLength * 0.22,
-      4.2,
-      7.2,
-    );
+    const burstAimDistance = this.sprayDebug.burstAimDistance;
     this.pelletBurstTarget
       .copy(this.pelletRaycaster.ray.origin)
       .addScaledVector(this.pelletDirection, burstAimDistance);
@@ -625,8 +673,8 @@ export class ShotgunWeapon {
   }
 
   private getRepresentativePelletIndices(): Set<number> {
-    const pelletCount = this.config.shotgun.pelletsPerShot;
-    const visualCount = clamp(this.config.shotgun.pelletVisualCount, 0, pelletCount);
+    const pelletCount = Math.max(1, Math.round(this.sprayDebug.pelletsPerShot));
+    const visualCount = Math.round(clamp(this.sprayDebug.pelletVisualCount, 0, pelletCount));
     const selected = new Set<number>();
     if (visualCount <= 0) {
       return selected;
@@ -827,7 +875,7 @@ export class ShotgunWeapon {
   // The shotgun UI bracket width is derived from the same spread value used by pellets,
   // so crosshair tuning and gameplay spread stay visually honest.
   private getCurrentSpread(): number {
-    return this.config.shotgun.spread + this.fireKick * this.config.shotgun.spreadKick;
+    return this.sprayDebug.spread + this.fireKick * this.sprayDebug.spreadKick;
   }
 
   private getCrosshairGap(): number {
@@ -954,8 +1002,8 @@ export class ShotgunWeapon {
     }
 
     streak.active = true;
-    streak.life = this.config.shotgun.pelletTraceDuration;
-    streak.maxLife = this.config.shotgun.pelletTraceDuration;
+    streak.life = this.sprayDebug.pelletTraceDuration;
+    streak.maxLife = this.sprayDebug.pelletTraceDuration;
     streak.direction.copy(direction).normalize();
     streak.speed = 0;
     streak.group.visible = true;
@@ -965,12 +1013,20 @@ export class ShotgunWeapon {
     // barrel itself and stays out of the player's face.
     streak.group.position
       .copy(start)
-      .addScaledVector(streak.direction, this.config.shotgun.pelletTraceMuzzleForward);
+      .addScaledVector(streak.direction, this.sprayDebug.pelletTraceMuzzleForward);
     streak.group.quaternion.setFromUnitVectors(EFFECT_FORWARD_AXIS, streak.direction);
     streak.beam.position.set(length * 0.5, 0, 0);
     streak.glow.position.set(length * 0.5, 0, 0);
-    streak.beam.scale.set(length, 0.09, 0.09);
-    streak.glow.scale.set(length, 0.24, 0.24);
+    streak.beam.scale.set(
+      length,
+      this.sprayDebug.pelletTraceWidth,
+      this.sprayDebug.pelletTraceWidth,
+    );
+    streak.glow.scale.set(
+      length,
+      this.sprayDebug.pelletTraceGlowWidth,
+      this.sprayDebug.pelletTraceGlowWidth,
+    );
     (streak.beam.material as MeshBasicMaterial).opacity = 1;
     (streak.glow.material as MeshBasicMaterial).opacity = 0.5;
   }
@@ -1118,7 +1174,8 @@ export class ShotgunWeapon {
     const radiusXPx = gap + this.getCrosshairBracketWidth(gap) * 0.5 + 2;
     const radiusYPx = this.getCrosshairBracketHeight(gap) * 0.42;
     const angle =
-      (pelletIndex / Math.max(pelletCount, 1)) * Math.PI * 2 + randomRange(-0.38, 0.38);
+      (pelletIndex / Math.max(pelletCount, 1)) * Math.PI * 2 +
+      randomRange(-this.sprayDebug.pelletJitter, this.sprayDebug.pelletJitter);
     const radius = 0.16 + 0.84 * Math.sqrt(Math.random());
     const offsetXPx = Math.cos(angle) * radius * radiusXPx;
     const offsetYPx = Math.sin(angle) * radius * radiusYPx;
@@ -1178,6 +1235,27 @@ export class ShotgunWeapon {
 
   private resolveUniformScale(scale: Vec3Tuple): number {
     return Math.max(0.001, (scale[0] + scale[1] + scale[2]) / 3);
+  }
+
+  private resolveSprayDebugSettings(
+    settings: ShotgunSprayDebugSettings,
+  ): ShotgunSprayDebugSettings {
+    const minLength = clamp(settings.pelletTraceMinLength, 0.5, 80);
+    const maxLength = clamp(settings.pelletTraceMaxLength, minLength, 100);
+    return {
+      spread: clamp(settings.spread, 0, 0.18),
+      spreadKick: clamp(settings.spreadKick, 0, 0.18),
+      pelletsPerShot: Math.round(clamp(settings.pelletsPerShot, 1, 32)),
+      pelletVisualCount: Math.round(clamp(settings.pelletVisualCount, 0, 24)),
+      pelletTraceMinLength: minLength,
+      pelletTraceMaxLength: maxLength,
+      pelletTraceDuration: clamp(settings.pelletTraceDuration, 0.02, 0.8),
+      pelletTraceMuzzleForward: clamp(settings.pelletTraceMuzzleForward, 0, 10),
+      pelletTraceWidth: clamp(settings.pelletTraceWidth, 0.005, 0.5),
+      pelletTraceGlowWidth: clamp(settings.pelletTraceGlowWidth, 0.005, 1),
+      pelletJitter: clamp(settings.pelletJitter, 0, 2),
+      burstAimDistance: clamp(settings.burstAimDistance, 1, 40),
+    };
   }
 
   private randomizeMuzzleFlash(): void {

@@ -23,7 +23,11 @@ import { approach, clamp, randomInt, randomRange, setGameRandomSeed } from '../c
 import { UISystem } from '../ui/UISystem';
 import { LoopingSound } from './audio/LoopingSound';
 import { SoundEffectPool } from './audio/SoundEffectPool';
-import { DebugTransformEditor, type DebugTransformBinding } from './debug/DebugTransformEditor';
+import {
+  DebugTransformEditor,
+  type DebugTransformBinding,
+  type DebugTuningBinding,
+} from './debug/DebugTransformEditor';
 import { NetworkSystem } from './network/NetworkSystem';
 import { BossSystem } from './systems/BossSystem';
 import { DriverSystem } from './systems/DriverSystem';
@@ -177,6 +181,7 @@ export class Game {
       enabled: this.isDebugEditorEnabled(),
       initialProfile: this.coopSession.activeProfile,
       targets: this.createDebugTransformBindings(),
+      tunings: this.createDebugTuningBindings(),
       onProfileChange: (profile) => {
         this.applyDebugProfile(profile);
       },
@@ -1434,6 +1439,79 @@ export class Game {
           };
           return { ...this.armsAnchorDebugTransform };
         },
+      },
+    };
+  }
+
+  private createDebugTuningBindings(): Record<string, DebugTuningBinding> {
+    return {
+      shotgunSpray: {
+        label: 'Shotgun Spray',
+        description: 'Tune shotgun pellet spread, count, burst direction, and visible pellet traces.',
+        fields: [
+          { key: 'spread', label: 'Spread', step: 0.005, min: 0, max: 0.18 },
+          { key: 'spreadKick', label: 'Spread Kick', step: 0.005, min: 0, max: 0.18 },
+          { key: 'pelletsPerShot', label: 'Pellets', step: 1, min: 1, max: 32 },
+          { key: 'pelletVisualCount', label: 'Trace Pellets', step: 1, min: 0, max: 24 },
+          { key: 'pelletTraceMinLength', label: 'Trace Min', step: 0.5, min: 0.5, max: 80 },
+          { key: 'pelletTraceMaxLength', label: 'Trace Max', step: 0.5, min: 0.5, max: 100 },
+          { key: 'pelletTraceDuration', label: 'Trace Life', step: 0.01, min: 0.02, max: 0.8 },
+          { key: 'pelletTraceMuzzleForward', label: 'Muzzle Push', step: 0.05, min: 0, max: 10 },
+          { key: 'pelletTraceWidth', label: 'Trace Width', step: 0.005, min: 0.005, max: 0.5 },
+          { key: 'pelletTraceGlowWidth', label: 'Glow Width', step: 0.005, min: 0.005, max: 1 },
+          { key: 'pelletJitter', label: 'Pellet Jitter', step: 0.01, min: 0, max: 2 },
+          { key: 'burstAimDistance', label: 'Aim Distance', step: 0.25, min: 1, max: 40 },
+        ],
+        get: () => this.weaponSystem.getDebugShotgunSprayTuning(),
+        set: (snapshot) => {
+          this.weaponSystem.setDebugShotgunSprayTuning(snapshot);
+        },
+        reset: () => this.weaponSystem.resetDebugShotgunSprayTuning(),
+      },
+      handgunTrace: {
+        label: 'Handgun Trace',
+        description: 'Tune handgun bullet trace width, opacity, lifetime, and miss distance.',
+        fields: [
+          { key: 'duration', label: 'Trace Life', step: 0.01, min: 0.02, max: 0.6 },
+          { key: 'width', label: 'Trace Width', step: 0.002, min: 0.002, max: 0.35 },
+          { key: 'glowWidth', label: 'Glow Width', step: 0.002, min: 0.002, max: 0.75 },
+          { key: 'opacity', label: 'Opacity', step: 0.05, min: 0, max: 2.5 },
+          { key: 'missLength', label: 'Miss Length', step: 1, min: 2, max: 220 },
+        ],
+        get: () => this.weaponSystem.getDebugPistolTraceTuning(),
+        set: (snapshot) => {
+          this.weaponSystem.setDebugPistolTraceTuning(snapshot);
+        },
+        reset: () => this.weaponSystem.resetDebugPistolTraceTuning(),
+      },
+      motorHeadlight: {
+        label: 'Motor Headlight',
+        description: 'Tune headlight origin, target direction, fill light, and visible glow.',
+        fields: [
+          { key: 'positionX', label: 'Pos X', step: 0.05, min: -8, max: 8 },
+          { key: 'positionY', label: 'Pos Y', step: 0.05, min: -4, max: 8 },
+          { key: 'positionZ', label: 'Pos Z', step: 0.05, min: -12, max: 8 },
+          { key: 'targetX', label: 'Target X', step: 0.1, min: -28, max: 28 },
+          { key: 'targetY', label: 'Target Y', step: 0.1, min: -8, max: 12 },
+          { key: 'targetZ', label: 'Target Z', step: 0.25, min: -80, max: 20 },
+          { key: 'fillTargetX', label: 'Fill Target X', step: 0.1, min: -34, max: 34 },
+          { key: 'fillTargetY', label: 'Fill Target Y', step: 0.1, min: -8, max: 14 },
+          { key: 'fillTargetZ', label: 'Fill Target Z', step: 0.25, min: -90, max: 24 },
+          { key: 'intensity', label: 'Intensity', step: 0.05, min: 0, max: 8 },
+          { key: 'distance', label: 'Distance', step: 0.5, min: 1, max: 90 },
+          { key: 'fillIntensity', label: 'Fill Intensity', step: 0.05, min: 0, max: 5 },
+          { key: 'fillDistance', label: 'Fill Distance', step: 0.5, min: 1, max: 90 },
+          { key: 'nearIntensity', label: 'Near Intensity', step: 0.05, min: 0, max: 4 },
+          { key: 'nearDistance', label: 'Near Distance', step: 0.25, min: 1, max: 35 },
+          { key: 'hotspotOpacity', label: 'Hotspot', step: 0.005, min: 0, max: 0.35 },
+          { key: 'spillOpacity', label: 'Side Spill', step: 0.005, min: 0, max: 0.3 },
+          { key: 'glowOpacity', label: 'Glow', step: 0.005, min: 0, max: 0.6 },
+        ],
+        get: () => this.vehicleRigSystem.getDebugHeadlightTuning(),
+        set: (snapshot) => {
+          this.vehicleRigSystem.setDebugHeadlightTuning(snapshot);
+        },
+        reset: () => this.vehicleRigSystem.resetDebugHeadlightTuning(),
       },
     };
   }
