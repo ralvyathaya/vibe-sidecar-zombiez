@@ -513,6 +513,10 @@ export interface GameConfig {
       glowColor: number;
       opacity: number;
       missLength: number;
+      startForward: number;
+      startRight: number;
+      startDown: number;
+      flashForward: number;
     };
     audio: {
       gunshotPath: string;

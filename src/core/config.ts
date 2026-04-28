@@ -365,6 +365,10 @@ export const GAME_CONFIG: GameConfig = {
       glowColor: 0xffad63,
       opacity: 0.88,
       missLength: 42,
+      startForward: 1.05,
+      startRight: 0.04,
+      startDown: 0.08,
+      flashForward: 0.86,
     },
     audio: {
       gunshotPath: '/audio/weapons/9mm-gunshot.ogg',

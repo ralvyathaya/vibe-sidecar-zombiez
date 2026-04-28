@@ -70,6 +70,7 @@ export class PistolWeapon {
   private readonly contentRoot = new Group();
   private readonly worldEffectsRoot = new Group();
   private readonly muzzleAnchor = new Group();
+  private readonly visualMuzzleAnchor = new Group();
   private readonly fallbackSlideAnchor = new Group();
   private readonly fallbackMagazineAnchor = new Group();
   private readonly tracers: TracerEffect[] = [];
@@ -107,10 +108,12 @@ export class PistolWeapon {
   private readonly crosshair = new Vector2(0, 0);
   private readonly basePosition: Vector3;
   private readonly baseRotation = new Vector3();
-  private readonly muzzleWorld = new Vector3();
   private readonly playerPosition = new Vector3();
+  private readonly traceStart = new Vector3();
   private readonly traceEnd = new Vector3();
   private readonly traceDirection = new Vector3();
+  private readonly traceCameraRight = new Vector3();
+  private readonly traceCameraUp = new Vector3();
   private readonly viewmodelVariants = new Map<FpsViewmodelKey, Object3D>();
   private readonly traceDebugDefaults: PistolTraceDebugSettings;
   private traceDebug: PistolTraceDebugSettings;
@@ -175,19 +178,21 @@ export class PistolWeapon {
     this.contentRoot.name = 'PistolContentRoot';
     this.worldEffectsRoot.name = 'PistolWorldEffects';
     this.muzzleAnchor.name = 'PistolMuzzleAnchor';
+    this.visualMuzzleAnchor.name = 'PistolVisualMuzzleAnchor';
     this.fallbackSlideAnchor.name = 'PistolSlideAnchor';
     this.fallbackMagazineAnchor.name = 'PistolMagazineAnchor';
 
     this.muzzleFlash.name = 'PistolMuzzleFlash';
     this.muzzleFlashCore.renderOrder = 14;
     this.muzzleFlashStreak.renderOrder = 14;
-    this.muzzleFlashCore.position.x = -0.08;
-    this.muzzleFlashStreak.position.x = -0.55;
+    this.muzzleFlashCore.position.set(0, 0, 0);
+    this.muzzleFlashStreak.rotation.y = Math.PI * 0.5;
+    this.muzzleFlashStreak.position.set(0, 0, -0.18);
     this.muzzleFlash.add(this.muzzleFlashCore, this.muzzleFlashStreak, this.muzzleLight);
     this.muzzleFlash.visible = false;
     this.viewmodelKeyLight.position.set(0.24, 0.14, 0.32);
     this.viewmodelFillLight.position.set(-0.12, 0.08, 0.18);
-    this.muzzleAnchor.add(this.muzzleFlash);
+    this.visualMuzzleAnchor.add(this.muzzleFlash);
     this.contentRoot.add(
       this.viewmodelKeyLight,
       this.viewmodelFillLight,
@@ -197,10 +202,12 @@ export class PistolWeapon {
     );
     this.viewmodelRoot.add(this.contentRoot);
     this.camera.add(this.viewmodelRoot);
+    this.camera.add(this.visualMuzzleAnchor);
     this.camera.parent?.add(this.worldEffectsRoot);
 
     this.createTracerPool();
     this.muzzleAnchor.position.set(...viewmodel.muzzleOffset);
+    this.updateVisualMuzzleAnchorPose();
     this.applyViewmodelPose(false);
     void this.loadViewmodel(this.currentViewmodelKey);
   }
@@ -403,6 +410,7 @@ export class PistolWeapon {
 
   destroy(): void {
     this.camera.remove(this.viewmodelRoot);
+    this.camera.remove(this.visualMuzzleAnchor);
     this.worldEffectsRoot.removeFromParent();
     this.disposeObject(this.loadedScene);
     for (const scene of this.viewmodelVariants.values()) {
@@ -741,10 +749,10 @@ export class PistolWeapon {
     this.fireKick = 1;
     this.slideOffset = this.config.weapon.viewmodel.slideTravel;
     this.randomizeMuzzleFlash();
-    this.muzzleAnchor.getWorldPosition(this.muzzleWorld);
     this.camera.getWorldDirection(this.traceDirection);
+    this.resolveTracerStart();
     this.traceEnd
-      .copy(this.muzzleWorld)
+      .copy(this.traceStart)
       .addScaledVector(
         this.traceDirection,
         Math.min(this.config.weapon.range, this.traceDebug.missLength),
@@ -767,7 +775,7 @@ export class PistolWeapon {
 
     if (hitEnemyFirst && enemyHit) {
       this.traceEnd.copy(enemyHit.point);
-      this.spawnTracer(this.muzzleWorld, this.traceEnd);
+      this.spawnTracer(this.traceStart, this.traceEnd);
       const kill = enemies.damage(
         enemyHit.zombie,
         this.config.weapon.damagePerShot,
@@ -795,7 +803,7 @@ export class PistolWeapon {
 
     if (hitBarrel) {
       this.traceEnd.copy(hitBarrel.point);
-      this.spawnTracer(this.muzzleWorld, this.traceEnd);
+      this.spawnTracer(this.traceStart, this.traceEnd);
       const kills = world.triggerBarrelExplosion(hitBarrel.obstacle, enemies);
       this.hitConfirmTimer = 0.1;
       if (kills.length > 0) {
@@ -815,7 +823,18 @@ export class PistolWeapon {
       return;
     }
 
-    this.spawnTracer(this.muzzleWorld, this.traceEnd);
+    this.spawnTracer(this.traceStart, this.traceEnd);
+  }
+
+  private resolveTracerStart(): void {
+    const tracer = this.config.weapon.tracer;
+    this.traceCameraRight.setFromMatrixColumn(this.camera.matrixWorld, 0).normalize();
+    this.traceCameraUp.setFromMatrixColumn(this.camera.matrixWorld, 1).normalize();
+    this.camera.getWorldPosition(this.traceStart);
+    this.traceStart
+      .addScaledVector(this.traceDirection, tracer.startForward)
+      .addScaledVector(this.traceCameraRight, tracer.startRight)
+      .addScaledVector(this.traceCameraUp, -tracer.startDown);
   }
 
   private startReload(player: PlayerSystem): void {
@@ -951,11 +970,14 @@ export class PistolWeapon {
     );
     this.debugViewmodelScale = viewmodel.scale;
     this.muzzleAnchor.position.set(...viewmodel.muzzleOffset);
+    this.updateVisualMuzzleAnchorPose();
     this.applyViewmodelPose(false);
   }
 
   private syncRootVisibility(): void {
-    this.viewmodelRoot.visible = this.equipped && this.presentationVisible;
+    const visible = this.equipped && this.presentationVisible;
+    this.viewmodelRoot.visible = visible;
+    this.visualMuzzleAnchor.visible = visible;
   }
 
   private getCurrentFpsConfig() {
@@ -1051,14 +1073,25 @@ export class PistolWeapon {
   private randomizeMuzzleFlash(): void {
     const baseSize = this.config.weapon.viewmodel.muzzleFlashSize;
     const scale = baseSize * (0.9 + Math.random() * 0.25);
-    this.muzzleFlash.position.x = -baseSize * 0.4;
+    this.updateVisualMuzzleAnchorPose();
+    this.muzzleFlash.position.set(0, 0, 0);
+    this.muzzleFlashStreak.position.z = -baseSize * 1.18;
     this.muzzleFlash.rotation.set(
       MathUtils.degToRad(randomRange(-6, 6)),
       MathUtils.degToRad(randomRange(-5, 5)),
       MathUtils.degToRad(randomRange(-18, 18)),
     );
     this.muzzleFlashCore.scale.setScalar(scale);
-    this.muzzleFlashStreak.scale.set(scale * 2.4, scale * 0.52, scale * 0.52);
+    this.muzzleFlashStreak.scale.set(scale * 1.45, scale * 0.48, scale * 0.48);
+  }
+
+  private updateVisualMuzzleAnchorPose(): void {
+    const tracer = this.config.weapon.tracer;
+    this.visualMuzzleAnchor.position.set(
+      tracer.startRight,
+      -tracer.startDown,
+      -tracer.flashForward,
+    );
   }
 
   private restoreAnimatedNodes(): void {
