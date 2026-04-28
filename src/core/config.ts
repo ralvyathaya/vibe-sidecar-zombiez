@@ -743,7 +743,7 @@ export const GAME_CONFIG: GameConfig = {
       damage: 8,
       handlingPenalty: 0.22,
       aimShake: 0.028,
-      spawnWeight: 0.82,
+      spawnWeight: 0,
     },
     pothole: {
       width: 2.1,
@@ -751,7 +751,7 @@ export const GAME_CONFIG: GameConfig = {
       damage: 2,
       handlingPenalty: 0.1,
       aimShake: 0.036,
-      spawnWeight: 0.92,
+      spawnWeight: 0,
     },
     barricade: {
       assetPath: '/models/obstacles/barricade/barricade-web.glb',

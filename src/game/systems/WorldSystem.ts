@@ -1312,7 +1312,7 @@ export class WorldSystem {
     let laneIndex = gateSlot?.laneIndex ?? this.pickLaneIndexForType(type, spawnZ);
 
     if (this.wouldSealAllLanes(type, laneIndex, spawnZ)) {
-      type = this.currentSegment === 'chaos' ? 'brokenLane' : 'barrel';
+      type = 'barrel';
       laneIndex = this.pickLaneIndexForType(type, spawnZ);
     }
 
@@ -1368,8 +1368,6 @@ export class WorldSystem {
       },
       { type: 'car', weight: 0.76 + chaosBonus * 0.42 },
       { type: 'wreck', weight: 0.58 + chaosBonus * 0.24 },
-      { type: 'brokenLane', weight: this.config.world.brokenLane.spawnWeight + chaosBonus * 0.08 },
-      { type: 'pothole', weight: this.config.world.pothole.spawnWeight + darkBonus * 0.08 },
     ];
     const totalWeight = weights.reduce((sum, entry) => sum + entry.weight, 0);
     let roll = Math.random() * totalWeight;
@@ -1381,7 +1379,7 @@ export class WorldSystem {
       }
     }
 
-    return 'brokenLane';
+    return 'barricade';
   }
 
   private consumePendingGateSlot():
