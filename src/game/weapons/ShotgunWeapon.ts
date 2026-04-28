@@ -126,9 +126,8 @@ export class ShotgunWeapon {
   private fireKick = 0;
   private pumpOffset = 0;
   private pumpDelayTimer = 0;
-  private spinTimer = 0;
-  private resolvedSpinDuration = 0;
-  private activeSpinDuration = 0;
+  private cockingTimer = 0;
+  private resolvedCockingDuration = 0;
   private cycleActive = false;
   private pendingDelaySound = false;
   private debugViewmodelScale = 1;
@@ -158,8 +157,10 @@ export class ShotgunWeapon {
     });
     this.gunshotSound.prime();
     this.delaySound.prime();
-    this.resolvedSpinDuration = this.config.shotgun.viewmodel.spinDuration;
-    this.activeSpinDuration = this.config.shotgun.viewmodel.spinDuration;
+    this.resolvedCockingDuration = Math.max(
+      0.78,
+      this.config.shotgun.viewmodel.spinDuration + 0.28,
+    );
 
     this.viewmodelRoot.name = 'ShotgunViewmodel';
     this.contentRoot.name = 'ShotgunContentRoot';
@@ -216,8 +217,7 @@ export class ShotgunWeapon {
     this.fireKick = 0;
     this.pumpOffset = 0;
     this.pumpDelayTimer = 0;
-    this.spinTimer = 0;
-    this.activeSpinDuration = this.resolvedSpinDuration;
+    this.cockingTimer = 0;
     this.cycleActive = false;
     this.pendingDelaySound = false;
     this.muzzleFlash.visible = false;
@@ -246,8 +246,7 @@ export class ShotgunWeapon {
     this.muzzleFlashSpriteMaterial.opacity = 0;
     this.pumpOffset = 0;
     this.pumpDelayTimer = 0;
-    this.spinTimer = 0;
-    this.activeSpinDuration = this.resolvedSpinDuration;
+    this.cockingTimer = 0;
     this.cycleActive = false;
     this.pendingDelaySound = false;
     this.clearPelletStreaks();
@@ -278,16 +277,20 @@ export class ShotgunWeapon {
     this.pendingDelaySound = false;
     this.cycleActive = true;
     this.pumpDelayTimer = 0;
-    this.pumpOffset = 0.42;
-    this.spinTimer = this.resolvedSpinDuration;
-    this.activeSpinDuration = this.resolvedSpinDuration;
-    this.cooldown = Math.max(this.cooldown, this.resolvedSpinDuration + 0.08);
+    this.cockingTimer = Math.max(this.cockingTimer, this.resolvedCockingDuration * 0.62);
+    this.pumpOffset = 0.28;
+    this.cooldown = Math.max(this.cooldown, this.cockingTimer);
     this.fireKick = Math.max(this.fireKick, 0.28);
     this.delaySound.play(this.config.shotgun.audio.delayVolume, 1);
   }
 
   isCycling(): boolean {
-    return this.cycleActive || this.pendingDelaySound || this.pumpDelayTimer > 0 || this.spinTimer > 0;
+    return (
+      this.cycleActive ||
+      this.pendingDelaySound ||
+      this.pumpDelayTimer > 0 ||
+      this.cockingTimer > 0
+    );
   }
 
   updateRunning(
@@ -483,7 +486,6 @@ export class ShotgunWeapon {
   ): void {
     const visualPelletIndices = this.getRepresentativePelletIndices();
 
-    this.activeSpinDuration = this.resolvedSpinDuration;
     this.cooldown = this.getCycleDuration();
     this.ammo = Math.max(0, this.ammo - 1);
     this.firePulse += 1;
@@ -492,10 +494,9 @@ export class ShotgunWeapon {
     this.pendingDelaySound = true;
     this.muzzleFlashTimer = this.config.shotgun.viewmodel.muzzleFlashDuration;
     this.muzzleFlash.visible = true;
-    this.fireKick = 1.25;
-    this.pumpOffset = 1;
+    this.fireKick = 1;
+    this.pumpOffset = 0.42;
     this.pumpDelayTimer = this.getPumpDelayAfterShot();
-    this.spinTimer = 0;
     player.applyRecoil(this.config.shotgun.cameraKick);
     this.gunshotSound.play(
       this.config.shotgun.audio.gunshotVolume,
@@ -652,10 +653,10 @@ export class ShotgunWeapon {
 
     if (this.pumpDelayTimer > 0) {
       this.pumpDelayTimer = Math.max(0, this.pumpDelayTimer - deltaTime);
-      this.pumpOffset = 1;
+      this.pumpOffset = 0.42;
       if (this.pumpDelayTimer <= 0 && this.pendingDelaySound) {
-        this.spinTimer = this.activeSpinDuration;
         this.pendingDelaySound = false;
+        this.cockingTimer = this.resolvedCockingDuration;
         this.delaySound.play(
           this.config.shotgun.audio.delayVolume,
           1,
@@ -669,15 +670,15 @@ export class ShotgunWeapon {
       );
     }
 
-    if (this.spinTimer > 0) {
-      this.spinTimer = Math.max(0, this.spinTimer - deltaTime);
+    if (this.cockingTimer > 0) {
+      this.cockingTimer = Math.max(0, this.cockingTimer - deltaTime);
     }
 
     if (
       this.cycleActive &&
       !this.pendingDelaySound &&
       this.pumpDelayTimer <= 0 &&
-      this.spinTimer <= 0
+      this.cockingTimer <= 0
     ) {
       this.cycleActive = false;
     }
@@ -721,10 +722,7 @@ export class ShotgunWeapon {
 
     const handleMetadata = () => {
       if (Number.isFinite(probe.duration) && probe.duration > 0) {
-        this.resolvedSpinDuration = clamp(probe.duration, 0.32, 0.6);
-        if (this.pumpDelayTimer <= 0 && this.spinTimer <= 0) {
-          this.activeSpinDuration = this.resolvedSpinDuration;
-        }
+        this.resolvedCockingDuration = clamp(probe.duration + 0.22, 0.78, 1.08);
       }
       cleanup();
     };
@@ -795,7 +793,10 @@ export class ShotgunWeapon {
   }
 
   private getCycleDuration(): number {
-    return this.getPumpDelayAfterShot() + this.activeSpinDuration;
+    return Math.max(
+      1 / this.config.shotgun.fireRate,
+      this.getPumpDelayAfterShot() + this.resolvedCockingDuration,
+    );
   }
 
   private getPumpDelayAfterShot(): number {
@@ -1133,24 +1134,18 @@ export class ShotgunWeapon {
   private applyViewmodelPose(): void {
     const recoilBack = this.config.shotgun.viewmodel.recoilBack * this.fireKick;
     const recoilLift = this.config.shotgun.viewmodel.recoilLift * this.fireKick;
-    const recoilPitch = MathUtils.degToRad(this.config.shotgun.viewmodel.recoilPitchDegrees) * this.fireKick;
-    const recoilRoll = MathUtils.degToRad(this.config.shotgun.viewmodel.recoilRollDegrees) * this.fireKick;
-    const spinProgress =
-      this.spinTimer > 0 && this.activeSpinDuration > 0
-        ? 1 - this.spinTimer / this.activeSpinDuration
-        : 0;
-    const easedSpin = MathUtils.smootherstep(spinProgress, 0, 1);
-    const spinRoll = Math.PI * 2 * this.config.shotgun.viewmodel.spinTurns * easedSpin;
-    const spinPitch = Math.sin(easedSpin * Math.PI) * 0.2;
-    const spinDrop = Math.sin(easedSpin * Math.PI) * 0.07;
+    const recoilPitch =
+      MathUtils.degToRad(this.config.shotgun.viewmodel.recoilPitchDegrees) * this.fireKick * 0.28;
+    const recoilRoll =
+      MathUtils.degToRad(this.config.shotgun.viewmodel.recoilRollDegrees) * this.fireKick * 0.16;
 
     this.viewmodelRoot.position.copy(this.basePosition);
     this.viewmodelRoot.position.x -= recoilBack;
-    this.viewmodelRoot.position.y += recoilLift - spinDrop;
+    this.viewmodelRoot.position.y += recoilLift;
     this.viewmodelRoot.rotation.set(
-      this.baseRotation.x + recoilPitch + spinPitch,
+      this.baseRotation.x + recoilPitch,
       this.baseRotation.y,
-      this.baseRotation.z - recoilRoll + spinRoll,
+      this.baseRotation.z - recoilRoll,
     );
     this.viewmodelRoot.scale.setScalar(this.debugViewmodelScale);
 

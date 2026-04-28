@@ -214,7 +214,7 @@ export const GAME_CONFIG: GameConfig = {
       path: '/models/viewmodels/police+shotgun.glb',
       position: [0, -0.38, -0.85],
       rotationDegrees: [0, -70, 0],
-      scale: 1,
+      scale: 1.2,
       muzzleOffset: [0.28, 0.02, -0.16],
     },
     gunner_bazooka: {
