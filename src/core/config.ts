@@ -2,7 +2,7 @@ import type { GameConfig } from './types';
 
 export const GAME_CONFIG: GameConfig = {
   debug: {
-    developmentWeapons: false,
+    developmentWeapons: true,
   },
   renderer: {
     clearColor: 0x0a0f14,
@@ -500,7 +500,7 @@ export const GAME_CONFIG: GameConfig = {
     viewmodel: {
       assetPath: '/models/viewmodels/assault-rifle.glb',
       position: [0.28, -0.42, -0.72],
-      rotationDegrees: [1.6, -90, -1.8],
+      rotationDegrees: [1.6, 0, 0],
       scale: 1.55,
       recoilBack: 0.045,
       recoilLift: 0.012,
