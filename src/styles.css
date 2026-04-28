@@ -538,6 +538,11 @@ body {
   min-width: 104px;
 }
 
+.driver-drive-meter[hidden],
+.reload-hint[data-driver="false"] .driver-drive-meter {
+  display: none;
+}
+
 .driver-drive-meter-label {
   font-size: 0.52rem;
   font-weight: 900;
