@@ -382,7 +382,7 @@ export class AssaultRifleWeapon {
   ): void {
     this.ammo -= 1;
     this.cooldown = 1 / this.config.assaultRifle.fireRate;
-    this.fireKick = Math.min(1, this.fireKick + 0.32);
+    this.fireKick = Math.min(1, this.fireKick + 0.22);
     this.muzzleFlashTimer = this.config.assaultRifle.viewmodel.muzzleFlashDuration;
     this.firingTimer = 0.11;
     this.firePulse += 1;
@@ -546,22 +546,23 @@ export class AssaultRifleWeapon {
   private applyViewmodelPose(): void {
     const reloadDip = this.getReloadDipRatio();
     const viewmodel = this.config.assaultRifle.viewmodel;
+    const recoilCurve = this.fireKick * this.fireKick;
     this.viewmodelRoot.position.set(
       this.basePosition.x -
-        this.fireKick * viewmodel.recoilBack * 0.25 +
+        recoilCurve * viewmodel.recoilBack * 0.12 +
         reloadDip * viewmodel.reloadSideShift,
       this.basePosition.y +
-        Math.sin(this.fireKick * Math.PI) * viewmodel.recoilLift -
+        this.fireKick * viewmodel.recoilLift -
         reloadDip * viewmodel.reloadDip,
-      this.basePosition.z + this.fireKick * viewmodel.recoilBack + reloadDip * viewmodel.reloadPushBack,
+      this.basePosition.z + recoilCurve * viewmodel.recoilBack + reloadDip * viewmodel.reloadPushBack,
     );
     this.viewmodelRoot.rotation.set(
       this.baseRotation.x -
-        MathUtils.degToRad(viewmodel.recoilPitchDegrees) * this.fireKick +
+        MathUtils.degToRad(viewmodel.recoilPitchDegrees) * recoilCurve +
         MathUtils.degToRad(viewmodel.reloadPitchDegrees) * reloadDip,
       this.baseRotation.y,
       this.baseRotation.z +
-        Math.sin(this.fireKick * Math.PI) * 0.018 +
+        Math.sin(this.fireKick * Math.PI) * 0.01 +
         MathUtils.degToRad(viewmodel.reloadRollDegrees) * reloadDip,
     );
     this.viewmodelRoot.scale.setScalar(this.debugViewmodelScale);
