@@ -188,6 +188,10 @@ export class UISystem {
   private readonly reloadHintTextBefore = document.createElement('span');
   private readonly reloadKey = document.createElement('span');
   private readonly reloadLabel = document.createElement('span');
+  private readonly driverBoostMeter = document.createElement('div');
+  private readonly driverBoostMeterFill = document.createElement('span');
+  private readonly driverBrakeMeter = document.createElement('div');
+  private readonly driverBrakeMeterFill = document.createElement('span');
   private readonly scoreValue = document.createElement('span');
   private readonly multiplierValue = document.createElement('span');
   private readonly chainPanel = document.createElement('div');
@@ -534,7 +538,37 @@ export class UISystem {
     this.reloadKey.textContent = 'R';
     this.reloadLabel.className = 'reload-label';
     this.reloadLabel.textContent = 'to reload';
-    this.reloadHint.append(this.reloadHintTextBefore, this.reloadKey, this.reloadLabel);
+    this.driverBoostMeter.className = 'driver-drive-meter driver-drive-meter--boost';
+    this.driverBoostMeter.dataset.active = 'false';
+    this.driverBoostMeter.dataset.depleted = 'false';
+    const boostMeterLabel = document.createElement('span');
+    boostMeterLabel.className = 'driver-drive-meter-label';
+    boostMeterLabel.textContent = 'W Accel';
+    const boostMeterTrack = document.createElement('span');
+    boostMeterTrack.className = 'driver-drive-meter-track';
+    this.driverBoostMeterFill.className = 'driver-drive-meter-fill';
+    boostMeterTrack.append(this.driverBoostMeterFill);
+    this.driverBoostMeter.append(boostMeterLabel, boostMeterTrack);
+
+    this.driverBrakeMeter.className = 'driver-drive-meter driver-drive-meter--brake';
+    this.driverBrakeMeter.dataset.active = 'false';
+    this.driverBrakeMeter.dataset.depleted = 'false';
+    const brakeMeterLabel = document.createElement('span');
+    brakeMeterLabel.className = 'driver-drive-meter-label';
+    brakeMeterLabel.textContent = 'S Brake';
+    const brakeMeterTrack = document.createElement('span');
+    brakeMeterTrack.className = 'driver-drive-meter-track';
+    this.driverBrakeMeterFill.className = 'driver-drive-meter-fill';
+    brakeMeterTrack.append(this.driverBrakeMeterFill);
+    this.driverBrakeMeter.append(brakeMeterLabel, brakeMeterTrack);
+
+    this.reloadHint.append(
+      this.driverBoostMeter,
+      this.reloadHintTextBefore,
+      this.reloadKey,
+      this.reloadLabel,
+      this.driverBrakeMeter,
+    );
     this.rewardCallout.className = 'reward-callout';
     this.accoladeBanner.className = 'accolade-banner';
 
@@ -1158,7 +1192,43 @@ export class UISystem {
       this.setDataset(round, 'shape', snapshot.weapon.roundStyle);
     }
 
-    this.reloadHint.hidden = !snapshot.weapon.showReloadHint || this.mobileControlsEnabled;
+    const showDriverDriveMeters =
+      snapshot.coopSession.activeProfile === 'driver' && snapshot.ride !== null;
+    this.reloadHint.hidden =
+      (!snapshot.weapon.showReloadHint && !showDriverDriveMeters) || this.mobileControlsEnabled;
+    this.setDataset(this.reloadHint, 'driver', showDriverDriveMeters ? 'true' : 'false');
+    this.driverBoostMeter.hidden = !showDriverDriveMeters;
+    this.driverBrakeMeter.hidden = !showDriverDriveMeters;
+    if (snapshot.ride) {
+      const boostRatio = Math.max(0, Math.min(1, snapshot.ride.manualBoostMeterRatio));
+      const brakeRatio = Math.max(0, Math.min(1, snapshot.ride.manualBrakeMeterRatio));
+      this.setTransformStyle(this.driverBoostMeterFill, `scaleX(${boostRatio.toFixed(3)})`);
+      this.setTransformStyle(this.driverBrakeMeterFill, `scaleX(${brakeRatio.toFixed(3)})`);
+      this.setDataset(
+        this.driverBoostMeter,
+        'active',
+        snapshot.ride.manualBoostEngaged ? 'true' : 'false',
+      );
+      this.setDataset(
+        this.driverBrakeMeter,
+        'active',
+        snapshot.ride.manualBrakeEngaged ? 'true' : 'false',
+      );
+      this.setDataset(
+        this.driverBoostMeter,
+        'depleted',
+        snapshot.ride.manualBoostMeterRatio <= 0.08 || snapshot.ride.manualBoostCooldown > 0
+          ? 'true'
+          : 'false',
+      );
+      this.setDataset(
+        this.driverBrakeMeter,
+        'depleted',
+        snapshot.ride.manualBrakeMeterRatio <= 0.08 || snapshot.ride.manualBrakeCooldown > 0
+          ? 'true'
+          : 'false',
+      );
+    }
 
     this.setText(this.scoreValue, `${snapshot.player.score}`);
     this.setText(this.multiplierValue, `Chain x${snapshot.reward.multiplier.toFixed(2)}`);

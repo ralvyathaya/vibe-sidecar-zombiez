@@ -24,6 +24,8 @@ const DRIVER_PISTOL_STANCE_BRAKE_DRAG = 0.18;
 const DRIVER_PISTOL_STANCE_SPEED_MULTIPLIER = 0.92;
 const DRIVER_PISTOL_STANCE_STEER_PENALTY = 0.22;
 const DRIVER_PISTOL_STANCE_RESPONSE_MULTIPLIER = 0.68;
+const DRIVER_DRIVE_METER_EMPTY_THRESHOLD = 0.015;
+const DRIVER_DRIVE_METER_TAPER_THRESHOLD = 0.18;
 
 export class DriverSystem {
   private laneIndex = 1;
@@ -39,6 +41,10 @@ export class DriverSystem {
   private promptLockout = 0;
   private manualBrakeStrength = 0;
   private manualBoostStrength = 0;
+  private manualBrakeMeter = 1;
+  private manualBoostMeter = 1;
+  private manualBrakeExhausted = false;
+  private manualBoostExhausted = false;
   private floorItTimer = 0;
   private brakeTimer = 0;
   private engineTroubleTimer = 0;
@@ -81,6 +87,10 @@ export class DriverSystem {
     this.promptLockout = 0;
     this.manualBrakeStrength = 0;
     this.manualBoostStrength = 0;
+    this.manualBrakeMeter = 1;
+    this.manualBoostMeter = 1;
+    this.manualBrakeExhausted = false;
+    this.manualBoostExhausted = false;
     this.floorItTimer = 0;
     this.brakeTimer = 0;
     this.engineTroubleTimer = 0;
@@ -276,11 +286,11 @@ export class DriverSystem {
       latchWiggle: 0,
       latchWiggleRatio: 0,
       manualBrakeEngaged: this.manualBrakeStrength > 0.04,
-      manualBrakeMeterRatio: this.manualBrakeStrength,
+      manualBrakeMeterRatio: manualMode ? this.manualBrakeMeter : 1,
       manualBoostEngaged: this.manualBoostStrength > 0.04,
-      manualBoostMeterRatio: this.manualBoostStrength,
-      manualBrakeCooldown: 0,
-      manualBoostCooldown: 0,
+      manualBoostMeterRatio: manualMode ? this.manualBoostMeter : 1,
+      manualBrakeCooldown: manualMode && this.manualBrakeExhausted ? 1 : 0,
+      manualBoostCooldown: manualMode && this.manualBoostExhausted ? 1 : 0,
       driveBrakeStrength: this.manualBrakeStrength,
       driveBoostStrength: this.manualBoostStrength,
       prompt: null,
@@ -895,8 +905,12 @@ export class DriverSystem {
   ): void {
     const response = this.config.ride.inputHoldResponse;
     const pistolStance = manualMode && manualInput.pistolStance === true;
+    const requestedBrake = manualMode && manualInput.brakeHeld;
+    const requestedBoost =
+      manualMode && manualInput.accelerateHeld && !manualInput.brakeHeld;
 
     if (this.engineTroubleTimer > 0) {
+      this.updateManualDriveMeters(deltaTime, false, false, false);
       const pulse = this.getEngineTroublePulse();
       const accelPulse = pulse * (0.88 + this.engineTroubleRoughness * 0.12);
       const brakePulse = (1 - pulse) * (0.64 + this.engineTroubleRoughness * 0.18);
@@ -913,9 +927,11 @@ export class DriverSystem {
       return;
     }
 
+    this.updateManualDriveMeters(deltaTime, manualMode, requestedBoost, requestedBrake);
+
     const targetBrake = manualMode
-      ? manualInput.brakeHeld
-        ? 0.86
+      ? requestedBrake && !this.manualBrakeExhausted
+        ? 0.86 * this.getDriveMeterOutput(this.manualBrakeMeter)
         : pistolStance
           ? DRIVER_PISTOL_STANCE_BRAKE_DRAG
           : 0
@@ -923,10 +939,10 @@ export class DriverSystem {
         ? 0.82
         : 0;
     const targetBoost = manualMode
-      ? manualInput.accelerateHeld && !manualInput.brakeHeld
+      ? requestedBoost && !this.manualBoostExhausted
         ? pistolStance
-          ? 0.72
-          : 1
+          ? 0.72 * this.getDriveMeterOutput(this.manualBoostMeter)
+          : this.getDriveMeterOutput(this.manualBoostMeter)
         : 0
       : this.floorItTimer > 0
         ? 1
@@ -941,6 +957,56 @@ export class DriverSystem {
       targetBoost,
       deltaTime * response * (targetBoost > this.manualBoostStrength ? 1 : 1.2),
     );
+  }
+
+  private updateManualDriveMeters(
+    deltaTime: number,
+    manualMode: boolean,
+    requestedBoost: boolean,
+    requestedBrake: boolean,
+  ): void {
+    if (!manualMode) {
+      this.manualBrakeMeter = clamp(
+        this.manualBrakeMeter + this.config.ride.brakeMeterRechargeRate * deltaTime,
+        0,
+        1,
+      );
+      this.manualBoostMeter = clamp(
+        this.manualBoostMeter + this.config.ride.boostMeterRechargeRate * deltaTime,
+        0,
+        1,
+      );
+      this.manualBrakeExhausted = false;
+      this.manualBoostExhausted = false;
+      return;
+    }
+
+    this.manualBrakeMeter = clamp(
+      this.manualBrakeMeter +
+        (requestedBrake
+          ? -this.config.ride.brakeMeterDrainRate
+          : this.config.ride.brakeMeterRechargeRate) *
+          deltaTime,
+      0,
+      1,
+    );
+    this.manualBoostMeter = clamp(
+      this.manualBoostMeter +
+        (requestedBoost
+          ? -this.config.ride.boostMeterDrainRate
+          : this.config.ride.boostMeterRechargeRate) *
+          deltaTime,
+      0,
+      1,
+    );
+    this.manualBrakeExhausted =
+      requestedBrake && this.manualBrakeMeter <= DRIVER_DRIVE_METER_EMPTY_THRESHOLD;
+    this.manualBoostExhausted =
+      requestedBoost && this.manualBoostMeter <= DRIVER_DRIVE_METER_EMPTY_THRESHOLD;
+  }
+
+  private getDriveMeterOutput(meterRatio: number): number {
+    return clamp(meterRatio / DRIVER_DRIVE_METER_TAPER_THRESHOLD, 0, 1);
   }
 
   private updateManualSteer(
