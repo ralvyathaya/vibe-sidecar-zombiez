@@ -1913,10 +1913,24 @@ export class UISystem {
     calloutLine.className = 'overlay-role-callout-line';
     callout.append(calloutLine, featureList);
 
+    const lockHint = document.createElement('span');
+    lockHint.className = 'overlay-role-lock-hint';
+    lockHint.textContent = 'Available only in co-op mode';
+
     body.append(title);
-    button.append(stage, callout, body);
+    button.append(stage, callout, body, lockHint);
+    button.addEventListener('pointerenter', () => {
+      this.setSelectedRole(role);
+    });
+    button.addEventListener('focus', () => {
+      this.setSelectedRole(role);
+    });
     button.addEventListener('click', () => {
       this.setSelectedRole(role);
+      button.dataset.confirmed = 'true';
+      window.setTimeout(() => {
+        button.dataset.confirmed = 'false';
+      }, 220);
     });
   }
 
