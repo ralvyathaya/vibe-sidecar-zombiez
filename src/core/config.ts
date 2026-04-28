@@ -496,6 +496,10 @@ export const GAME_CONFIG: GameConfig = {
       glowColor: 0xffb259,
       opacity: 0.78,
       missLength: 54,
+      startForward: 2.25,
+      startRight: 0.42,
+      startDown: 0.24,
+      flashForward: 0.92,
     },
     viewmodel: {
       assetPath: '/models/viewmodels/assault-rifle.glb',

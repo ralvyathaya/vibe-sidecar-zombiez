@@ -93,6 +93,8 @@ export class AssaultRifleWeapon {
   private readonly traceStart = new Vector3();
   private readonly traceEnd = new Vector3();
   private readonly traceDirection = new Vector3();
+  private readonly traceCameraRight = new Vector3();
+  private readonly traceCameraUp = new Vector3();
   private readonly traceMidpoint = new Vector3();
   private readonly traceQuaternion = new Quaternion();
   private readonly tracers: TracerEffect[] = [];
@@ -144,20 +146,22 @@ export class AssaultRifleWeapon {
     this.contentRoot.name = 'AssaultRifleContentRoot';
     this.worldEffectsRoot.name = 'AssaultRifleWorldEffects';
     this.muzzleAnchor.name = 'AssaultRifleMuzzleAnchor';
-    this.muzzleAnchor.position.set(...viewmodel.muzzleOffset);
+    this.updateMuzzleFlashAnchorPose();
     this.muzzleFlashCore.renderOrder = 14;
     this.muzzleFlashStreak.renderOrder = 14;
     this.muzzleFlashCore.scale.setScalar(0.18);
-    this.muzzleFlashStreak.position.x = -0.54;
+    this.muzzleFlashStreak.rotation.y = Math.PI * 0.5;
+    this.muzzleFlashStreak.position.z = -0.34;
     this.muzzleFlashStreak.scale.set(0.65, 0.18, 0.18);
     this.muzzleFlash.add(this.muzzleFlashCore, this.muzzleFlashStreak, this.muzzleLight);
     this.muzzleFlash.visible = false;
     this.muzzleAnchor.add(this.muzzleFlash);
 
     this.createTracerPool();
-    this.contentRoot.add(this.viewmodelKeyLight, this.viewmodelFillLight, this.muzzleAnchor);
+    this.contentRoot.add(this.viewmodelKeyLight, this.viewmodelFillLight);
     this.viewmodelRoot.add(this.contentRoot);
     this.camera.add(this.viewmodelRoot);
+    this.camera.add(this.muzzleAnchor);
     this.camera.parent?.add(this.worldEffectsRoot);
     this.applyViewmodelPose();
     this.setEquipped(false);
@@ -190,6 +194,7 @@ export class AssaultRifleWeapon {
     this.reloadSound.destroy();
     this.disposeObject(this.loadedScene);
     this.viewmodelRoot.removeFromParent();
+    this.muzzleAnchor.removeFromParent();
     this.worldEffectsRoot.removeFromParent();
   }
 
@@ -219,7 +224,7 @@ export class AssaultRifleWeapon {
     model.position.set(0, 0, 0);
     this.loadedScene = model;
     this.contentRoot.add(model);
-    this.muzzleAnchor.position.set(...this.config.assaultRifle.viewmodel.muzzleOffset);
+    this.updateMuzzleFlashAnchorPose();
     this.applyViewmodelPose();
   }
 
@@ -391,7 +396,7 @@ export class AssaultRifleWeapon {
 
     this.raycaster.setFromCamera(this.crosshair, this.camera);
     this.traceDirection.copy(this.raycaster.ray.direction).normalize();
-    this.traceStart.copy(this.muzzleWorld);
+    this.resolveTracerStart();
     this.traceEnd
       .copy(this.raycaster.ray.origin)
       .addScaledVector(this.traceDirection, this.config.assaultRifle.tracer.missLength);
@@ -452,6 +457,17 @@ export class AssaultRifleWeapon {
     }
 
     this.spawnTracer(this.traceStart, this.traceEnd);
+  }
+
+  private resolveTracerStart(): void {
+    const tracer = this.config.assaultRifle.tracer;
+    this.traceCameraRight.setFromMatrixColumn(this.camera.matrixWorld, 0).normalize();
+    this.traceCameraUp.setFromMatrixColumn(this.camera.matrixWorld, 1).normalize();
+    this.traceStart
+      .copy(this.raycaster.ray.origin)
+      .addScaledVector(this.traceDirection, tracer.startForward)
+      .addScaledVector(this.traceCameraRight, tracer.startRight)
+      .addScaledVector(this.traceCameraUp, -tracer.startDown);
   }
 
   private dryFire(): void {
@@ -551,6 +567,16 @@ export class AssaultRifleWeapon {
     this.viewmodelRoot.scale.setScalar(this.debugViewmodelScale);
     this.viewmodelRoot.visible = this.equipped;
     this.worldEffectsRoot.visible = this.equipped;
+    this.muzzleAnchor.visible = this.equipped;
+  }
+
+  private updateMuzzleFlashAnchorPose(): void {
+    const tracer = this.config.assaultRifle.tracer;
+    this.muzzleAnchor.position.set(
+      tracer.startRight,
+      -tracer.startDown,
+      -tracer.flashForward,
+    );
   }
 
   private getReloadDipRatio(): number {
