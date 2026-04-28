@@ -147,7 +147,7 @@ export class NetworkSystem {
       peerConnected: false,
       peerRole: null,
       canStartRun: true,
-      statusText: `Debug local profile: ${profile}`,
+      statusText: 'Solo with bot fallback',
     });
   }
 
