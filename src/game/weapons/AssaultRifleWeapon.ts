@@ -24,6 +24,10 @@ import type { InputSystem } from '../systems/InputSystem';
 import type { PlayerSystem } from '../systems/PlayerSystem';
 import type { RewardSystem } from '../systems/RewardSystem';
 import type { WorldSystem } from '../systems/WorldSystem';
+import {
+  MuzzlePointResolver,
+  setCameraLocalPositionFromWorld,
+} from './MuzzlePointResolver';
 
 type TracerEffect = {
   group: Group;
@@ -41,6 +45,7 @@ export class AssaultRifleWeapon {
   private readonly contentRoot = new Group();
   private readonly worldEffectsRoot = new Group();
   private readonly muzzleAnchor = new Group();
+  private readonly muzzlePoint = new MuzzlePointResolver('Assault rifle viewmodel', this.muzzleAnchor);
   private readonly muzzleFlash = new Group();
   private readonly muzzleFlashCoreMaterial = new MeshBasicMaterial({
     color: 0xffe8a8,
@@ -93,8 +98,6 @@ export class AssaultRifleWeapon {
   private readonly traceStart = new Vector3();
   private readonly traceEnd = new Vector3();
   private readonly traceDirection = new Vector3();
-  private readonly traceCameraRight = new Vector3();
-  private readonly traceCameraUp = new Vector3();
   private readonly traceMidpoint = new Vector3();
   private readonly traceQuaternion = new Quaternion();
   private readonly tracers: TracerEffect[] = [];
@@ -186,6 +189,7 @@ export class AssaultRifleWeapon {
     this.reloadSound.stopAll();
     this.clearTracers();
     this.applyViewmodelPose();
+    this.updateMuzzleFlashAnchorPose();
   }
 
   destroy(): void {
@@ -224,8 +228,9 @@ export class AssaultRifleWeapon {
     model.position.set(0, 0, 0);
     this.loadedScene = model;
     this.contentRoot.add(model);
-    this.updateMuzzleFlashAnchorPose();
+    this.muzzlePoint.bind(model, this.config.assaultRifle.viewmodel.muzzleMarkerNames);
     this.applyViewmodelPose();
+    this.updateMuzzleFlashAnchorPose();
   }
 
   updateRunning(
@@ -371,6 +376,7 @@ export class AssaultRifleWeapon {
     );
     this.debugViewmodelScale = viewmodel.scale;
     this.applyViewmodelPose();
+    this.updateMuzzleFlashAnchorPose();
     return this.getDebugViewmodelTransform();
   }
 
@@ -387,6 +393,8 @@ export class AssaultRifleWeapon {
     this.firingTimer = 0.11;
     this.firePulse += 1;
     this.muzzleFlash.visible = true;
+    this.applyViewmodelPose();
+    this.updateMuzzleFlashAnchorPose();
     this.muzzleAnchor.getWorldPosition(this.muzzleWorld);
     player.applyRecoil(this.config.assaultRifle.cameraKick + this.fireKick * 0.002);
     this.gunshotSound.play(
@@ -463,14 +471,12 @@ export class AssaultRifleWeapon {
   }
 
   private resolveTracerStart(): void {
-    const tracer = this.config.assaultRifle.tracer;
-    this.traceCameraRight.setFromMatrixColumn(this.camera.matrixWorld, 0).normalize();
-    this.traceCameraUp.setFromMatrixColumn(this.camera.matrixWorld, 1).normalize();
-    this.traceStart
-      .copy(this.raycaster.ray.origin)
-      .addScaledVector(this.traceDirection, tracer.startForward)
-      .addScaledVector(this.traceCameraRight, tracer.startRight)
-      .addScaledVector(this.traceCameraUp, -tracer.startDown);
+    if (this.muzzlePoint.hasMarker()) {
+      this.muzzlePoint.getWorldPosition(this.traceStart);
+      return;
+    }
+
+    this.muzzleAnchor.getWorldPosition(this.traceStart);
   }
 
   private dryFire(): void {
@@ -528,9 +534,10 @@ export class AssaultRifleWeapon {
   private updatePresentation(deltaTime: number): void {
     this.firingTimer = Math.max(0, this.firingTimer - deltaTime);
     this.fireKick = approach(this.fireKick, 0, deltaTime * this.config.assaultRifle.recoilRecovery);
+    this.applyViewmodelPose();
+    this.updateMuzzleFlashAnchorPose();
     this.updateMuzzleFlash(deltaTime);
     this.updateTracers(deltaTime);
-    this.applyViewmodelPose();
   }
 
   private updateMuzzleFlash(deltaTime: number): void {
@@ -578,6 +585,12 @@ export class AssaultRifleWeapon {
   }
 
   private updateMuzzleFlashAnchorPose(): void {
+    if (this.muzzlePoint.hasMarker()) {
+      this.muzzlePoint.getWorldPosition(this.muzzleWorld);
+      setCameraLocalPositionFromWorld(this.camera, this.muzzleWorld, this.muzzleAnchor);
+      return;
+    }
+
     const tracer = this.config.assaultRifle.tracer;
     this.muzzleAnchor.position.set(
       tracer.startRight,

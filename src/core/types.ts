@@ -146,6 +146,7 @@ export interface FpsViewmodelConfig {
   rotationDegrees: Vec3Tuple;
   scale: number;
   muzzleOffset: Vec3Tuple;
+  muzzleMarkerNames?: string[];
 }
 
 export interface BossProjectileState {
@@ -545,6 +546,7 @@ export interface GameConfig {
       reloadPushBack: number;
       reloadTiltDegrees: number;
       muzzleOffset: Vec3Tuple;
+      muzzleMarkerNames?: string[];
       muzzleFlashSize: number;
       muzzleFlashDuration: number;
     };
@@ -587,6 +589,7 @@ export interface GameConfig {
       spinDuration: number;
       spinTurns: number;
       muzzleOffset: Vec3Tuple;
+      muzzleMarkerNames?: string[];
       muzzleFlashSpriteOffset: Vec3Tuple;
       muzzleBlastOffset: Vec3Tuple;
       muzzleFlashSize: number;
@@ -624,6 +627,7 @@ export interface GameConfig {
       recoilPitchDegrees: number;
       recoilRecovery: number;
       muzzleOffset: Vec3Tuple;
+      muzzleMarkerNames?: string[];
       muzzleFlashSize: number;
       muzzleFlashDuration: number;
     };
@@ -679,6 +683,7 @@ export interface GameConfig {
       reloadPitchDegrees: number;
       reloadRollDegrees: number;
       muzzleOffset: Vec3Tuple;
+      muzzleMarkerNames?: string[];
       muzzleFlashSize: number;
       muzzleFlashDuration: number;
     };

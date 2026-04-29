@@ -30,6 +30,10 @@ import type { InputSystem } from '../systems/InputSystem';
 import type { PlayerSystem } from '../systems/PlayerSystem';
 import type { RewardSystem } from '../systems/RewardSystem';
 import type { WorldSystem } from '../systems/WorldSystem';
+import {
+  MuzzlePointResolver,
+  setCameraLocalPositionFromWorld,
+} from './MuzzlePointResolver';
 
 const SLIDE_NODE_PATTERN = /(slide|bolt|upper|top)/i;
 const MAGAZINE_NODE_PATTERN = /(mag|magazine|clip)/i;
@@ -71,6 +75,7 @@ export class PistolWeapon {
   private readonly worldEffectsRoot = new Group();
   private readonly muzzleAnchor = new Group();
   private readonly visualMuzzleAnchor = new Group();
+  private readonly muzzlePoint = new MuzzlePointResolver('Pistol viewmodel', this.muzzleAnchor);
   private readonly fallbackSlideAnchor = new Group();
   private readonly fallbackMagazineAnchor = new Group();
   private readonly tracers: TracerEffect[] = [];
@@ -109,11 +114,11 @@ export class PistolWeapon {
   private readonly basePosition: Vector3;
   private readonly baseRotation = new Vector3();
   private readonly playerPosition = new Vector3();
+  private readonly cameraWorld = new Vector3();
+  private readonly visualMuzzleWorld = new Vector3();
   private readonly traceStart = new Vector3();
   private readonly traceEnd = new Vector3();
   private readonly traceDirection = new Vector3();
-  private readonly traceCameraRight = new Vector3();
-  private readonly traceCameraUp = new Vector3();
   private readonly viewmodelVariants = new Map<FpsViewmodelKey, Object3D>();
   private readonly traceDebugDefaults: PistolTraceDebugSettings;
   private traceDebug: PistolTraceDebugSettings;
@@ -234,6 +239,7 @@ export class PistolWeapon {
 
     this.restoreAnimatedNodes();
     this.applyViewmodelPose(false);
+    this.updateVisualMuzzleAnchorPose();
   }
 
   updateRunning(
@@ -326,6 +332,7 @@ export class PistolWeapon {
     this.reloadDurationCurrent = this.config.weapon.reloadDuration;
     this.restoreAnimatedNodes();
     this.applyViewmodelPose(false);
+    this.updateVisualMuzzleAnchorPose();
   }
 
   getStatus(player: PlayerSystem): WeaponStatus {
@@ -388,6 +395,7 @@ export class PistolWeapon {
     this.debugViewmodelScale = viewmodel.scale;
     this.muzzleAnchor.position.set(...viewmodel.muzzleOffset);
     this.applyViewmodelPose(false);
+    this.updateVisualMuzzleAnchorPose();
     return this.getDebugViewmodelTransform();
   }
 
@@ -472,6 +480,7 @@ export class PistolWeapon {
     this.loadedScene = model;
 
     this.configureAttachmentAnchors(box, size, center, gripPivot);
+    this.muzzlePoint.bind(model, this.getCurrentFpsConfig().muzzleMarkerNames);
 
     const slideNode = this.findNamedNode(model, SLIDE_NODE_PATTERN);
     const magazineNode = this.findNamedNode(model, MAGAZINE_NODE_PATTERN);
@@ -490,6 +499,7 @@ export class PistolWeapon {
 
     this.restoreAnimatedNodes();
     this.applyViewmodelPose(false);
+    this.updateVisualMuzzleAnchorPose();
   }
 
   private prepareModel(model: Object3D): void {
@@ -748,11 +758,14 @@ export class PistolWeapon {
 
     this.fireKick = 1;
     this.slideOffset = this.config.weapon.viewmodel.slideTravel;
+    this.applyViewmodelPose(false);
+    this.applySlidePose();
     this.randomizeMuzzleFlash();
     this.camera.getWorldDirection(this.traceDirection);
     this.resolveTracerStart();
+    this.camera.getWorldPosition(this.cameraWorld);
     this.traceEnd
-      .copy(this.traceStart)
+      .copy(this.cameraWorld)
       .addScaledVector(
         this.traceDirection,
         Math.min(this.config.weapon.range, this.traceDebug.missLength),
@@ -827,14 +840,7 @@ export class PistolWeapon {
   }
 
   private resolveTracerStart(): void {
-    const tracer = this.config.weapon.tracer;
-    this.traceCameraRight.setFromMatrixColumn(this.camera.matrixWorld, 0).normalize();
-    this.traceCameraUp.setFromMatrixColumn(this.camera.matrixWorld, 1).normalize();
-    this.camera.getWorldPosition(this.traceStart);
-    this.traceStart
-      .addScaledVector(this.traceDirection, tracer.startForward)
-      .addScaledVector(this.traceCameraRight, tracer.startRight)
-      .addScaledVector(this.traceCameraUp, -tracer.startDown);
+    this.muzzlePoint.getWorldPosition(this.traceStart);
   }
 
   private startReload(player: PlayerSystem): void {
@@ -906,6 +912,7 @@ export class PistolWeapon {
     this.applyViewmodelPose(reloading);
     this.applySlidePose();
     this.applyMagazinePose(reloading);
+    this.updateVisualMuzzleAnchorPose();
   }
 
   private applyViewmodelPose(reloading: boolean): void {
@@ -970,6 +977,9 @@ export class PistolWeapon {
     );
     this.debugViewmodelScale = viewmodel.scale;
     this.muzzleAnchor.position.set(...viewmodel.muzzleOffset);
+    if (this.loadedScene) {
+      this.muzzlePoint.bind(this.loadedScene, viewmodel.muzzleMarkerNames);
+    }
     this.updateVisualMuzzleAnchorPose();
     this.applyViewmodelPose(false);
   }
@@ -1086,11 +1096,11 @@ export class PistolWeapon {
   }
 
   private updateVisualMuzzleAnchorPose(): void {
-    const tracer = this.config.weapon.tracer;
-    this.visualMuzzleAnchor.position.set(
-      tracer.startRight,
-      -tracer.startDown,
-      -tracer.flashForward,
+    this.muzzlePoint.getWorldPosition(this.visualMuzzleWorld);
+    setCameraLocalPositionFromWorld(
+      this.camera,
+      this.visualMuzzleWorld,
+      this.visualMuzzleAnchor,
     );
   }
 

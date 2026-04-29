@@ -25,6 +25,7 @@ import type { InputSystem } from '../systems/InputSystem';
 import type { PlayerSystem } from '../systems/PlayerSystem';
 import type { RewardSystem } from '../systems/RewardSystem';
 import type { WorldSystem } from '../systems/WorldSystem';
+import { MuzzlePointResolver, setLocalPositionFromWorld } from './MuzzlePointResolver';
 
 const EFFECT_FORWARD_AXIS = new Vector3(1, 0, 0);
 
@@ -60,6 +61,7 @@ export class BazookaWeapon {
   private readonly contentRoot = new Group();
   private readonly worldEffectsRoot = new Group();
   private readonly muzzleAnchor = new Group();
+  private readonly muzzlePoint = new MuzzlePointResolver('Bazooka viewmodel', this.muzzleAnchor);
   private readonly rocket = this.createRocketProjectile();
   private readonly smokePuffs: SmokePuff[] = [];
   private readonly explosions: ExplosionBurst[] = [];
@@ -181,6 +183,7 @@ export class BazookaWeapon {
     this.clearSmokePuffs();
     this.clearExplosions();
     this.applyViewmodelPose();
+    this.updateMuzzleAnchorFromMarker();
   }
 
   updateRunning(
@@ -223,6 +226,7 @@ export class BazookaWeapon {
     );
     this.updateMuzzleFlash(deltaTime);
     this.applyViewmodelPose();
+    this.updateMuzzleAnchorFromMarker();
   }
 
   setEquipped(equipped: boolean): void {
@@ -313,6 +317,7 @@ export class BazookaWeapon {
     this.debugViewmodelScale = viewmodel.scale;
     this.muzzleAnchor.position.set(...viewmodel.muzzleOffset);
     this.applyViewmodelPose();
+    this.updateMuzzleAnchorFromMarker();
     return this.getDebugViewmodelTransform();
   }
 
@@ -341,11 +346,15 @@ export class BazookaWeapon {
       this.prepareModel(scene);
       this.loadedScene = scene;
       this.contentRoot.add(scene);
+      this.muzzlePoint.bind(scene, this.config.fpsViewmodels.gunner_bazooka.muzzleMarkerNames);
+      this.updateMuzzleAnchorFromMarker();
     } catch (error) {
       console.warn('Failed to load bazooka viewmodel, using fallback.', error);
       const fallback = this.createEmergencyFallbackModel();
       this.loadedScene = fallback;
       this.contentRoot.add(fallback);
+      this.muzzlePoint.bind(fallback, this.config.fpsViewmodels.gunner_bazooka.muzzleMarkerNames);
+      this.updateMuzzleAnchorFromMarker();
     }
   }
 
@@ -489,6 +498,8 @@ export class BazookaWeapon {
     this.fireKick = 1.2;
     this.muzzleFlashTimer = this.config.bazooka.viewmodel.muzzleFlashDuration;
     this.muzzleFlash.visible = true;
+    this.applyViewmodelPose();
+    this.updateMuzzleAnchorFromMarker();
     this.muzzleAnchor.getWorldPosition(this.muzzleWorld);
     this.raycaster.setFromCamera(this.crosshair, this.camera);
     this.rocketDirection.copy(this.raycaster.ray.direction).normalize();
@@ -498,9 +509,7 @@ export class BazookaWeapon {
     this.rocket.direction.copy(this.rocketDirection);
     this.rocket.distance = 0;
     this.rocket.smokeTimer = 0;
-    this.rocket.group.position
-      .copy(this.muzzleWorld)
-      .addScaledVector(this.rocketDirection, 0.95);
+    this.rocket.group.position.copy(this.muzzleWorld);
     this.rocket.group.quaternion.setFromUnitVectors(
       EFFECT_FORWARD_AXIS,
       this.rocketDirection,
@@ -540,6 +549,7 @@ export class BazookaWeapon {
     this.updateExplosions(deltaTime);
     this.updateMuzzleFlash(deltaTime);
     this.applyViewmodelPose();
+    this.updateMuzzleAnchorFromMarker();
   }
 
   private updateRocket(
@@ -759,6 +769,11 @@ export class BazookaWeapon {
       this.baseRotation.z,
     );
     this.viewmodelRoot.scale.setScalar(this.debugViewmodelScale);
+  }
+
+  private updateMuzzleAnchorFromMarker(): void {
+    this.muzzlePoint.getWorldPosition(this.muzzleWorld);
+    setLocalPositionFromWorld(this.contentRoot, this.muzzleWorld, this.muzzleAnchor);
   }
 
   private createDebugSnapshot(

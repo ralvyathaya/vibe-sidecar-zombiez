@@ -32,6 +32,7 @@ import type { InputSystem } from '../systems/InputSystem';
 import type { PlayerSystem } from '../systems/PlayerSystem';
 import type { RewardSystem } from '../systems/RewardSystem';
 import type { WorldSystem } from '../systems/WorldSystem';
+import { MuzzlePointResolver, setLocalPositionFromWorld } from './MuzzlePointResolver';
 
 const EFFECT_FORWARD_AXIS = new Vector3(1, 0, 0);
 
@@ -76,6 +77,7 @@ export class ShotgunWeapon {
   private readonly contentRoot = new Group();
   private readonly worldEffectsRoot = new Group();
   private readonly muzzleAnchor = new Group();
+  private readonly muzzlePoint = new MuzzlePointResolver('Shotgun viewmodel', this.muzzleAnchor);
   private readonly pelletStreaks: PelletStreak[] = [];
   private readonly impactBursts: ImpactBurst[] = [];
   private readonly spreadCrosshair = new Vector2();
@@ -85,8 +87,6 @@ export class ShotgunWeapon {
   private readonly playerPosition = new Vector3();
   private readonly pelletBurstTarget = new Vector3();
   private readonly pelletBurstDirection = new Vector3();
-  private readonly muzzleForwardWorld = new Vector3();
-  private readonly muzzleForwardPoint = new Vector3();
   private readonly muzzleFlash = new Group();
   private readonly muzzleFlashCoreMaterial = new MeshBasicMaterial({
     color: 0xffd78f,
@@ -414,6 +414,7 @@ export class ShotgunWeapon {
     this.debugViewmodelScale = viewmodel.scale;
     this.muzzleAnchor.position.set(...viewmodel.muzzleOffset);
     this.applyViewmodelPose();
+    this.updateMuzzleAnchorFromMarker();
     return this.getDebugViewmodelTransform();
   }
 
@@ -481,8 +482,10 @@ export class ShotgunWeapon {
     this.contentRoot.add(model);
     this.loadedScene = model;
     this.muzzleAnchor.position.set(...this.config.fpsViewmodels.gunner_shotgun.muzzleOffset);
+    this.muzzlePoint.bind(model, this.config.fpsViewmodels.gunner_shotgun.muzzleMarkerNames);
 
     this.applyViewmodelPose();
+    this.updateMuzzleAnchorFromMarker();
   }
 
   private prepareModel(model: Object3D): void {
@@ -551,6 +554,8 @@ export class ShotgunWeapon {
       this.config.shotgun.audio.gunshotVolume,
       1,
     );
+    this.applyViewmodelPose();
+    this.updateMuzzleAnchorFromMarker();
     this.randomizeMuzzleFlash();
     this.muzzleAnchor.getWorldPosition(this.muzzleWorld);
 
@@ -580,12 +585,25 @@ export class ShotgunWeapon {
         // The burst uses the same sampled screen-space spread as the actual pellet
         // hit logic, but converts it into a muzzle-originating direction so the
         // visible blast opens outward as a fan from the barrel.
-        const visibleLength = randomRange(
+        this.pelletBurstTarget
+          .copy(this.pelletRaycaster.ray.origin)
+          .addScaledVector(this.pelletDirection, this.config.shotgun.range);
+        if (hitEnemyFirst && enemyHit) {
+          this.pelletBurstTarget.copy(enemyHit.point);
+        } else if (hitBarrel) {
+          this.pelletBurstTarget.copy(hitBarrel.point);
+        }
+        const endpointDistance = this.resolvePelletBurstDirection(this.pelletBurstTarget);
+        const visibleLength = clamp(
+          endpointDistance,
           this.sprayDebug.pelletTraceMinLength,
           this.sprayDebug.pelletTraceMaxLength,
         );
-        this.resolvePelletBurstDirection();
-        this.spawnPelletStreak(this.muzzleWorld, this.pelletBurstDirection, visibleLength);
+        this.spawnPelletStreak(
+          this.muzzleWorld,
+          this.pelletBurstDirection,
+          visibleLength,
+        );
       }
 
       if (hitEnemyFirst && enemyHit) {
@@ -639,34 +657,19 @@ export class ShotgunWeapon {
     }
   }
 
-  private resolvePelletBurstDirection(): void {
-    this.muzzleForwardPoint.set(1, 0, 0);
-    this.muzzleAnchor.localToWorld(this.muzzleForwardPoint);
-    this.muzzleForwardWorld
-      .copy(this.muzzleForwardPoint)
-      .sub(this.muzzleWorld);
-
-    if (this.muzzleForwardWorld.lengthSq() > 0.000001) {
-      this.muzzleForwardWorld.normalize();
-    } else {
-      this.muzzleForwardWorld.copy(this.pelletDirection);
-    }
-
-    const burstAimDistance = this.sprayDebug.burstAimDistance;
-    this.pelletBurstTarget
-      .copy(this.pelletRaycaster.ray.origin)
-      .addScaledVector(this.pelletDirection, burstAimDistance);
-
+  private resolvePelletBurstDirection(endpoint: Vector3): number {
     this.pelletBurstDirection
-      .copy(this.pelletBurstTarget)
+      .copy(endpoint)
       .sub(this.muzzleWorld);
+    const distance = this.pelletBurstDirection.length();
 
-    if (this.pelletBurstDirection.lengthSq() <= 0.000001) {
-      this.pelletBurstDirection.copy(this.muzzleForwardWorld);
-      return;
+    if (distance <= 0.000001) {
+      this.pelletBurstDirection.copy(this.pelletDirection);
+      return this.sprayDebug.pelletTraceMinLength;
     }
 
-    this.pelletBurstDirection.normalize();
+    this.pelletBurstDirection.multiplyScalar(1 / distance);
+    return distance;
   }
 
   private getRepresentativePelletIndices(): Set<number> {
@@ -745,6 +748,12 @@ export class ShotgunWeapon {
     }
 
     this.applyViewmodelPose();
+    this.updateMuzzleAnchorFromMarker();
+  }
+
+  private updateMuzzleAnchorFromMarker(): void {
+    this.muzzlePoint.getWorldPosition(this.muzzleWorld);
+    setLocalPositionFromWorld(this.contentRoot, this.muzzleWorld, this.muzzleAnchor);
   }
 
   private preloadDelayTiming(): void {
@@ -1015,11 +1024,7 @@ export class ShotgunWeapon {
     streak.group.visible = true;
     streak.beam.visible = true;
     streak.glow.visible = true;
-    // Start slightly forward from the muzzle tip so the burst reads from the
-    // barrel itself and stays out of the player's face.
-    streak.group.position
-      .copy(start)
-      .addScaledVector(streak.direction, this.sprayDebug.pelletTraceMuzzleForward);
+    streak.group.position.copy(start);
     streak.group.quaternion.setFromUnitVectors(EFFECT_FORWARD_AXIS, streak.direction);
     streak.beam.position.set(length * 0.5, 0, 0);
     streak.glow.position.set(length * 0.5, 0, 0);

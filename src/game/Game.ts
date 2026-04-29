@@ -72,6 +72,8 @@ export class Game {
   private readonly gameLoop: GameLoop;
   private readonly engineLoop: LoopingSound;
   private readonly stallLoop: LoopingSound;
+  private readonly rampJumpSound: SoundEffectPool;
+  private readonly gameOverSound: SoundEffectPool;
   private readonly playerPosition = new Vector3();
   private readonly playerForward = new Vector3();
   private readonly handleOverlayKeyDown = (event: KeyboardEvent) => {
@@ -214,6 +216,14 @@ export class Game {
       playbackRate: GAME_CONFIG.vehicle.stallAudioPlaybackRate,
       highpassHz: Math.max(48, GAME_CONFIG.vehicle.engineHighpassHz * 0.6),
       lowpassHz: Math.max(900, GAME_CONFIG.vehicle.engineLowpassHz * 0.78),
+    });
+    this.rampJumpSound = new SoundEffectPool(GAME_CONFIG.world.ramp.audioPath, {
+      poolSize: 2,
+      volume: GAME_CONFIG.world.ramp.audioVolume,
+    });
+    this.gameOverSound = new SoundEffectPool(GAME_CONFIG.gameOver.audioPath, {
+      poolSize: 1,
+      volume: GAME_CONFIG.gameOver.audioVolume,
     });
     this.gameLoop = new GameLoop(
       (deltaTime) => this.update(deltaTime),
@@ -361,6 +371,8 @@ export class Game {
     this.rewardSystem.destroy();
     this.engineLoop.destroy();
     this.stallLoop.destroy();
+    this.rampJumpSound.destroy();
+    this.gameOverSound.destroy();
     this.rendererSystem.destroy();
   }
 
@@ -787,6 +799,7 @@ export class Game {
     }
 
     this.jumpTimer = duration;
+    this.rampJumpSound.play(GAME_CONFIG.world.ramp.audioVolume, 1);
     this.roadCameraShake = Math.max(this.roadCameraShake, GAME_CONFIG.world.ramp.cameraKick);
     this.laneCutJolt = Math.max(this.laneCutJolt, 0.34);
   }
@@ -1127,6 +1140,7 @@ export class Game {
 
     this.rewardSystem.finalizeRun(this.playerSystem.state.score);
     this.uiSystem.setDeathCause(this.describeDeathCause(this.lastDeathCause));
+    this.gameOverSound.play(GAME_CONFIG.gameOver.audioVolume, 1);
     this.setState('dead');
     if (this.inputSystem.isPointerLocked()) {
       this.suppressUnlockPause = true;

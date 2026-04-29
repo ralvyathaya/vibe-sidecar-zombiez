@@ -202,6 +202,7 @@ export const GAME_CONFIG: GameConfig = {
       rotationDegrees: [0, -90, 0],
       scale: 1,
       muzzleOffset: [0.18, 0.02, -0.1],
+      muzzleMarkerNames: ['MuzzlePoint_pistol', 'MuzzlePoint'],
     },
     gunner_handgun: {
       path: '/models/viewmodels/police+handgun.glb',
@@ -209,6 +210,7 @@ export const GAME_CONFIG: GameConfig = {
       rotationDegrees: [0, -85, 0],
       scale: 1,
       muzzleOffset: [0.18, 0.02, -0.1],
+      muzzleMarkerNames: ['MuzzlePoint'],
     },
     gunner_shotgun: {
       path: '/models/viewmodels/police+shotgun.glb',
@@ -216,6 +218,7 @@ export const GAME_CONFIG: GameConfig = {
       rotationDegrees: [0, -70, 0],
       scale: 1.2,
       muzzleOffset: [0.28, 0.02, -0.16],
+      muzzleMarkerNames: ['ShotgunMuzzlePoint', 'MuzzlePoint'],
     },
     gunner_bazooka: {
       path: '/models/viewmodels/police+bazooka.glb',
@@ -223,6 +226,7 @@ export const GAME_CONFIG: GameConfig = {
       rotationDegrees: [0, -70, 0],
       scale: 1,
       muzzleOffset: [0.35, 0.03, -0.18],
+      muzzleMarkerNames: ['MuzzlePoint', 'BazookaMuzzlePoint'],
     },
   },
   ride: {
@@ -508,7 +512,7 @@ export const GAME_CONFIG: GameConfig = {
     audio: {
       gunshotPath: '/audio/weapons/rifle-shot.ogg',
       reloadPath: '/audio/weapons/rifle-reload.ogg',
-      gunshotVolume: 0.13,
+      gunshotVolume: 0.23,
       reloadVolume: 0.34,
       gunshotPlaybackRateMin: 0.97,
       gunshotPlaybackRateMax: 1.08,
@@ -530,6 +534,7 @@ export const GAME_CONFIG: GameConfig = {
       reloadPitchDegrees: 18,
       reloadRollDegrees: -8,
       muzzleOffset: [-0.72, 0.08, 0],
+      muzzleMarkerNames: ['MuzzlePoint'],
       muzzleFlashSize: 0.24,
       muzzleFlashDuration: 0.055,
     },

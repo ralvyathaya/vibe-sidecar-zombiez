@@ -86,6 +86,7 @@ export class BossSystem {
   private projectileId = 0;
   private pendingScoreBonus = 0;
   private hitFlashTimer = 0;
+  private lastPreStrikeSoundTime = -99;
   private lastProjectileHitSoundTime = -99;
   private lastRemotePreStrikeId = 0;
   private remoteSnapshot: BossSnapshot | null = null;
@@ -202,6 +203,7 @@ export class BossSystem {
     this.time = 0;
     this.pendingScoreBonus = 0;
     this.hitFlashTimer = 0;
+    this.lastPreStrikeSoundTime = -99;
     this.lastProjectileHitSoundTime = -99;
     this.lastRemotePreStrikeId = 0;
     this.remoteSnapshot = null;
@@ -678,6 +680,7 @@ export class BossSystem {
 
     for (const telegraph of snapshot.activeTelegraphs) {
       let projectile = this.projectiles.find((entry) => entry.id === telegraph.id);
+      const wasKnownActive = Boolean(projectile?.active);
       if (!projectile) {
         projectile = this.projectiles.find((entry) => !entry.active);
       }
@@ -694,7 +697,30 @@ export class BossSystem {
         (1 - telegraph.warningRatio) * this.config.boss.projectileTelegraphDuration;
       projectile.impactTimer = this.config.boss.projectileImpactDuration;
       projectile.hitPlayer = true;
+      projectile.impactSoundPlayed = telegraph.warningRatio >= 1;
       projectile.mesh.visible = true;
+      if (!wasKnownActive && telegraph.id > this.lastRemotePreStrikeId) {
+        this.lastRemotePreStrikeId = telegraph.id;
+        this.playPreStrikeSound();
+      }
     }
+  }
+
+  private playPreStrikeSound(): void {
+    if (this.time - this.lastPreStrikeSoundTime < 0.12) {
+      return;
+    }
+
+    this.lastPreStrikeSoundTime = this.time;
+    this.preStrikeSound.play(this.config.boss.audio.preStrikeVolume, 1);
+  }
+
+  private playProjectileHitSound(): void {
+    if (this.time - this.lastProjectileHitSoundTime < 0.08) {
+      return;
+    }
+
+    this.lastProjectileHitSoundTime = this.time;
+    this.projectileHitSound.play(this.config.boss.audio.projectileHitVolume, 1);
   }
 }
