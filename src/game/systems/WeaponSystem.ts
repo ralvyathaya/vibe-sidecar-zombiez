@@ -108,7 +108,7 @@ export class WeaponSystem {
     if (this.activeWeapon === 'shotgun') {
       this.shotgunWeapon.updateRunning(deltaTime, input, player, enemies, world, rewards);
       if (this.shotgunWeapon.getAmmo() <= 0 && !this.shotgunWeapon.isCycling()) {
-        this.equipPistol(player);
+        this.equipBestAvailableWeapon(player);
       }
       return;
     }
@@ -116,7 +116,7 @@ export class WeaponSystem {
     if (this.activeWeapon === 'assaultRifle') {
       this.assaultRifleWeapon.updateRunning(deltaTime, input, player, enemies, world, rewards);
       if (!this.assaultRifleWeapon.hasAmmoAvailable() && !this.assaultRifleWeapon.isRecentlyFiring()) {
-        this.equipPistol(player);
+        this.equipBestAvailableWeapon(player);
       }
       return;
     }
@@ -166,9 +166,9 @@ export class WeaponSystem {
       this.assaultRifleUnlocked = true;
       this.assaultRifleWeapon.grantInitialAmmo();
       if (this.activeWeapon === 'bazooka') {
-        this.bazookaRestoreWeapon = 'assaultRifle';
+        this.bazookaRestoreWeapon = this.getBestAvailableNonBazookaWeapon();
       } else {
-        this.equipAssaultRifle(player);
+        this.equipBestAvailableWeapon(player);
       }
       return;
     }
@@ -177,14 +177,10 @@ export class WeaponSystem {
       this.assaultRifleUnlocked = true;
       this.assaultRifleWeapon.addReserveAmmo(pickup.ammo || this.config.assaultRifle.pickupAmmo);
       if (this.activeWeapon === 'bazooka') {
-        if (this.assaultRifleWeapon.hasAmmoAvailable()) {
-          this.bazookaRestoreWeapon = 'assaultRifle';
-        }
+        this.bazookaRestoreWeapon = this.getBestAvailableNonBazookaWeapon();
         return;
       }
-      if (this.assaultRifleWeapon.hasAmmoAvailable() && this.activeWeapon !== 'shotgun') {
-        this.equipAssaultRifle(player);
-      }
+      this.equipBestAvailableWeapon(player);
       return;
     }
 
@@ -193,24 +189,20 @@ export class WeaponSystem {
     if (pickup.type === 'shotgun') {
       this.shotgunWeapon.setAmmo(this.config.pickups.shotgunPickupAmmo);
       if (this.activeWeapon === 'bazooka') {
-        this.bazookaRestoreWeapon = 'shotgun';
+        this.bazookaRestoreWeapon = this.getBestAvailableNonBazookaWeapon();
       } else {
-        this.equipShotgun(player);
+        this.equipBestAvailableWeapon(player);
       }
       return;
     }
 
     this.shotgunWeapon.addAmmo(pickup.ammo);
     if (this.activeWeapon === 'bazooka') {
-      if (this.shotgunWeapon.getAmmo() > 0) {
-        this.bazookaRestoreWeapon = 'shotgun';
-      }
+      this.bazookaRestoreWeapon = this.getBestAvailableNonBazookaWeapon();
       return;
     }
 
-    if (this.shotgunWeapon.getAmmo() > 0) {
-      this.equipShotgun(player);
-    }
+    this.equipBestAvailableWeapon(player);
   }
 
   hasUnlockedShotgun(): boolean {
@@ -477,14 +469,13 @@ export class WeaponSystem {
   }
 
   private restoreAfterBazooka(player: PlayerSystem): void {
-    const shouldRestoreAssaultRifle =
-      this.bazookaRestoreWeapon === 'assaultRifle' && this.assaultRifleWeapon.hasAmmoAvailable();
-    const shouldRestoreShotgun =
-      this.bazookaRestoreWeapon === 'shotgun' && this.shotgunWeapon.getAmmo() > 0;
+    const restoreWeapon = this.canEquipNonBazooka(this.bazookaRestoreWeapon)
+      ? this.bazookaRestoreWeapon
+      : this.getBestAvailableNonBazookaWeapon();
 
-    if (shouldRestoreAssaultRifle) {
+    if (restoreWeapon === 'assaultRifle') {
       this.equipAssaultRifle(player);
-    } else if (shouldRestoreShotgun) {
+    } else if (restoreWeapon === 'shotgun') {
       this.equipShotgun(player);
     } else {
       this.equipPistol(player);
@@ -494,19 +485,49 @@ export class WeaponSystem {
   }
 
   private getWeaponToRestore(): Extract<WeaponKind, 'pistol' | 'shotgun' | 'assaultRifle'> {
-    if (this.activeWeapon === 'assaultRifle' && this.assaultRifleWeapon.hasAmmoAvailable()) {
+    return this.getBestAvailableNonBazookaWeapon();
+  }
+
+  private equipBestAvailableWeapon(player: PlayerSystem): void {
+    const bestWeapon = this.getBestAvailableNonBazookaWeapon();
+
+    if (bestWeapon === 'assaultRifle') {
+      this.equipAssaultRifle(player);
+      return;
+    }
+
+    if (bestWeapon === 'shotgun') {
+      this.equipShotgun(player);
+      return;
+    }
+
+    this.equipPistol(player);
+  }
+
+  private getBestAvailableNonBazookaWeapon(): Extract<WeaponKind, 'pistol' | 'shotgun' | 'assaultRifle'> {
+    if (this.canEquipNonBazooka('assaultRifle')) {
       return 'assaultRifle';
     }
 
-    if (this.activeWeapon === 'shotgun' && this.shotgunWeapon.getAmmo() > 0) {
+    if (this.canEquipNonBazooka('shotgun')) {
       return 'shotgun';
     }
 
-    if (this.activeWeapon === 'bazooka') {
-      return this.bazookaRestoreWeapon;
+    return 'pistol';
+  }
+
+  private canEquipNonBazooka(
+    weapon: Extract<WeaponKind, 'pistol' | 'shotgun' | 'assaultRifle'>,
+  ): boolean {
+    if (weapon === 'assaultRifle') {
+      return this.assaultRifleUnlocked && this.assaultRifleWeapon.hasAmmoAvailable();
     }
 
-    return 'pistol';
+    if (weapon === 'shotgun') {
+      return this.shotgunUnlocked && this.shotgunWeapon.getAmmo() > 0;
+    }
+
+    return true;
   }
 
   private toNetworkWeaponKind(weapon: WeaponKind): NetworkWeaponKind {
