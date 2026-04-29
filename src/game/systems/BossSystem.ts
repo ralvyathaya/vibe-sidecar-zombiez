@@ -448,6 +448,10 @@ export class BossSystem {
 
       if (projectile.telegraphTimer > 0) {
         projectile.telegraphTimer = Math.max(0, projectile.telegraphTimer - deltaTime);
+        if (projectile.telegraphTimer <= 0 && !projectile.impactSoundPlayed) {
+          projectile.impactSoundPlayed = true;
+          this.playProjectileHitSound();
+        }
       } else {
         projectile.impactTimer = Math.max(0, projectile.impactTimer - deltaTime);
         if (!projectile.hitPlayer) {
@@ -547,6 +551,7 @@ export class BossSystem {
     const laneCount = this.config.world.laneCenters.length;
     const baseLane = randomInt(0, laneCount - 1);
     const pattern = this.pickAttackPattern();
+    this.playPreStrikeSound();
     if (pattern === 'lanePair') {
       this.spawnProjectile(baseLane, pattern);
       this.spawnProjectile(clamp(baseLane + (Math.random() < 0.5 ? -1 : 1), 0, laneCount - 1), pattern);
@@ -585,6 +590,7 @@ export class BossSystem {
     projectile.impactTimer = this.config.boss.projectileImpactDuration;
     projectile.pattern = pattern;
     projectile.hitPlayer = false;
+    projectile.impactSoundPlayed = false;
     projectile.mesh.visible = true;
     projectile.mesh.position.set(
       projectile.laneX,
@@ -597,6 +603,7 @@ export class BossSystem {
   private deactivateProjectile(projectile: BossProjectileRecord): void {
     projectile.active = false;
     projectile.hitPlayer = false;
+    projectile.impactSoundPlayed = false;
     projectile.telegraphTimer = 0;
     projectile.impactTimer = 0;
     projectile.mesh.visible = false;
