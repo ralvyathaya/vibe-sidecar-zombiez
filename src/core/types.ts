@@ -395,6 +395,9 @@ export interface GameConfig {
       nearFillColor: number;
       nearFillIntensity: number;
       nearFillDistance: number;
+      headlightHotspotOpacity: number;
+      headlightSpillOpacity: number;
+      headlightGlowOpacity: number;
     };
   };
   fpsViewmodels: Record<FpsViewmodelKey, FpsViewmodelConfig>;
@@ -566,6 +569,10 @@ export interface GameConfig {
     pelletTraceDuration: number;
     /** World units along trace direction from muzzle; larger pushes streaks away from the camera. */
     pelletTraceMuzzleForward: number;
+    pelletTraceWidth: number;
+    pelletTraceGlowWidth: number;
+    pelletJitter: number;
+    burstAimDistance: number;
     audio: {
       gunshotPath: string;
       delayPath: string;

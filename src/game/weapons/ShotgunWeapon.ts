@@ -165,10 +165,10 @@ export class ShotgunWeapon {
       pelletTraceMaxLength: this.config.shotgun.pelletTraceMaxLength,
       pelletTraceDuration: this.config.shotgun.pelletTraceDuration,
       pelletTraceMuzzleForward: this.config.shotgun.pelletTraceMuzzleForward,
-      pelletTraceWidth: 0.09,
-      pelletTraceGlowWidth: 0.24,
-      pelletJitter: 0.38,
-      burstAimDistance: clamp(this.config.shotgun.pelletTraceMaxLength * 0.22, 4.2, 7.2),
+      pelletTraceWidth: this.config.shotgun.pelletTraceWidth,
+      pelletTraceGlowWidth: this.config.shotgun.pelletTraceGlowWidth,
+      pelletJitter: this.config.shotgun.pelletJitter,
+      burstAimDistance: this.config.shotgun.burstAimDistance,
     };
     this.sprayDebug = { ...this.sprayDebugDefaults };
     const [rotX, rotY, rotZ] = viewmodel.rotationDegrees;

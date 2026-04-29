@@ -253,9 +253,9 @@ export class VehicleRigSystem {
       fillDistance: rig.headlightFillDistance,
       nearIntensity: rig.nearFillIntensity,
       nearDistance: rig.nearFillDistance,
-      hotspotOpacity: 0.03,
-      spillOpacity: 0.018,
-      glowOpacity: 0.045,
+      hotspotOpacity: rig.headlightHotspotOpacity,
+      spillOpacity: rig.headlightSpillOpacity,
+      glowOpacity: rig.headlightGlowOpacity,
     };
     this.headlightDebug = { ...this.headlightDebugDefaults };
 

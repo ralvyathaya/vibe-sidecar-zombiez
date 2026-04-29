@@ -32,6 +32,11 @@ export type DebugTuningBinding = {
   reset: () => DebugTuningSnapshot;
 };
 
+export type DebugConfigSnapshot = {
+  transforms: Partial<Record<DebugTransformTarget, DebugTransformSnapshot>>;
+  tunings: Record<string, DebugTuningSnapshot>;
+};
+
 type DebugTransformEditorOptions = {
   host: HTMLElement;
   enabled: boolean;
@@ -40,6 +45,7 @@ type DebugTransformEditorOptions = {
   tunings?: Record<string, DebugTuningBinding>;
   onProfileChange: (profile: ControlProfile) => void;
   onStartLocalRun: (profile: ControlProfile) => void;
+  onSaveConfig?: (payload: DebugConfigSnapshot) => Promise<string>;
 };
 
 const STORAGE_KEY = 'sidecar-of-the-dead.debug-transforms.v1';
@@ -139,7 +145,7 @@ export class DebugTransformEditor {
       'font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:#ffba6b;margin-bottom:8px';
 
     const hint = document.createElement('div');
-    hint.textContent = 'F2 toggle. Drafts save to localStorage; Copy JSON for config.';
+    hint.textContent = 'F2 toggle. Drafts save to localStorage; Save Config writes src/core/config.ts in local dev.';
     hint.style.cssText = 'font-size:12px;color:#d9c8aa;line-height:1.35;margin-bottom:12px';
 
     const profileRow = this.createRow('Profile');
@@ -205,6 +211,13 @@ export class DebugTransformEditor {
       void this.copyJson();
     });
     actions.append(applyTargetButton, resetButton, copyButton);
+    if (this.options.onSaveConfig) {
+      const saveConfigButton = this.createButton('Save Config');
+      saveConfigButton.addEventListener('click', () => {
+        void this.saveConfig();
+      });
+      actions.append(saveConfigButton);
+    }
 
     const tuningRow = this.createRow('Tuning');
     for (const tuningKey of Object.keys(this.tunings)) {
@@ -601,10 +614,31 @@ export class DebugTransformEditor {
   }
 
   private async copyJson(): Promise<void> {
-    const payload: {
-      transforms: Partial<Record<DebugTransformTarget, DebugTransformSnapshot>>;
-      tunings: Record<string, DebugTuningSnapshot>;
-    } = {
+    const payload = this.collectCurrentPayload();
+    const json = JSON.stringify(payload, null, 2);
+    try {
+      await navigator.clipboard.writeText(json);
+      this.setStatus('Copied debug transform JSON.');
+    } catch {
+      this.setStatus(json);
+    }
+  }
+
+  private async saveConfig(): Promise<void> {
+    if (!this.options.onSaveConfig) {
+      return;
+    }
+
+    try {
+      const message = await this.options.onSaveConfig(this.collectDraftPayload());
+      this.setStatus(message);
+    } catch (error) {
+      this.setStatus(error instanceof Error ? error.message : 'Could not save config.');
+    }
+  }
+
+  private collectCurrentPayload(): DebugConfigSnapshot {
+    const payload: DebugConfigSnapshot = {
       transforms: {},
       tunings: {},
     };
@@ -624,13 +658,14 @@ export class DebugTransformEditor {
       payload.tunings[tuningKey] = binding.get();
     }
 
-    const json = JSON.stringify(payload, null, 2);
-    try {
-      await navigator.clipboard.writeText(json);
-      this.setStatus('Copied debug transform JSON.');
-    } catch {
-      this.setStatus(json);
-    }
+    return payload;
+  }
+
+  private collectDraftPayload(): DebugConfigSnapshot {
+    return {
+      transforms: this.getStoredDrafts(),
+      tunings: this.getStoredTuningDrafts(),
+    };
   }
 
   private formatNumber(value: number): string {

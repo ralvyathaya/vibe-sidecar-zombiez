@@ -25,6 +25,7 @@ import { LoopingSound } from './audio/LoopingSound';
 import { SoundEffectPool } from './audio/SoundEffectPool';
 import {
   DebugTransformEditor,
+  type DebugConfigSnapshot,
   type DebugTransformBinding,
   type DebugTuningBinding,
 } from './debug/DebugTransformEditor';
@@ -191,6 +192,9 @@ export class Game {
         this.applyDebugProfile(profile);
         this.startRun('start', false);
       },
+      onSaveConfig: import.meta.env.DEV
+        ? (payload) => this.saveDebugConfig(payload)
+        : undefined,
     });
     this.engineLoop = new LoopingSound(GAME_CONFIG.vehicle.engineAudioPath, {
       volume: GAME_CONFIG.vehicle.engineVolume,
@@ -1559,6 +1563,34 @@ export class Game {
           scale: [1, 1, 1],
         },
     };
+  }
+
+  private async saveDebugConfig(payload: DebugConfigSnapshot): Promise<string> {
+    if (!import.meta.env.DEV) {
+      throw new Error('Save Config only works while running the local Vite dev server.');
+    }
+
+    const response = await fetch('/__debug/save-config', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    const text = await response.text();
+    let message = text;
+    try {
+      const parsed = JSON.parse(text) as { message?: string; error?: string };
+      message = parsed.error ?? parsed.message ?? text;
+    } catch {
+      // Keep raw text from the dev middleware.
+    }
+
+    if (!response.ok) {
+      throw new Error(message || 'Could not save config.');
+    }
+
+    return message || 'Saved src/core/config.ts.';
   }
 
   private resolveWeaponPolicy(profile: ControlProfile): WeaponPolicy {
