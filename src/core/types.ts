@@ -726,8 +726,11 @@ export interface GameConfig {
     audio: {
       preStrikePath: string;
       projectileHitPath: string;
+      helicopterLoopPath: string;
       preStrikeVolume: number;
       projectileHitVolume: number;
+      helicopterLoopVolume: number;
+      helicopterLoopPlaybackRate: number;
     };
   };
   rain: {

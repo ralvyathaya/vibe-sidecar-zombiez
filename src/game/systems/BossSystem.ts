@@ -23,6 +23,7 @@ import type {
   WeaponKind,
 } from '../../core/types';
 import { clamp, randomInt, sampleRoadCurveOffset } from '../../core/utils';
+import { LoopingSound } from '../audio/LoopingSound';
 import { SoundEffectPool } from '../audio/SoundEffectPool';
 
 type BossProjectileRecord = {
@@ -79,6 +80,7 @@ export class BossSystem {
   private readonly projectileBeamDirection = new Vector3();
   private readonly preStrikeSound: SoundEffectPool;
   private readonly projectileHitSound: SoundEffectPool;
+  private readonly helicopterLoop: LoopingSound;
   private readonly snapshotFallback: BossSnapshot = {
     status: 'inactive',
     level: 0,
@@ -108,6 +110,7 @@ export class BossSystem {
   private lastRemotePreStrikeId = 0;
   private remoteSnapshot: BossSnapshot | null = null;
   private remoteSnapshotTimer = 0;
+  private helicopterLoopActive = false;
   private modelRoot: Group | null = null;
   private rotorNodes: Object3D[] = [];
   private weakpointNodes: Object3D[] = [];
@@ -131,6 +134,12 @@ export class BossSystem {
     this.projectileHitSound = new SoundEffectPool(this.config.boss.audio.projectileHitPath, {
       poolSize: 4,
       volume: this.config.boss.audio.projectileHitVolume,
+    });
+    this.helicopterLoop = new LoopingSound(this.config.boss.audio.helicopterLoopPath, {
+      volume: this.config.boss.audio.helicopterLoopVolume,
+      playbackRate: this.config.boss.audio.helicopterLoopPlaybackRate,
+      highpassHz: 70,
+      lowpassHz: 3200,
     });
 
     this.hull = new Mesh(
@@ -242,6 +251,8 @@ export class BossSystem {
     this.lastRemotePreStrikeId = 0;
     this.remoteSnapshot = null;
     this.remoteSnapshotTimer = 0;
+    this.helicopterLoopActive = false;
+    this.helicopterLoop.pause();
     this.root.visible = false;
     this.root.position.copy(this.hoverBase);
     this.keyLight.intensity = 0;
@@ -264,6 +275,16 @@ export class BossSystem {
     }
     this.preStrikeSound.destroy();
     this.projectileHitSound.destroy();
+    this.helicopterLoop.destroy();
+  }
+
+  setAudioEnabled(enabled: boolean): void {
+    this.helicopterLoop.setEnabled(enabled);
+  }
+
+  pauseAudio(): void {
+    this.helicopterLoopActive = false;
+    this.helicopterLoop.pause();
   }
 
   update(
@@ -288,6 +309,7 @@ export class BossSystem {
     this.updateBossState(deltaTime);
     const damage = this.updateProjectiles(deltaTime, playerX);
     this.updatePresentation();
+    this.syncHelicopterLoop();
     return damage;
   }
 
@@ -470,14 +492,15 @@ export class BossSystem {
 
     if (this.status === 'retreating' || this.status === 'defeated') {
       if (this.statusTimer >= this.config.boss.retreatDuration) {
-        this.status = 'inactive';
-        this.statusTimer = 0;
-        this.level = 0;
-        this.phase = 0;
-        this.root.visible = false;
-        for (const projectile of this.projectiles) {
-          this.deactivateProjectile(projectile);
-        }
+      this.status = 'inactive';
+      this.statusTimer = 0;
+      this.level = 0;
+      this.phase = 0;
+      this.root.visible = false;
+      this.pauseAudio();
+      for (const projectile of this.projectiles) {
+        this.deactivateProjectile(projectile);
+      }
       }
       return;
     }
@@ -693,9 +716,35 @@ export class BossSystem {
     this.status = defeated ? 'defeated' : 'retreating';
     this.statusTimer = 0;
     this.attackTimer = 0;
+    this.syncHelicopterLoop();
     if (defeated) {
       this.pendingScoreBonus += this.config.boss.scoreBonusByLevel[this.level - 1] ?? 0;
     }
+  }
+
+  private syncHelicopterLoop(): void {
+    const remoteStatus = this.remoteSnapshot?.status ?? 'inactive';
+    const shouldPlay =
+      this.status === 'approach' ||
+      this.status === 'fighting' ||
+      this.status === 'retreating' ||
+      remoteStatus === 'approach' ||
+      remoteStatus === 'fighting' ||
+      remoteStatus === 'retreating';
+    if (this.helicopterLoopActive === shouldPlay) {
+      return;
+    }
+
+    this.helicopterLoopActive = shouldPlay;
+    if (shouldPlay) {
+      this.helicopterLoop.play(
+        this.config.boss.audio.helicopterLoopVolume,
+        this.config.boss.audio.helicopterLoopPlaybackRate,
+      );
+      return;
+    }
+
+    this.helicopterLoop.pause();
   }
 
   private resolvePhase(): BossPhase {

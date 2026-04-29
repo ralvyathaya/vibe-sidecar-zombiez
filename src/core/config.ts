@@ -577,8 +577,11 @@ export const GAME_CONFIG: GameConfig = {
     audio: {
       preStrikePath: '/audio/boss/boss-pre-strike.ogg',
       projectileHitPath: '/audio/boss/boss-projectile-hit.ogg',
+      helicopterLoopPath: '/audio/boss/helicopter-loop.ogg',
       preStrikeVolume: 0.34,
       projectileHitVolume: 0.42,
+      helicopterLoopVolume: 0.18,
+      helicopterLoopPlaybackRate: 1,
     },
   },
   rain: {

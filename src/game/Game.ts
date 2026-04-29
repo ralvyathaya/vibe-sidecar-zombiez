@@ -1353,6 +1353,7 @@ export class Game {
     this.inputSystem.setReloadJammed(false);
     this.resetCoopStats();
     this.syncStallLoop(false);
+    this.bossSystem.pauseAudio();
   }
 
   private applyDebugProfile(profile: ControlProfile): void {
@@ -1616,6 +1617,7 @@ export class Game {
       this.engineLoop.setTurnAmount(0);
       this.engineLoop.pause();
       this.syncStallLoop(false);
+      this.bossSystem.pauseAudio();
     }
   }
 
@@ -1623,6 +1625,7 @@ export class Game {
     SoundEffectPool.setEffectsEnabled(this.audioPreferences.sfxEnabled);
     this.engineLoop.setEnabled(this.audioPreferences.sfxEnabled);
     this.stallLoop.setEnabled(this.audioPreferences.sfxEnabled);
+    this.bossSystem.setAudioEnabled(this.audioPreferences.sfxEnabled);
     this.uiSystem.setAudioPreferences(this.audioPreferences);
   }
 
