@@ -654,6 +654,16 @@ export interface GameConfig {
       startDown: number;
       flashForward: number;
     };
+    audio: {
+      gunshotPath: string;
+      reloadPath: string;
+      gunshotVolume: number;
+      reloadVolume: number;
+      gunshotPlaybackRateMin: number;
+      gunshotPlaybackRateMax: number;
+      reloadPlaybackRateMin: number;
+      reloadPlaybackRateMax: number;
+    };
     viewmodel: {
       assetPath: string;
       position: Vec3Tuple;
@@ -690,6 +700,12 @@ export interface GameConfig {
     projectileDamage: number;
     projectileIntervalByLevel: number[];
     projectileWidth: number;
+    audio: {
+      preStrikePath: string;
+      projectileHitPath: string;
+      preStrikeVolume: number;
+      projectileHitVolume: number;
+    };
   };
   rain: {
     enabled: boolean;
@@ -808,6 +824,8 @@ export interface GameConfig {
       jumpDuration: number;
       jumpHeight: number;
       cameraKick: number;
+      audioPath: string;
+      audioVolume: number;
     };
     audio: {
       obstacleImpactPath: string;
@@ -907,6 +925,10 @@ export interface GameConfig {
       rewardPath: string;
       rewardVolume: number;
     };
+  };
+  gameOver: {
+    audioPath: string;
+    audioVolume: number;
   };
 }
 

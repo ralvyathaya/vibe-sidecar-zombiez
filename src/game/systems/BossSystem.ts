@@ -21,6 +21,7 @@ import type {
   WeaponKind,
 } from '../../core/types';
 import { clamp, randomInt, sampleRoadCurveOffset } from '../../core/utils';
+import { SoundEffectPool } from '../audio/SoundEffectPool';
 
 type BossProjectileRecord = {
   id: number;
@@ -32,6 +33,7 @@ type BossProjectileRecord = {
   impactTimer: number;
   pattern: BossAttackPattern;
   hitPlayer: boolean;
+  impactSoundPlayed: boolean;
   mesh: Mesh;
   material: MeshBasicMaterial;
 };
@@ -58,6 +60,8 @@ export class BossSystem {
   private readonly toBoss = new Vector3();
   private readonly closestPoint = new Vector3();
   private readonly hoverBase = new Vector3();
+  private readonly preStrikeSound: SoundEffectPool;
+  private readonly projectileHitSound: SoundEffectPool;
   private readonly snapshotFallback: BossSnapshot = {
     status: 'inactive',
     level: 0,
@@ -82,6 +86,8 @@ export class BossSystem {
   private projectileId = 0;
   private pendingScoreBonus = 0;
   private hitFlashTimer = 0;
+  private lastProjectileHitSoundTime = -99;
+  private lastRemotePreStrikeId = 0;
   private remoteSnapshot: BossSnapshot | null = null;
   private remoteSnapshotTimer = 0;
 
@@ -92,6 +98,14 @@ export class BossSystem {
     this.root.name = 'ProceduralAirborneBoss';
     this.root.visible = false;
     this.hoverBase.set(...this.config.boss.hoverPosition);
+    this.preStrikeSound = new SoundEffectPool(this.config.boss.audio.preStrikePath, {
+      poolSize: 3,
+      volume: this.config.boss.audio.preStrikeVolume,
+    });
+    this.projectileHitSound = new SoundEffectPool(this.config.boss.audio.projectileHitPath, {
+      poolSize: 4,
+      volume: this.config.boss.audio.projectileHitVolume,
+    });
 
     this.hull = new Mesh(
       HULL_GEOMETRY,
@@ -188,6 +202,8 @@ export class BossSystem {
     this.time = 0;
     this.pendingScoreBonus = 0;
     this.hitFlashTimer = 0;
+    this.lastProjectileHitSoundTime = -99;
+    this.lastRemotePreStrikeId = 0;
     this.remoteSnapshot = null;
     this.remoteSnapshotTimer = 0;
     this.root.visible = false;
@@ -206,6 +222,8 @@ export class BossSystem {
       projectile.mesh.geometry.dispose();
       projectile.material.dispose();
     }
+    this.preStrikeSound.destroy();
+    this.projectileHitSound.destroy();
   }
 
   update(
@@ -351,6 +369,7 @@ export class BossSystem {
         impactTimer: 0,
         pattern: 'singleLane',
         hitPlayer: false,
+        impactSoundPlayed: false,
         mesh,
         material,
       });

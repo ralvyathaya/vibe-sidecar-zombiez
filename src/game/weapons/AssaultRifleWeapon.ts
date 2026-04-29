@@ -129,17 +129,17 @@ export class AssaultRifleWeapon {
       MathUtils.degToRad(rotZ),
     );
     this.debugViewmodelScale = viewmodel.scale;
-    this.gunshotSound = new SoundEffectPool(this.config.weapon.audio.gunshotPath, {
+    this.gunshotSound = new SoundEffectPool(this.config.assaultRifle.audio.gunshotPath, {
       poolSize: 5,
-      volume: this.config.weapon.audio.gunshotVolume * 0.74,
+      volume: this.config.assaultRifle.audio.gunshotVolume,
     });
     this.emptySound = new SoundEffectPool(this.config.weapon.audio.emptyPath, {
       poolSize: 2,
       volume: this.config.weapon.audio.emptyVolume,
     });
-    this.reloadSound = new SoundEffectPool(this.config.weapon.audio.reloadPath, {
+    this.reloadSound = new SoundEffectPool(this.config.assaultRifle.audio.reloadPath, {
       poolSize: 2,
-      volume: this.config.weapon.audio.reloadVolume * 0.9,
+      volume: this.config.assaultRifle.audio.reloadVolume,
     });
 
     this.viewmodelRoot.name = 'AssaultRifleViewmodel';
@@ -390,8 +390,11 @@ export class AssaultRifleWeapon {
     this.muzzleAnchor.getWorldPosition(this.muzzleWorld);
     player.applyRecoil(this.config.assaultRifle.cameraKick + this.fireKick * 0.002);
     this.gunshotSound.play(
-      this.config.weapon.audio.gunshotVolume * 0.66,
-      randomRange(1.04, 1.14),
+      this.config.assaultRifle.audio.gunshotVolume,
+      randomRange(
+        this.config.assaultRifle.audio.gunshotPlaybackRateMin,
+        this.config.assaultRifle.audio.gunshotPlaybackRateMax,
+      ),
     );
 
     this.raycaster.setFromCamera(this.crosshair, this.camera);
@@ -492,8 +495,11 @@ export class AssaultRifleWeapon {
     this.reloadElapsed = 0;
     this.fireKick = 0;
     this.reloadSound.play(
-      this.config.weapon.audio.reloadVolume * 0.9,
-      randomRange(0.96, 1.02),
+      this.config.assaultRifle.audio.reloadVolume,
+      randomRange(
+        this.config.assaultRifle.audio.reloadPlaybackRateMin,
+        this.config.assaultRifle.audio.reloadPlaybackRateMax,
+      ),
     );
   }
 

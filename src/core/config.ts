@@ -505,6 +505,16 @@ export const GAME_CONFIG: GameConfig = {
       startDown: 0.24,
       flashForward: 0.92,
     },
+    audio: {
+      gunshotPath: '/audio/weapons/rifle-shot.ogg',
+      reloadPath: '/audio/weapons/rifle-reload.ogg',
+      gunshotVolume: 0.13,
+      reloadVolume: 0.34,
+      gunshotPlaybackRateMin: 0.97,
+      gunshotPlaybackRateMax: 1.08,
+      reloadPlaybackRateMin: 0.98,
+      reloadPlaybackRateMax: 1.02,
+    },
     viewmodel: {
       assetPath: '/models/viewmodels/assault-rifle.glb',
       position: [0.28, -0.42, -0.72],
@@ -541,6 +551,12 @@ export const GAME_CONFIG: GameConfig = {
     projectileDamage: 18,
     projectileIntervalByLevel: [2.2, 1.72, 1.38],
     projectileWidth: 4.8,
+    audio: {
+      preStrikePath: '/audio/boss/boss-pre-strike.ogg',
+      projectileHitPath: '/audio/boss/boss-projectile-hit.ogg',
+      preStrikeVolume: 0.34,
+      projectileHitVolume: 0.42,
+    },
   },
   rain: {
     enabled: true,
@@ -821,6 +837,8 @@ export const GAME_CONFIG: GameConfig = {
       jumpDuration: 0.95,
       jumpHeight: 1.55,
       cameraKick: 0.022,
+      audioPath: '/audio/world/jump-ramp.ogg',
+      audioVolume: 0.32,
     },
     audio: {
       obstacleImpactPath: '/audio/world/concrete-barrier-crack.ogg',
@@ -925,5 +943,9 @@ export const GAME_CONFIG: GameConfig = {
       rewardPath: '/audio/gameplay/reward-industrial.ogg',
       rewardVolume: 0.26,
     },
+  },
+  gameOver: {
+    audioPath: '/audio/gameplay/gameover.ogg',
+    audioVolume: 0.4,
   },
 };
