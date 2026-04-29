@@ -697,6 +697,17 @@ export interface GameConfig {
   };
   boss: {
     enabled: boolean;
+    assetPath: string;
+    modelPosition: Vec3Tuple;
+    modelRotationDegrees: Vec3Tuple;
+    modelScale: number;
+    rotorNodePatterns: string[];
+    weakpointNodePatterns: string[];
+    projectileSpawnNodePatterns: string[];
+    rotorSpinAxis: VehicleWheelSpinAxis;
+    rotorSpinSpeed: number;
+    laserBeamWidth: number;
+    blastSize: number;
     encounterTimes: number[];
     approachDuration: number;
     retreatDuration: number;

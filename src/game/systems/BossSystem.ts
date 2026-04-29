@@ -2,11 +2,13 @@ import {
   AdditiveBlending,
   BoxGeometry,
   Camera,
+  CylinderGeometry,
   Group,
   IcosahedronGeometry,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
+  Object3D,
   PointLight,
   Scene,
   SphereGeometry,
@@ -36,6 +38,12 @@ type BossProjectileRecord = {
   impactSoundPlayed: boolean;
   mesh: Mesh;
   material: MeshBasicMaterial;
+  beamMesh: Mesh;
+  beamMaterial: MeshBasicMaterial;
+  blastMesh: Mesh;
+  blastMaterial: MeshBasicMaterial;
+  blastTimer: number;
+  spawnNodeIndex: number;
 };
 
 type BossDamageResult = {
@@ -47,9 +55,13 @@ const HULL_GEOMETRY = new BoxGeometry(1, 1, 1);
 const NOSE_GEOMETRY = new IcosahedronGeometry(1, 1);
 const WEAKPOINT_GEOMETRY = new SphereGeometry(1, 14, 10);
 const TELEGRAPH_GEOMETRY = new BoxGeometry(1, 0.06, 1);
+const BEAM_GEOMETRY = new CylinderGeometry(1, 1, 1, 6, 1, true);
+const BLAST_GEOMETRY = new SphereGeometry(1, 12, 8);
+const Y_AXIS = new Vector3(0, 1, 0);
 
 export class BossSystem {
   private readonly root = new Group();
+  private readonly proceduralGroup = new Group();
   private readonly hull: Mesh;
   private readonly weakpoint: Mesh;
   private readonly keyLight = new PointLight(0xff743b, 0, 18, 2);
@@ -60,6 +72,11 @@ export class BossSystem {
   private readonly toBoss = new Vector3();
   private readonly closestPoint = new Vector3();
   private readonly hoverBase = new Vector3();
+  private readonly weakpointWorldPosition = new Vector3();
+  private readonly projectileSpawnPosition = new Vector3();
+  private readonly projectileTargetPosition = new Vector3();
+  private readonly projectileMidpoint = new Vector3();
+  private readonly projectileBeamDirection = new Vector3();
   private readonly preStrikeSound: SoundEffectPool;
   private readonly projectileHitSound: SoundEffectPool;
   private readonly snapshotFallback: BossSnapshot = {
@@ -91,6 +108,12 @@ export class BossSystem {
   private lastRemotePreStrikeId = 0;
   private remoteSnapshot: BossSnapshot | null = null;
   private remoteSnapshotTimer = 0;
+  private modelRoot: Group | null = null;
+  private rotorNodes: Object3D[] = [];
+  private weakpointNodes: Object3D[] = [];
+  private projectileSpawnNodes: Object3D[] = [];
+  private readonly rotorBaseRotations = new Map<Object3D, { x: number; y: number; z: number }>();
+  private warnedMissingNodes = false;
 
   constructor(
     private readonly scene: Scene,
@@ -98,6 +121,8 @@ export class BossSystem {
   ) {
     this.root.name = 'ProceduralAirborneBoss';
     this.root.visible = false;
+    this.proceduralGroup.name = 'BossProceduralFallback';
+    this.root.add(this.proceduralGroup);
     this.hoverBase.set(...this.config.boss.hoverPosition);
     this.preStrikeSound = new SoundEffectPool(this.config.boss.audio.preStrikePath, {
       poolSize: 3,
@@ -120,7 +145,7 @@ export class BossSystem {
       }),
     );
     this.hull.scale.set(7.8, 2.1, 3.2);
-    this.root.add(this.hull);
+    this.proceduralGroup.add(this.hull);
 
     const nose = new Mesh(
       NOSE_GEOMETRY,
@@ -135,7 +160,7 @@ export class BossSystem {
     );
     nose.position.set(0, -0.08, 2.2);
     nose.scale.set(2.1, 1.05, 1.15);
-    this.root.add(nose);
+    this.proceduralGroup.add(nose);
 
     for (const side of [-1, 1] as const) {
       const wing = new Mesh(
@@ -152,7 +177,7 @@ export class BossSystem {
       wing.position.set(side * 5.1, -0.18, -0.15);
       wing.rotation.z = side * 0.12;
       wing.scale.set(3.4, 0.34, 1.55);
-      this.root.add(wing);
+      this.proceduralGroup.add(wing);
 
       const rotor = new Mesh(
         HULL_GEOMETRY,
@@ -167,7 +192,13 @@ export class BossSystem {
       rotor.position.set(side * 7.1, -0.05, -0.1);
       rotor.scale.set(0.14, 2.2, 0.14);
       rotor.name = side < 0 ? 'BossLeftRotor' : 'BossRightRotor';
-      this.root.add(rotor);
+      this.proceduralGroup.add(rotor);
+      this.rotorNodes.push(rotor);
+      this.rotorBaseRotations.set(rotor, {
+        x: rotor.rotation.x,
+        y: rotor.rotation.y,
+        z: rotor.rotation.z,
+      });
     }
 
     this.weakpoint = new Mesh(
@@ -182,11 +213,14 @@ export class BossSystem {
     );
     this.weakpoint.position.set(0, -0.2, 2.95);
     this.weakpoint.scale.set(0.86, 0.86, 0.86);
-    this.root.add(this.weakpoint, this.keyLight);
+    this.proceduralGroup.add(this.weakpoint);
+    this.weakpointNodes.push(this.weakpoint);
+    this.root.add(this.keyLight);
     this.keyLight.position.set(0, -0.1, 3.4);
 
     this.scene.add(this.root);
     this.createProjectilePool();
+    this.loadBossModel();
     this.reset();
   }
 
@@ -221,8 +255,12 @@ export class BossSystem {
     this.root.removeFromParent();
     for (const projectile of this.projectiles) {
       projectile.mesh.removeFromParent();
+      projectile.beamMesh.removeFromParent();
+      projectile.blastMesh.removeFromParent();
       projectile.mesh.geometry.dispose();
       projectile.material.dispose();
+      projectile.beamMaterial.dispose();
+      projectile.blastMaterial.dispose();
     }
     this.preStrikeSound.destroy();
     this.projectileHitSound.destroy();
@@ -260,18 +298,8 @@ export class BossSystem {
 
     camera.getWorldPosition(this.rayOrigin);
     camera.getWorldDirection(this.rayDirection);
-    this.root.getWorldPosition(this.bossCenter);
-    this.toBoss.copy(this.bossCenter).sub(this.rayOrigin);
-    const projectedDistance = this.toBoss.dot(this.rayDirection);
-    if (projectedDistance < 0 || projectedDistance > this.getWeaponBossRange(weapon)) {
-      return false;
-    }
-
-    this.closestPoint
-      .copy(this.rayOrigin)
-      .addScaledVector(this.rayDirection, projectedDistance);
-    const radius = this.config.boss.hitRadius * (weapon === 'shotgun' ? 1.24 : 1);
-    if (this.closestPoint.distanceToSquared(this.bossCenter) > radius * radius) {
+    const weaponRange = this.getWeaponBossRange(weapon);
+    if (!this.isCameraRayNearBossTarget(weaponRange, weapon)) {
       return false;
     }
 
@@ -361,6 +389,29 @@ export class BossSystem {
       mesh.visible = false;
       mesh.position.set(0, this.config.world.roadSurfaceY + 0.08, -18);
       this.scene.add(mesh);
+      const beamMaterial = new MeshBasicMaterial({
+        color: 0xff5632,
+        transparent: true,
+        opacity: 0,
+        blending: AdditiveBlending,
+        depthWrite: false,
+      });
+      const beamMesh = new Mesh(BEAM_GEOMETRY, beamMaterial);
+      beamMesh.name = `BossLaserBeam_${index}`;
+      beamMesh.visible = false;
+      this.scene.add(beamMesh);
+
+      const blastMaterial = new MeshBasicMaterial({
+        color: 0xffdf81,
+        transparent: true,
+        opacity: 0,
+        blending: AdditiveBlending,
+        depthWrite: false,
+      });
+      const blastMesh = new Mesh(BLAST_GEOMETRY, blastMaterial);
+      blastMesh.name = `BossLaneBlast_${index}`;
+      blastMesh.visible = false;
+      this.scene.add(blastMesh);
       this.projectiles.push({
         id: index,
         active: false,
@@ -374,6 +425,12 @@ export class BossSystem {
         impactSoundPlayed: false,
         mesh,
         material,
+        beamMesh,
+        beamMaterial,
+        blastMesh,
+        blastMaterial,
+        blastTimer: 0,
+        spawnNodeIndex: 0,
       });
     }
   }
@@ -452,10 +509,12 @@ export class BossSystem {
         projectile.telegraphTimer = Math.max(0, projectile.telegraphTimer - deltaTime);
         if (projectile.telegraphTimer <= 0 && !projectile.impactSoundPlayed) {
           projectile.impactSoundPlayed = true;
+          projectile.blastTimer = this.config.boss.projectileImpactDuration;
           this.playProjectileHitSound();
         }
       } else {
         projectile.impactTimer = Math.max(0, projectile.impactTimer - deltaTime);
+        projectile.blastTimer = Math.max(0, projectile.blastTimer - deltaTime);
         if (!projectile.hitPlayer) {
           const hitWidth = projectile.width * 0.5 + this.config.player.collisionRadius;
           if (Math.abs(playerX - projectile.laneX) <= hitWidth) {
@@ -513,6 +572,8 @@ export class BossSystem {
     this.keyLight.intensity =
       (this.status === 'fighting' ? 1.6 + (1 - healthRatio) * 2.1 : 0.8) + hitFlashRatio * 2.8;
     (this.hull.material as MeshStandardMaterial).emissiveIntensity = 0.35 + hitFlashRatio * 0.9;
+    this.updateRotorPresentation();
+    this.updateWeakpointPresentation(healthRatio, hitFlashRatio);
 
     for (const projectile of this.projectiles) {
       if (!projectile.active) {
@@ -546,6 +607,8 @@ export class BossSystem {
       projectile.material.opacity = impactActive
         ? 0.72 * clamp(projectile.impactTimer / this.config.boss.projectileImpactDuration, 0, 1)
         : 0.24 + telegraphRatio * 0.42;
+      this.updateProjectileBeam(projectile, telegraphRatio, impactActive);
+      this.updateProjectileBlast(projectile);
     }
   }
 
@@ -593,6 +656,9 @@ export class BossSystem {
     projectile.pattern = pattern;
     projectile.hitPlayer = false;
     projectile.impactSoundPlayed = false;
+    projectile.blastTimer = 0;
+    projectile.spawnNodeIndex =
+      this.projectileSpawnNodes.length > 0 ? projectile.id % this.projectileSpawnNodes.length : 0;
     projectile.mesh.visible = true;
     projectile.mesh.position.set(
       projectile.laneX,
@@ -609,8 +675,14 @@ export class BossSystem {
     projectile.telegraphTimer = 0;
     projectile.impactTimer = 0;
     projectile.mesh.visible = false;
+    projectile.beamMesh.visible = false;
+    projectile.blastMesh.visible = false;
     projectile.material.opacity = 0;
+    projectile.beamMaterial.opacity = 0;
+    projectile.blastMaterial.opacity = 0;
     projectile.mesh.position.set(0, this.config.world.roadSurfaceY + 0.09, 999);
+    projectile.beamMesh.position.set(0, 999, 0);
+    projectile.blastMesh.position.set(0, 999, 0);
   }
 
   private startRetreat(defeated: boolean): void {
@@ -670,6 +742,214 @@ export class BossSystem {
     return this.config.weapon.range;
   }
 
+  private loadBossModel(): void {
+    void import('three/examples/jsm/loaders/GLTFLoader.js')
+      .then(({ GLTFLoader }) => {
+        const loader = new GLTFLoader();
+        loader.load(
+          this.config.boss.assetPath,
+          (gltf) => {
+            const model = gltf.scene;
+            model.name = 'HelicopterBossModel';
+            model.position.set(...this.config.boss.modelPosition);
+            model.rotation.set(
+              this.degreesToRadians(this.config.boss.modelRotationDegrees[0]),
+              this.degreesToRadians(this.config.boss.modelRotationDegrees[1]),
+              this.degreesToRadians(this.config.boss.modelRotationDegrees[2]),
+            );
+            model.scale.setScalar(this.config.boss.modelScale);
+            model.traverse((node) => {
+              if (node instanceof Mesh) {
+                node.castShadow = true;
+                node.receiveShadow = true;
+              }
+            });
+            this.root.add(model);
+            this.modelRoot = model;
+            this.bindBossModelNodes(model);
+            this.proceduralGroup.visible = false;
+          },
+          undefined,
+          (error) => {
+            console.warn('[BossSystem] Failed to load helicopter boss model, using procedural fallback.', error);
+          },
+        );
+      })
+      .catch((error) => {
+        console.warn('[BossSystem] Failed to initialize GLTFLoader for boss model.', error);
+      });
+  }
+
+  private bindBossModelNodes(model: Object3D): void {
+    this.rotorNodes = [];
+    this.weakpointNodes = [];
+    this.projectileSpawnNodes = [];
+    this.rotorBaseRotations.clear();
+
+    model.traverse((node) => {
+      const name = node.name.toLowerCase();
+      if (this.matchesAnyPattern(name, this.config.boss.rotorNodePatterns)) {
+        this.rotorNodes.push(node);
+        this.rotorBaseRotations.set(node, {
+          x: node.rotation.x,
+          y: node.rotation.y,
+          z: node.rotation.z,
+        });
+      }
+      if (this.matchesAnyPattern(name, this.config.boss.weakpointNodePatterns)) {
+        this.weakpointNodes.push(node);
+      }
+      if (this.matchesAnyPattern(name, this.config.boss.projectileSpawnNodePatterns)) {
+        this.projectileSpawnNodes.push(node);
+      }
+    });
+
+    if (!this.warnedMissingNodes) {
+      if (this.rotorNodes.length === 0) {
+        console.warn('[BossSystem] No helicopter rotor nodes found; rotor animation disabled.');
+      }
+      if (this.weakpointNodes.length === 0) {
+        console.warn('[BossSystem] No helicopter weakpoint nodes found; boss hit detection uses fallback center.');
+        this.weakpointNodes.push(this.weakpoint);
+      }
+      if (this.projectileSpawnNodes.length === 0) {
+        console.warn('[BossSystem] No helicopter projectile spawn nodes found; laser beams use boss center fallback.');
+      }
+      this.warnedMissingNodes = true;
+    }
+  }
+
+  private matchesAnyPattern(name: string, patterns: string[]): boolean {
+    return patterns.some((pattern) => name.includes(pattern.toLowerCase()));
+  }
+
+  private updateRotorPresentation(): void {
+    const axis = this.config.boss.rotorSpinAxis;
+    const spin = this.time * this.config.boss.rotorSpinSpeed;
+    for (const rotor of this.rotorNodes) {
+      const base = this.rotorBaseRotations.get(rotor);
+      if (!base) {
+        continue;
+      }
+      rotor.rotation.x = base.x;
+      rotor.rotation.y = base.y;
+      rotor.rotation.z = base.z;
+      rotor.rotation[axis] = base[axis] + spin;
+    }
+  }
+
+  private updateWeakpointPresentation(healthRatio: number, hitFlashRatio: number): void {
+    if (!this.modelRoot) {
+      return;
+    }
+
+    for (const node of this.weakpointNodes) {
+      node.scale.setScalar(1 + (1 - healthRatio) * 0.16 + hitFlashRatio * 0.1 + Math.sin(this.time * 8) * 0.025);
+      if (node instanceof Mesh && node.material instanceof MeshStandardMaterial) {
+        node.material.emissive.setHex(0xff3c20);
+        node.material.emissiveIntensity = 0.7 + (1 - healthRatio) * 1.1 + hitFlashRatio * 2.4;
+      }
+    }
+  }
+
+  private updateProjectileBeam(
+    projectile: BossProjectileRecord,
+    telegraphRatio: number,
+    impactActive: boolean,
+  ): void {
+    this.getProjectileSpawnWorldPosition(projectile);
+    this.projectileTargetPosition.set(
+      projectile.mesh.position.x,
+      this.config.world.roadSurfaceY + 0.34,
+      projectile.mesh.position.z,
+    );
+    this.projectileBeamDirection.copy(this.projectileTargetPosition).sub(this.projectileSpawnPosition);
+    const length = this.projectileBeamDirection.length();
+    if (length <= 0.001) {
+      projectile.beamMesh.visible = false;
+      return;
+    }
+
+    this.projectileBeamDirection.multiplyScalar(1 / length);
+    this.projectileMidpoint
+      .copy(this.projectileSpawnPosition)
+      .add(this.projectileTargetPosition)
+      .multiplyScalar(0.5);
+    projectile.beamMesh.visible = true;
+    projectile.beamMesh.position.copy(this.projectileMidpoint);
+    projectile.beamMesh.quaternion.setFromUnitVectors(Y_AXIS, this.projectileBeamDirection);
+    const beamWidth = this.config.boss.laserBeamWidth * (impactActive ? 1.35 : 1);
+    projectile.beamMesh.scale.set(beamWidth, length, beamWidth);
+    projectile.beamMaterial.color.setHex(impactActive ? 0xffe59a : 0xff503a);
+    projectile.beamMaterial.opacity = impactActive
+      ? 0.62 * clamp(projectile.impactTimer / this.config.boss.projectileImpactDuration, 0, 1)
+      : 0.16 + telegraphRatio * 0.34;
+  }
+
+  private updateProjectileBlast(projectile: BossProjectileRecord): void {
+    if (projectile.blastTimer <= 0) {
+      projectile.blastMesh.visible = false;
+      projectile.blastMaterial.opacity = 0;
+      return;
+    }
+
+    const ratio = clamp(projectile.blastTimer / this.config.boss.projectileImpactDuration, 0, 1);
+    const expansion = 1 - ratio;
+    projectile.blastMesh.visible = true;
+    projectile.blastMesh.position.set(
+      projectile.mesh.position.x,
+      this.config.world.roadSurfaceY + 0.28,
+      projectile.mesh.position.z,
+    );
+    projectile.blastMesh.scale.set(
+      this.config.boss.blastSize * (0.45 + expansion * 1.45),
+      this.config.boss.blastSize * (0.18 + expansion * 0.35),
+      this.config.boss.blastSize * (0.45 + expansion * 1.45),
+    );
+    projectile.blastMaterial.opacity = 0.58 * ratio;
+  }
+
+  private getProjectileSpawnWorldPosition(projectile: BossProjectileRecord): void {
+    const spawnNode = this.projectileSpawnNodes[projectile.spawnNodeIndex];
+    if (spawnNode) {
+      spawnNode.getWorldPosition(this.projectileSpawnPosition);
+      return;
+    }
+
+    this.root.getWorldPosition(this.projectileSpawnPosition);
+    this.projectileSpawnPosition.y -= 0.7;
+    this.projectileSpawnPosition.z += 2.2;
+  }
+
+  private isCameraRayNearBossTarget(range: number, weapon: WeaponKind): boolean {
+    const weakpointRadius = this.config.boss.hitRadius * (weapon === 'shotgun' ? 0.72 : 0.52);
+    for (const node of this.weakpointNodes) {
+      node.getWorldPosition(this.weakpointWorldPosition);
+      if (this.isRayNearPoint(this.weakpointWorldPosition, range, weakpointRadius)) {
+        return true;
+      }
+    }
+
+    this.root.getWorldPosition(this.bossCenter);
+    const bodyRadius = this.config.boss.hitRadius * (weapon === 'shotgun' ? 1.1 : 0.78);
+    return this.isRayNearPoint(this.bossCenter, range, bodyRadius);
+  }
+
+  private isRayNearPoint(point: Vector3, range: number, radius: number): boolean {
+    this.toBoss.copy(point).sub(this.rayOrigin);
+    const projectedDistance = this.toBoss.dot(this.rayDirection);
+    if (projectedDistance < 0 || projectedDistance > range) {
+      return false;
+    }
+
+    this.closestPoint.copy(this.rayOrigin).addScaledVector(this.rayDirection, projectedDistance);
+    return this.closestPoint.distanceToSquared(point) <= radius * radius;
+  }
+
+  private degreesToRadians(value: number): number {
+    return (value * Math.PI) / 180;
+  }
+
   private syncRemoteTelegraphs(snapshot: BossSnapshot): void {
     const activeIds = new Set(snapshot.activeTelegraphs.map((telegraph) => telegraph.id));
     for (const projectile of this.projectiles) {
@@ -697,6 +977,9 @@ export class BossSystem {
         (1 - telegraph.warningRatio) * this.config.boss.projectileTelegraphDuration;
       projectile.impactTimer = this.config.boss.projectileImpactDuration;
       projectile.hitPlayer = true;
+      if (telegraph.warningRatio >= 1 && !projectile.impactSoundPlayed) {
+        projectile.blastTimer = this.config.boss.projectileImpactDuration;
+      }
       projectile.impactSoundPlayed = telegraph.warningRatio >= 1;
       projectile.mesh.visible = true;
       if (!wasKnownActive && telegraph.id > this.lastRemotePreStrikeId) {
