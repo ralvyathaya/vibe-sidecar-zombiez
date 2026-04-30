@@ -2228,11 +2228,12 @@ body {
 .overlay-role-lock-hint {
   position: absolute;
   left: 50%;
-  top: calc(38% + clamp(30px, 4.8vh, 50px));
+  top: calc(38% + clamp(36px, 5.5vh, 58px));
   z-index: 4;
   display: none;
   width: min(150px, 56%);
   transform: translateX(-50%);
+  padding-top: clamp(3px, 0.4vh, 6px);
   color: #ffc36f;
   font-size: clamp(0.42rem, min(0.72vw, 1.08vh), 0.52rem);
   font-weight: 900;
