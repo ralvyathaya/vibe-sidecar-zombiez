@@ -748,11 +748,17 @@ export interface GameConfig {
     retreatDuration: number;
     duration: number;
     maxHealthByLevel: number[];
+    weakpointHealthByLevel: number[];
+    weakpointBreakDamageByLevel: number[];
+    weakpointDamageMultiplier: number;
+    bodyDamageMultiplier: number;
     scoreBonusByLevel: number[];
     spawnMultiplierWhileActive: number;
     hoverPosition: Vec3Tuple;
     hoverDrift: Vec3Tuple;
     hitRadius: number;
+    weakpointHitRadiusMultiplier: number;
+    bodyHitRadiusMultiplier: number;
     projectileTelegraphDuration: number;
     projectileImpactDuration: number;
     projectileDamage: number;

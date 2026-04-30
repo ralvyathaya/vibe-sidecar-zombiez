@@ -53,6 +53,15 @@ type BossDamageResult = {
   sourceX: number;
 };
 
+type BossWeakpointRecord = {
+  node: Object3D;
+  baseScale: Vector3;
+  maxHealth: number;
+  health: number;
+  destroyed: boolean;
+  hitFlashTimer: number;
+};
+
 const HULL_GEOMETRY = new BoxGeometry(1, 1, 1);
 const NOSE_GEOMETRY = new IcosahedronGeometry(1, 1);
 const WEAKPOINT_GEOMETRY = new SphereGeometry(1, 14, 10);
@@ -121,6 +130,7 @@ export class BossSystem {
   private modelRoot: Group | null = null;
   private rotorNodes: Object3D[] = [];
   private weakpointNodes: Object3D[] = [];
+  private weakpoints: BossWeakpointRecord[] = [];
   private projectileSpawnNodes: Object3D[] = [];
   private readonly rotorBaseRotations = new Map<Object3D, { x: number; y: number; z: number }>();
   private warnedMissingNodes = false;
@@ -240,6 +250,7 @@ export class BossSystem {
     this.weakpoint.scale.set(0.86, 0.86, 0.86);
     this.proceduralGroup.add(this.weakpoint);
     this.weakpointNodes.push(this.weakpoint);
+    this.rebuildWeakpointRecords();
     this.root.add(this.keyLight);
     this.keyLight.position.set(0, -0.1, 3.4);
 
@@ -262,6 +273,7 @@ export class BossSystem {
     this.time = 0;
     this.pendingScoreBonus = 0;
     this.hitFlashTimer = 0;
+    this.resetWeakpointState(1);
     this.lastPreStrikeSoundTime = -99;
     this.lastProjectileHitSoundTime = -99;
     this.lastRemotePreStrikeId = 0;
@@ -359,6 +371,9 @@ export class BossSystem {
   ): BossDamageResult {
     this.time += deltaTime;
     this.hitFlashTimer = Math.max(0, this.hitFlashTimer - deltaTime);
+    for (const weakpoint of this.weakpoints) {
+      weakpoint.hitFlashTimer = Math.max(0, weakpoint.hitFlashTimer - deltaTime);
+    }
     this.remoteSnapshotTimer = Math.max(0, this.remoteSnapshotTimer - deltaTime);
     if (this.remoteSnapshotTimer <= 0) {
       this.remoteSnapshot = null;
@@ -386,17 +401,21 @@ export class BossSystem {
     camera.getWorldPosition(this.rayOrigin);
     camera.getWorldDirection(this.rayDirection);
     const weaponRange = this.getWeaponBossRange(weapon);
-    if (!this.isCameraRayNearBossTarget(weaponRange, weapon)) {
-      return false;
+    const weaponMultiplier = this.getWeaponBossDamageMultiplier(weapon);
+    const weakpointHit = this.findCameraRayWeakpointHit(weaponRange, weapon);
+    if (weakpointHit) {
+      const damage = amount * weaponMultiplier * this.config.boss.weakpointDamageMultiplier;
+      this.applyBossDamage(damage);
+      this.applyWeakpointDamage(weakpointHit, damage);
+      return true;
     }
 
-    const damageMultiplier = weapon === 'bazooka' ? 4.2 : weapon === 'shotgun' ? 2.2 : 1;
-    this.health = Math.max(0, this.health - amount * damageMultiplier);
-    this.hitFlashTimer = 0.16;
-    if (this.health <= 0) {
-      this.startRetreat(true);
+    if (this.isCameraRayNearBossBody(weaponRange, weapon)) {
+      this.applyBossDamage(amount * weaponMultiplier * this.config.boss.bodyDamageMultiplier);
+      return true;
     }
-    return true;
+
+    return false;
   }
 
   consumeScoreBonus(): number {
@@ -463,7 +482,7 @@ export class BossSystem {
   }
 
   private createProjectilePool(): void {
-    for (let index = 0; index < 8; index += 1) {
+    for (let index = 0; index < 12; index += 1) {
       const material = new MeshBasicMaterial({
         color: 0xff3f2f,
         transparent: true,
@@ -533,6 +552,7 @@ export class BossSystem {
     this.attackTimer = 0.75;
     this.maxHealth = this.config.boss.maxHealthByLevel[resolvedLevel - 1] ?? 42;
     this.health = this.maxHealth;
+    this.resetWeakpointState(resolvedLevel);
     this.root.visible = true;
     this.root.position.copy(this.hoverBase).add(new Vector3(0, 4.5, -14));
     this.keyLight.intensity = 0;
@@ -577,7 +597,7 @@ export class BossSystem {
       this.spawnAttack();
       this.attackTimer =
         (this.config.boss.projectileIntervalByLevel[this.level - 1] ?? 1.8) *
-        (this.phase >= 3 ? 0.82 : this.phase >= 2 ? 0.92 : 1);
+        (this.phase >= 3 ? 0.68 : this.phase >= 2 ? 0.82 : 1);
     }
 
     if (this.fightTimer >= this.config.boss.duration) {
@@ -826,10 +846,10 @@ export class BossSystem {
   }
 
   private pickAttackPattern(): BossAttackPattern {
-    if (this.level >= 3 && this.phase >= 3 && Math.random() < 0.46) {
+    if (this.level >= 3 && this.phase >= 3 && Math.random() < 0.58) {
       return 'sweep';
     }
-    if (this.level >= 2 && Math.random() < 0.48) {
+    if (this.level >= 2 && Math.random() < 0.62) {
       return 'lanePair';
     }
     return 'singleLane';
@@ -837,7 +857,7 @@ export class BossSystem {
 
   private getAttackWarningRatio(): number {
     const interval = (this.config.boss.projectileIntervalByLevel[this.level - 1] ?? 1.8) *
-      (this.phase >= 3 ? 0.82 : this.phase >= 2 ? 0.92 : 1);
+      (this.phase >= 3 ? 0.68 : this.phase >= 2 ? 0.82 : 1);
     return clamp(1 - this.attackTimer / Math.max(interval, 0.001), 0, 1);
   }
 
@@ -856,6 +876,43 @@ export class BossSystem {
       return this.config.assaultRifle.range;
     }
     return this.config.weapon.range;
+  }
+
+  private getWeaponBossDamageMultiplier(weapon: WeaponKind): number {
+    if (weapon === 'bazooka') {
+      return 3.4;
+    }
+    if (weapon === 'shotgun') {
+      return 1.65;
+    }
+    return 1;
+  }
+
+  private applyBossDamage(amount: number): void {
+    if (amount <= 0 || this.health <= 0) {
+      return;
+    }
+
+    this.health = Math.max(0, this.health - amount);
+    this.hitFlashTimer = 0.16;
+    if (this.health <= 0) {
+      this.startRetreat(true);
+    }
+  }
+
+  private applyWeakpointDamage(weakpoint: BossWeakpointRecord, amount: number): void {
+    if (weakpoint.destroyed || amount <= 0) {
+      return;
+    }
+
+    weakpoint.health = Math.max(0, weakpoint.health - amount);
+    weakpoint.hitFlashTimer = 0.2;
+    if (weakpoint.health > 0) {
+      return;
+    }
+
+    weakpoint.destroyed = true;
+    this.applyBossDamage(this.config.boss.weakpointBreakDamageByLevel[this.level - 1] ?? 0);
   }
 
   private loadBossModel(): void {
@@ -919,13 +976,21 @@ export class BossSystem {
     });
     this.projectileSpawnNodes = this.selectProjectileSpawnNodes(projectileSpawnCandidates);
 
+    const usesWeakpointFallback = this.weakpointNodes.length === 0;
+    if (usesWeakpointFallback) {
+      this.weakpointNodes.push(this.weakpoint);
+    }
+    this.rebuildWeakpointRecords();
+    if (this.status !== 'inactive') {
+      this.resetWeakpointState(this.level || 1);
+    }
+
     if (!this.warnedMissingNodes) {
       if (this.rotorNodes.length === 0) {
         console.warn('[BossSystem] No helicopter rotor nodes found; rotor animation disabled.');
       }
-      if (this.weakpointNodes.length === 0) {
+      if (usesWeakpointFallback) {
         console.warn('[BossSystem] No helicopter weakpoint nodes found; boss hit detection uses fallback center.');
-        this.weakpointNodes.push(this.weakpoint);
       }
       if (this.projectileSpawnNodes.length === 0) {
         console.warn('[BossSystem] No helicopter projectile spawn nodes found; laser beams use boss center fallback.');
@@ -992,16 +1057,53 @@ export class BossSystem {
     }
   }
 
+  private rebuildWeakpointRecords(): void {
+    this.weakpoints = this.weakpointNodes.map((node) => ({
+      node,
+      baseScale: node.scale.clone(),
+      maxHealth: 0,
+      health: 0,
+      destroyed: false,
+      hitFlashTimer: 0,
+    }));
+  }
+
+  private resetWeakpointState(level: BossPhase | 1): void {
+    const maxHealth = this.config.boss.weakpointHealthByLevel[Math.max(0, level - 1)] ?? 16;
+    for (const weakpoint of this.weakpoints) {
+      weakpoint.maxHealth = maxHealth;
+      weakpoint.health = maxHealth;
+      weakpoint.destroyed = false;
+      weakpoint.hitFlashTimer = 0;
+      weakpoint.node.visible = true;
+      weakpoint.node.scale.copy(weakpoint.baseScale);
+    }
+  }
+
   private updateWeakpointPresentation(healthRatio: number, hitFlashRatio: number): void {
-    if (!this.modelRoot) {
+    if (!this.modelRoot && this.weakpoints.length === 0) {
       return;
     }
 
-    for (const node of this.weakpointNodes) {
-      node.scale.setScalar(1 + (1 - healthRatio) * 0.16 + hitFlashRatio * 0.1 + Math.sin(this.time * 8) * 0.025);
-      if (node instanceof Mesh && node.material instanceof MeshStandardMaterial) {
-        node.material.emissive.setHex(0xff3c20);
-        node.material.emissiveIntensity = 0.7 + (1 - healthRatio) * 1.1 + hitFlashRatio * 2.4;
+    for (const weakpoint of this.weakpoints) {
+      const weakpointRatio =
+        weakpoint.maxHealth > 0 ? clamp(weakpoint.health / weakpoint.maxHealth, 0, 1) : 0;
+      const weakpointFlashRatio = clamp(weakpoint.hitFlashTimer / 0.2, 0, 1);
+      const brokenScale = weakpoint.destroyed ? 0.34 : 1;
+      const pulse = weakpoint.destroyed ? 0 : Math.sin(this.time * 8) * 0.025;
+      const scale =
+        brokenScale *
+        (1 + (1 - weakpointRatio) * 0.16 + hitFlashRatio * 0.08 + weakpointFlashRatio * 0.12 + pulse);
+      weakpoint.node.scale.set(
+        weakpoint.baseScale.x * scale,
+        weakpoint.baseScale.y * scale,
+        weakpoint.baseScale.z * scale,
+      );
+      if (weakpoint.node instanceof Mesh && weakpoint.node.material instanceof MeshStandardMaterial) {
+        weakpoint.node.material.emissive.setHex(weakpoint.destroyed ? 0x180805 : 0xff3c20);
+        weakpoint.node.material.emissiveIntensity = weakpoint.destroyed
+          ? 0.06
+          : 0.7 + (1 - healthRatio) * 0.7 + (1 - weakpointRatio) * 1.2 + weakpointFlashRatio * 2.8;
       }
     }
   }
@@ -1075,17 +1177,40 @@ export class BossSystem {
     this.projectileSpawnPosition.z += 2.2;
   }
 
-  private isCameraRayNearBossTarget(range: number, weapon: WeaponKind): boolean {
-    const weakpointRadius = this.config.boss.hitRadius * (weapon === 'shotgun' ? 0.72 : 0.52);
-    for (const node of this.weakpointNodes) {
-      node.getWorldPosition(this.weakpointWorldPosition);
-      if (this.isRayNearPoint(this.weakpointWorldPosition, range, weakpointRadius)) {
-        return true;
+  private findCameraRayWeakpointHit(
+    range: number,
+    weapon: WeaponKind,
+  ): BossWeakpointRecord | null {
+    const weakpointRadius =
+      this.config.boss.hitRadius *
+      this.config.boss.weakpointHitRadiusMultiplier *
+      (weapon === 'shotgun' ? 1.18 : 1);
+    let closestHit: BossWeakpointRecord | null = null;
+    let closestDistance = Number.POSITIVE_INFINITY;
+    for (const weakpoint of this.weakpoints) {
+      if (weakpoint.destroyed) {
+        continue;
+      }
+      weakpoint.node.getWorldPosition(this.weakpointWorldPosition);
+      if (!this.isRayNearPoint(this.weakpointWorldPosition, range, weakpointRadius)) {
+        continue;
+      }
+      const distance = this.weakpointWorldPosition.distanceToSquared(this.rayOrigin);
+      if (distance < closestDistance) {
+        closestDistance = distance;
+        closestHit = weakpoint;
       }
     }
 
+    return closestHit;
+  }
+
+  private isCameraRayNearBossBody(range: number, weapon: WeaponKind): boolean {
     this.root.getWorldPosition(this.bossCenter);
-    const bodyRadius = this.config.boss.hitRadius * (weapon === 'shotgun' ? 1.1 : 0.78);
+    const bodyRadius =
+      this.config.boss.hitRadius *
+      this.config.boss.bodyHitRadiusMultiplier *
+      (weapon === 'shotgun' ? 1.12 : 1);
     return this.isRayNearPoint(this.bossCenter, range, bodyRadius);
   }
 
