@@ -1179,16 +1179,32 @@ export class UISystem {
     this.setText(this.ammoValue, `${snapshot.weapon.ammoInMagazine}`);
     this.setText(this.ammoReserve, snapshot.weapon.reserveAmmoText);
     this.ammoReserve.hidden = !snapshot.weapon.showReserve;
+    const ammoIconRatio = snapshot.weapon.weaponType === 'assaultRifle' ? 3 : 1;
+    const ammoSlotCount =
+      snapshot.weapon.weaponType === 'assaultRifle'
+        ? Math.min(10, Math.ceil(snapshot.weapon.magazineSize / ammoIconRatio))
+        : snapshot.weapon.magazineSize;
+    const loadedSlotCount =
+      snapshot.weapon.weaponType === 'assaultRifle'
+        ? Math.ceil(snapshot.weapon.ammoInMagazine / ammoIconRatio)
+        : snapshot.weapon.ammoInMagazine;
     this.setStyleProperty(
       this.ammoPanel,
       '--ammo-columns',
-      `${Math.min(6, Math.max(1, snapshot.weapon.magazineSize))}`,
+      snapshot.weapon.weaponType === 'assaultRifle'
+        ? '5'
+        : `${Math.min(6, Math.max(1, snapshot.weapon.magazineSize))}`,
+    );
+    this.setDataset(
+      this.ammoPanel,
+      'ammoRatio',
+      snapshot.weapon.weaponType === 'assaultRifle' ? '3' : '1',
     );
 
     for (let index = 0; index < this.ammoRounds.length; index += 1) {
       const round = this.ammoRounds[index];
-      round.hidden = index >= snapshot.weapon.magazineSize;
-      this.setDataset(round, 'loaded', index < snapshot.weapon.ammoInMagazine ? 'true' : 'false');
+      round.hidden = index >= ammoSlotCount;
+      this.setDataset(round, 'loaded', index < loadedSlotCount ? 'true' : 'false');
       this.setDataset(round, 'state', ammoState);
       this.setDataset(round, 'shape', snapshot.weapon.roundStyle);
     }

@@ -15,6 +15,7 @@ import type {
   LaneThreatState,
   PickupEvent,
   PickupRiskType,
+  PortalRedirectPayload,
   RideState,
   WeaponPolicy,
   WorldImpactResult,
@@ -25,6 +26,7 @@ import { LoopingSound } from './audio/LoopingSound';
 import { SoundEffectPool } from './audio/SoundEffectPool';
 import {
   DebugTransformEditor,
+  type DebugActionBinding,
   type DebugConfigSnapshot,
   type DebugTransformBinding,
   type DebugTuningBinding,
@@ -36,6 +38,7 @@ import { EnemySystem } from './systems/EnemySystem';
 import { InputSystem } from './systems/InputSystem';
 import { PlayerSystem } from './systems/PlayerSystem';
 import { PickupSystem } from './systems/PickupSystem';
+import { PortalSystem } from './systems/PortalSystem';
 import { RewardSystem } from './systems/RewardSystem';
 import { SpawnSystem } from './systems/SpawnSystem';
 import { VehicleRigSystem } from './systems/VehicleRigSystem';
@@ -63,6 +66,7 @@ export class Game {
   private readonly spawnSystem: SpawnSystem;
   private readonly worldSystem: WorldSystem;
   private readonly bossSystem: BossSystem;
+  private readonly portalSystem: PortalSystem;
   private readonly pickupSystem: PickupSystem;
   private readonly rewardSystem: RewardSystem;
   private readonly vehicleRigSystem: VehicleRigSystem;
@@ -157,6 +161,7 @@ export class Game {
 
     this.worldSystem = new WorldSystem(this.rendererSystem.scene, GAME_CONFIG);
     this.bossSystem = new BossSystem(this.rendererSystem.scene, GAME_CONFIG);
+    this.portalSystem = new PortalSystem(this.rendererSystem.scene, GAME_CONFIG);
     this.pickupSystem = new PickupSystem(this.rendererSystem.scene, GAME_CONFIG);
     this.enemySystem = new EnemySystem(this.rendererSystem.scene, GAME_CONFIG);
     this.weaponSystem = new WeaponSystem(this.rendererSystem.camera, GAME_CONFIG);
@@ -185,6 +190,7 @@ export class Game {
       initialProfile: this.coopSession.activeProfile,
       targets: this.createDebugTransformBindings(),
       tunings: this.createDebugTuningBindings(),
+      actions: this.createDebugActions(),
       onProfileChange: (profile) => {
         this.applyDebugProfile(profile);
       },
@@ -351,8 +357,12 @@ export class Game {
     this.applyAudioPreferences();
     window.addEventListener('keydown', this.handleOverlayKeyDown);
 
-    this.resetGame();
-    this.setState('menu');
+    if (this.isIncomingPortalLaunch()) {
+      this.startPortalArrivalRun();
+    } else {
+      this.resetGame();
+      this.setState('menu');
+    }
   }
 
   start(): void {
@@ -370,6 +380,7 @@ export class Game {
     this.vehicleRigSystem.destroy();
     this.enemySystem.destroy();
     this.bossSystem.destroy();
+    this.portalSystem.destroy();
     this.worldSystem.destroy();
     this.pickupSystem.destroy();
     this.rewardSystem.destroy();
@@ -609,6 +620,16 @@ export class Game {
       );
       this.engineLoop.setDriveState(finalRide.driveBoostStrength, finalRide.driveBrakeStrength);
       this.engineLoop.setTurnAmount(this.playerSystem.getEngineTurnAmount());
+      const portalRedirect = this.portalSystem.update(
+        simulationDelta,
+        this.playerSystem.state.strafeX,
+        finalRide.forwardSpeed,
+        this.spawnSystem.elapsedSeconds,
+        this.playerSystem.state,
+      );
+      if (portalRedirect) {
+        this.handlePortalRedirect(portalRedirect);
+      }
       this.sendNetworkSnapshot(deltaTime);
 
       if (!this.playerSystem.state.alive) {
@@ -1257,6 +1278,15 @@ export class Game {
     this.startRun('start', false);
   }
 
+  private startPortalArrivalRun(): void {
+    this.networkSystem.startSolo();
+    this.runSeed = this.createRunSeed();
+    this.resetGame({ incomingPortalRef: this.getIncomingPortalRef() });
+    this.blurOverlayFocus();
+    this.inputSystem.clearTransientInput();
+    this.setState('running');
+  }
+
   private startRun(action: 'start' | 'retry', broadcast = true): void {
     this.runSeed = this.createRunSeed();
     if (broadcast && this.coopSession.role !== 'solo') {
@@ -1297,6 +1327,24 @@ export class Game {
     this.setState('running');
   }
 
+  private handlePortalRedirect(payload: PortalRedirectPayload): void {
+    if (this.inputSystem.isPointerLocked()) {
+      this.suppressUnlockPause = true;
+      void document.exitPointerLock();
+    }
+
+    window.location.href = payload.targetUrl;
+  }
+
+  private isIncomingPortalLaunch(): boolean {
+    return new URLSearchParams(window.location.search).get('portal') === 'true';
+  }
+
+  private getIncomingPortalRef(): string | null {
+    const ref = new URLSearchParams(window.location.search).get('ref')?.trim();
+    return ref && ref.length > 0 ? ref : null;
+  }
+
   private beginOverlayAction(): boolean {
     const now = performance.now();
     if (now < this.overlayActionLockUntil) {
@@ -1314,7 +1362,7 @@ export class Game {
     }
   }
 
-  private resetGame(): void {
+  private resetGame(options: { incomingPortalRef?: string | null } = {}): void {
     setGameRandomSeed(this.runSeed);
     this.weaponSystem.setWeaponPolicy(
       this.resolveWeaponPolicy(this.coopSession.activeProfile),
@@ -1331,6 +1379,7 @@ export class Game {
     this.worldSystem.reset();
     this.pickupSystem.reset();
     this.bossSystem.reset();
+    this.portalSystem.reset({ incomingPortalRef: options.incomingPortalRef ?? null });
     this.roadHandlingPenalty = 0;
     this.roadAimShake = 0;
     this.roadCameraShake = 0;
@@ -1448,6 +1497,15 @@ export class Game {
         'Assault Rifle Viewmodel',
         'M4 assault rifle GLB transform under the FPS camera.',
       ),
+      bossPosition: {
+        label: 'Boss Position',
+        description: 'Airborne boss hover position, GLB rotation, and GLB scale.',
+        get: () => this.bossSystem.getDebugBossTransform(),
+        set: (snapshot) => {
+          this.bossSystem.setDebugBossTransform(snapshot);
+        },
+        reset: () => this.bossSystem.resetDebugBossTransform(),
+      },
       armsAnchor: {
         label: 'Arms Anchor',
         description: 'Reserved transform for future hand/arms GLB mounting.',
@@ -1462,6 +1520,32 @@ export class Game {
             scale: [1, 1, 1],
           };
           return { ...this.armsAnchorDebugTransform };
+        },
+      },
+    };
+  }
+
+  private createDebugActions(): Record<string, DebugActionBinding> {
+    return {
+      spawnBoss1: {
+        label: 'Spawn Boss L1',
+        description: 'Spawned boss encounter level 1 at the current debug position.',
+        run: () => {
+          this.bossSystem.debugSpawn(1);
+        },
+      },
+      spawnBoss2: {
+        label: 'Spawn Boss L2',
+        description: 'Spawned boss encounter level 2 at the current debug position.',
+        run: () => {
+          this.bossSystem.debugSpawn(2);
+        },
+      },
+      spawnBoss3: {
+        label: 'Spawn Boss L3',
+        description: 'Spawned boss encounter level 3 at the current debug position.',
+        run: () => {
+          this.bossSystem.debugSpawn(3);
         },
       },
     };

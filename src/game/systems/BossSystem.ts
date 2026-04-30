@@ -19,6 +19,7 @@ import type {
   BossEncounterStatus,
   BossPhase,
   BossSnapshot,
+  DebugTransformSnapshot,
   GameConfig,
   WeaponKind,
 } from '../../core/types';
@@ -81,6 +82,7 @@ export class BossSystem {
   private readonly preStrikeSound: SoundEffectPool;
   private readonly projectileHitSound: SoundEffectPool;
   private readonly helicopterLoop: LoopingSound;
+  private readonly defaultBossTransform: DebugTransformSnapshot;
   private readonly snapshotFallback: BossSnapshot = {
     status: 'inactive',
     level: 0,
@@ -127,6 +129,15 @@ export class BossSystem {
     this.proceduralGroup.name = 'BossProceduralFallback';
     this.root.add(this.proceduralGroup);
     this.hoverBase.set(...this.config.boss.hoverPosition);
+    this.defaultBossTransform = {
+      position: [...this.config.boss.hoverPosition],
+      rotationDegrees: [...this.config.boss.modelRotationDegrees],
+      scale: [
+        this.config.boss.modelScale,
+        this.config.boss.modelScale,
+        this.config.boss.modelScale,
+      ],
+    };
     this.preStrikeSound = new SoundEffectPool(this.config.boss.audio.preStrikePath, {
       poolSize: 3,
       volume: this.config.boss.audio.preStrikeVolume,
@@ -285,6 +296,55 @@ export class BossSystem {
   pauseAudio(): void {
     this.helicopterLoopActive = false;
     this.helicopterLoop.pause();
+  }
+
+  debugSpawn(level: BossPhase = 1): void {
+    const resolvedLevel = clamp(level, 1, 3) as BossPhase;
+    for (const projectile of this.projectiles) {
+      this.deactivateProjectile(projectile);
+    }
+    this.startEncounter(resolvedLevel);
+  }
+
+  getDebugBossTransform(): DebugTransformSnapshot {
+    return {
+      position: [...this.config.boss.hoverPosition],
+      rotationDegrees: [...this.config.boss.modelRotationDegrees],
+      scale: [
+        this.config.boss.modelScale,
+        this.config.boss.modelScale,
+        this.config.boss.modelScale,
+      ],
+    };
+  }
+
+  setDebugBossTransform(snapshot: DebugTransformSnapshot): void {
+    if (snapshot.position) {
+      this.config.boss.hoverPosition = [...snapshot.position];
+      this.hoverBase.set(...snapshot.position);
+      if (this.status === 'inactive') {
+        this.root.position.copy(this.hoverBase);
+      }
+    }
+
+    if (snapshot.rotationDegrees) {
+      this.config.boss.modelRotationDegrees = [...snapshot.rotationDegrees];
+    }
+
+    if (snapshot.scale) {
+      this.config.boss.modelScale = Math.max(
+        0.01,
+        (snapshot.scale[0] + snapshot.scale[1] + snapshot.scale[2]) / 3,
+      );
+    }
+
+    this.applyBossModelTransform();
+  }
+
+  resetDebugBossTransform(): DebugTransformSnapshot {
+    const snapshot = { ...this.defaultBossTransform };
+    this.setDebugBossTransform(snapshot);
+    return snapshot;
   }
 
   update(
@@ -457,9 +517,9 @@ export class BossSystem {
     }
   }
 
-  private startEncounter(): void {
-    const resolvedLevel = clamp(this.encounterIndex + 1, 1, 3) as BossPhase;
-    this.encounterIndex += 1;
+  private startEncounter(levelOverride?: BossPhase): void {
+    const resolvedLevel = levelOverride ?? (clamp(this.encounterIndex + 1, 1, 3) as BossPhase);
+    this.encounterIndex = Math.max(this.encounterIndex + (levelOverride ? 0 : 1), resolvedLevel);
     this.status = 'approach';
     this.level = resolvedLevel;
     this.phase = resolvedLevel;
@@ -492,15 +552,15 @@ export class BossSystem {
 
     if (this.status === 'retreating' || this.status === 'defeated') {
       if (this.statusTimer >= this.config.boss.retreatDuration) {
-      this.status = 'inactive';
-      this.statusTimer = 0;
-      this.level = 0;
-      this.phase = 0;
-      this.root.visible = false;
-      this.pauseAudio();
-      for (const projectile of this.projectiles) {
-        this.deactivateProjectile(projectile);
-      }
+        this.status = 'inactive';
+        this.statusTimer = 0;
+        this.level = 0;
+        this.phase = 0;
+        this.root.visible = false;
+        this.pauseAudio();
+        for (const projectile of this.projectiles) {
+          this.deactivateProjectile(projectile);
+        }
       }
       return;
     }
@@ -800,13 +860,6 @@ export class BossSystem {
           (gltf) => {
             const model = gltf.scene;
             model.name = 'HelicopterBossModel';
-            model.position.set(...this.config.boss.modelPosition);
-            model.rotation.set(
-              this.degreesToRadians(this.config.boss.modelRotationDegrees[0]),
-              this.degreesToRadians(this.config.boss.modelRotationDegrees[1]),
-              this.degreesToRadians(this.config.boss.modelRotationDegrees[2]),
-            );
-            model.scale.setScalar(this.config.boss.modelScale);
             model.traverse((node) => {
               if (node instanceof Mesh) {
                 node.castShadow = true;
@@ -815,6 +868,7 @@ export class BossSystem {
             });
             this.root.add(model);
             this.modelRoot = model;
+            this.applyBossModelTransform();
             this.bindBossModelNodes(model);
             this.proceduralGroup.visible = false;
           },
@@ -870,6 +924,20 @@ export class BossSystem {
 
   private matchesAnyPattern(name: string, patterns: string[]): boolean {
     return patterns.some((pattern) => name.includes(pattern.toLowerCase()));
+  }
+
+  private applyBossModelTransform(): void {
+    if (!this.modelRoot) {
+      return;
+    }
+
+    this.modelRoot.position.set(...this.config.boss.modelPosition);
+    this.modelRoot.rotation.set(
+      this.degreesToRadians(this.config.boss.modelRotationDegrees[0]),
+      this.degreesToRadians(this.config.boss.modelRotationDegrees[1]),
+      this.degreesToRadians(this.config.boss.modelRotationDegrees[2]),
+    );
+    this.modelRoot.scale.setScalar(this.config.boss.modelScale);
   }
 
   private updateRotorPresentation(): void {

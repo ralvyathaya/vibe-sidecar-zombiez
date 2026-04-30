@@ -137,6 +137,22 @@ function applyDebugConfigPayload(source: string, payload: DebugConfigPayload): {
     applied += countTransformFields(assaultRifle);
   }
 
+  const bossPosition = transforms.bossPosition;
+  if (bossPosition) {
+    if (bossPosition.position) {
+      next = replaceArrayInBlock(next, 'boss', 'hoverPosition', bossPosition.position);
+      applied += 1;
+    }
+    if (bossPosition.rotationDegrees) {
+      next = replaceArrayInBlock(next, 'boss', 'modelRotationDegrees', bossPosition.rotationDegrees);
+      applied += 1;
+    }
+    if (bossPosition.scale) {
+      next = replaceScalarInBlock(next, 'boss', 'modelScale', averageScale(bossPosition.scale));
+      applied += 1;
+    }
+  }
+
   const shotgunSpray = payload.tunings?.shotgunSpray;
   if (shotgunSpray) {
     for (const key of [

@@ -32,6 +32,12 @@ export type DebugTuningBinding = {
   reset: () => DebugTuningSnapshot;
 };
 
+export type DebugActionBinding = {
+  label: string;
+  description: string;
+  run: () => void;
+};
+
 export type DebugConfigSnapshot = {
   transforms: Partial<Record<DebugTransformTarget, DebugTransformSnapshot>>;
   tunings: Record<string, DebugTuningSnapshot>;
@@ -43,6 +49,7 @@ type DebugTransformEditorOptions = {
   initialProfile: ControlProfile;
   targets: Partial<Record<DebugTransformTarget, DebugTransformBinding>>;
   tunings?: Record<string, DebugTuningBinding>;
+  actions?: Record<string, DebugActionBinding>;
   onProfileChange: (profile: ControlProfile) => void;
   onStartLocalRun: (profile: ControlProfile) => void;
   onSaveConfig?: (payload: DebugConfigSnapshot) => Promise<string>;
@@ -71,6 +78,7 @@ export class DebugTransformEditor {
   private readonly tuningInputs = new Map<string, HTMLInputElement>();
   private readonly targets: Partial<Record<DebugTransformTarget, DebugTransformBinding>>;
   private readonly tunings: Record<string, DebugTuningBinding>;
+  private readonly actions: Record<string, DebugActionBinding>;
   private readonly enabled: boolean;
   private selectedProfile: ControlProfile;
 
@@ -79,6 +87,7 @@ export class DebugTransformEditor {
     this.selectedProfile = options.initialProfile;
     this.targets = options.targets;
     this.tunings = options.tunings ?? {};
+    this.actions = options.actions ?? {};
 
     if (!this.enabled) {
       return;
@@ -257,6 +266,32 @@ export class DebugTransformEditor {
     });
     tuningActions.append(applyTuningButton, resetTuningButton);
 
+    const actionPanel = document.createElement('div');
+    actionPanel.style.cssText = 'display:grid;gap:7px;margin:10px 0 0';
+    const actionKeys = Object.keys(this.actions);
+    if (actionKeys.length > 0) {
+      const actionLabel = document.createElement('div');
+      actionLabel.textContent = 'Actions';
+      actionLabel.style.cssText =
+        'font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#d9c8aa;margin-top:4px';
+      const actionButtons = document.createElement('div');
+      actionButtons.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap';
+      for (const actionKey of actionKeys) {
+        const action = this.actions[actionKey];
+        if (!action) {
+          continue;
+        }
+        const button = this.createButton(action.label);
+        button.title = action.description;
+        button.addEventListener('click', () => {
+          action.run();
+          this.setStatus(action.description);
+        });
+        actionButtons.append(button);
+      }
+      actionPanel.append(actionLabel, actionButtons);
+    }
+
     this.status.style.cssText = 'min-height:18px;margin-top:10px;font-size:12px;color:#d9c8aa';
     this.root.append(
       title,
@@ -268,6 +303,7 @@ export class DebugTransformEditor {
       tuningRow,
       this.tuningFields,
       tuningActions,
+      actionPanel,
       this.status,
     );
   }

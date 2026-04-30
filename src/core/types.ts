@@ -69,6 +69,7 @@ export type DebugTransformTarget =
   | 'gunnerShotgunViewmodel'
   | 'gunnerBazookaViewmodel'
   | 'assaultRifleViewmodel'
+  | 'bossPosition'
   | 'armsAnchor';
 export type VehicleWheelSpinAxis = 'x' | 'y' | 'z';
 export type CoopConnectionState =
@@ -79,6 +80,7 @@ export type CoopConnectionState =
   | 'connected'
   | 'fallback'
   | 'error';
+export type PortalKind = 'exit' | 'return';
 export type RunSegment = 'rest' | 'chaos' | 'dark';
 export type RunEventType = 'none' | 'berserkWave' | 'slipperyRoad' | 'blackoutStretch';
 export type RunSetpieceType = 'normal' | 'bossApproach' | 'rainstorm' | 'rampJump';
@@ -280,6 +282,39 @@ export interface ZombieModelVariant {
   moveAction: AnimationAction;
   deathAction: AnimationAction;
   spawnPoseAction: AnimationAction | null;
+}
+
+export interface PortalConfig {
+  enabled: boolean;
+  redirectUrl: string;
+  startTimeSeconds: number;
+  spawnSpacingMin: number;
+  spawnSpacingMax: number;
+  sideRoadX: number;
+  spawnZ: number;
+  cleanupZ: number;
+  returnPortalX: number;
+  returnPortalZ: number;
+  collisionRadius: number;
+  collisionDepth: number;
+  width: number;
+  height: number;
+  particleCount: number;
+  exitLabel: string;
+  returnLabel: string;
+}
+
+export interface PortalRecord {
+  kind: PortalKind;
+  group: Object3D;
+  laneLocalX: number;
+  z: number;
+  triggered: boolean;
+}
+
+export interface PortalRedirectPayload {
+  kind: PortalKind;
+  targetUrl: string;
 }
 
 export interface GameConfig {
@@ -870,6 +905,7 @@ export interface GameConfig {
       dustSize: number;
     };
   };
+  portal: PortalConfig;
   pickups: {
     supportUnlockTimeSeconds: number;
     unlockTimeSeconds: number;
