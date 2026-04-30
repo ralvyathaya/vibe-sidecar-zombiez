@@ -9,6 +9,7 @@ import {
   MeshBasicMaterial,
   MeshStandardMaterial,
   Object3D,
+  PerspectiveCamera,
   PointLight,
   Scene,
   SphereGeometry,
@@ -23,7 +24,7 @@ import type {
   GameConfig,
   WeaponKind,
 } from '../../core/types';
-import { clamp, randomInt, sampleRoadCurveOffset } from '../../core/utils';
+import { clamp, randomInt, randomRange, sampleRoadCurveOffset } from '../../core/utils';
 import { LoopingSound } from '../audio/LoopingSound';
 import { SoundEffectPool } from '../audio/SoundEffectPool';
 
@@ -62,6 +63,16 @@ type BossWeakpointRecord = {
   hitFlashTimer: number;
 };
 
+type BossImpactBurstRecord = {
+  active: boolean;
+  delay: number;
+  life: number;
+  maxLife: number;
+  mesh: Mesh;
+  material: MeshBasicMaterial;
+  baseScale: number;
+};
+
 const HULL_GEOMETRY = new BoxGeometry(1, 1, 1);
 const NOSE_GEOMETRY = new IcosahedronGeometry(1, 1);
 const WEAKPOINT_GEOMETRY = new SphereGeometry(1, 14, 10);
@@ -69,6 +80,8 @@ const TELEGRAPH_GEOMETRY = new BoxGeometry(1, 0.06, 1);
 const BEAM_GEOMETRY = new CylinderGeometry(1, 1, 1, 6, 1, true);
 const BLAST_GEOMETRY = new SphereGeometry(1, 12, 8);
 const Y_AXIS = new Vector3(0, 1, 0);
+const CINEMATIC_INTRO_MIN_DURATION = 2.45;
+const CINEMATIC_DEFEAT_MIN_DURATION = 2.1;
 const PROJECTILE_SPAWN_PRIORITY_PATTERNS = [
   ['laserspawn', 'laser_spawn', 'laser spawn', 'spawn_front', 'laser_front'],
   ['projectilespawn', 'projectile_spawn', 'projectile spawn', 'muzzle', 'barrel'],
@@ -82,9 +95,12 @@ export class BossSystem {
   private readonly weakpoint: Mesh;
   private readonly keyLight = new PointLight(0xff743b, 0, 18, 2);
   private readonly projectiles: BossProjectileRecord[] = [];
+  private readonly impactBursts: BossImpactBurstRecord[] = [];
   private readonly rayOrigin = new Vector3();
   private readonly rayDirection = new Vector3();
   private readonly bossCenter = new Vector3();
+  private readonly cinematicTarget = new Vector3();
+  private readonly cinematicCameraPosition = new Vector3();
   private readonly toBoss = new Vector3();
   private readonly closestPoint = new Vector3();
   private readonly hoverBase = new Vector3();
@@ -121,6 +137,8 @@ export class BossSystem {
   private projectileId = 0;
   private pendingScoreBonus = 0;
   private hitFlashTimer = 0;
+  private defeatShakeTimer = 0;
+  private defeatExplosionTimer = 0;
   private lastPreStrikeSoundTime = -99;
   private lastProjectileHitSoundTime = -99;
   private lastRemotePreStrikeId = 0;
@@ -256,6 +274,7 @@ export class BossSystem {
 
     this.scene.add(this.root);
     this.createProjectilePool();
+    this.createImpactBurstPool();
     this.loadBossModel();
     this.reset();
   }
@@ -273,6 +292,8 @@ export class BossSystem {
     this.time = 0;
     this.pendingScoreBonus = 0;
     this.hitFlashTimer = 0;
+    this.defeatShakeTimer = 0;
+    this.defeatExplosionTimer = 0;
     this.resetWeakpointState(1);
     this.lastPreStrikeSoundTime = -99;
     this.lastProjectileHitSoundTime = -99;
@@ -287,6 +308,9 @@ export class BossSystem {
     for (const projectile of this.projectiles) {
       this.deactivateProjectile(projectile);
     }
+    for (const burst of this.impactBursts) {
+      this.deactivateImpactBurst(burst);
+    }
   }
 
   destroy(): void {
@@ -300,6 +324,10 @@ export class BossSystem {
       projectile.material.dispose();
       projectile.beamMaterial.dispose();
       projectile.blastMaterial.dispose();
+    }
+    for (const burst of this.impactBursts) {
+      burst.mesh.removeFromParent();
+      burst.material.dispose();
     }
     this.preStrikeSound.destroy();
     this.projectileHitSound.destroy();
@@ -432,6 +460,54 @@ export class BossSystem {
     return this.status !== 'inactive';
   }
 
+  isGameplayCinematicActive(): boolean {
+    if (this.status === 'approach') {
+      return this.statusTimer < Math.max(CINEMATIC_INTRO_MIN_DURATION, this.config.boss.approachDuration);
+    }
+
+    if (this.status === 'defeated') {
+      return this.statusTimer < Math.max(CINEMATIC_DEFEAT_MIN_DURATION, this.config.boss.retreatDuration * 0.82);
+    }
+
+    return false;
+  }
+
+  applyCinematicCamera(camera: Camera, deltaTime: number): void {
+    if (!this.isGameplayCinematicActive()) {
+      return;
+    }
+
+    this.root.getWorldPosition(this.bossCenter);
+    const introRatio =
+      this.status === 'approach'
+        ? clamp(this.statusTimer / Math.max(this.config.boss.approachDuration, 0.001), 0, 1)
+        : 1;
+    const defeated = this.status === 'defeated';
+    const shake =
+      defeated
+        ? clamp(this.defeatShakeTimer / Math.max(CINEMATIC_DEFEAT_MIN_DURATION, 0.001), 0, 1)
+        : 0;
+    this.cinematicTarget.set(
+      this.bossCenter.x + Math.sin(this.time * 1.15) * (defeated ? 0.8 : 1.45),
+      this.bossCenter.y + (defeated ? 0.12 : 0.45 + introRatio * 0.32),
+      this.bossCenter.z + Math.cos(this.time * 0.85) * (defeated ? 0.55 : 1.2),
+    );
+    this.cinematicCameraPosition.set(
+      Math.sin(introRatio * Math.PI) * 0.22 + Math.sin(this.time * 38) * shake * 0.035,
+      0.02 + Math.sin(this.time * 43) * shake * 0.026,
+      -0.08 - introRatio * 0.08,
+    );
+    camera.position.copy(this.cinematicCameraPosition);
+    camera.lookAt(this.cinematicTarget);
+    camera.rotateZ(Math.sin(this.time * (defeated ? 31 : 2.6)) * (defeated ? 0.018 * shake : 0.012));
+
+    if (camera instanceof PerspectiveCamera) {
+      const targetFov = defeated ? 64 + shake * 1.8 : 66 - introRatio * 2.4;
+      camera.fov += (targetFov - camera.fov) * clamp(deltaTime * 7, 0, 1);
+      camera.updateProjectionMatrix();
+    }
+  }
+
   getSnapshot(): BossSnapshot {
     if (this.remoteSnapshot) {
       return this.remoteSnapshot;
@@ -541,6 +617,32 @@ export class BossSystem {
     }
   }
 
+  private createImpactBurstPool(): void {
+    for (let index = 0; index < 42; index += 1) {
+      const material = new MeshBasicMaterial({
+        color: 0xffc66b,
+        transparent: true,
+        opacity: 0,
+        blending: AdditiveBlending,
+        depthWrite: false,
+      });
+      const mesh = new Mesh(BLAST_GEOMETRY, material);
+      mesh.name = `BossImpactBurst_${index}`;
+      mesh.visible = false;
+      mesh.position.set(0, 999, 0);
+      this.scene.add(mesh);
+      this.impactBursts.push({
+        active: false,
+        delay: 0,
+        life: 0,
+        maxLife: 0,
+        mesh,
+        material,
+        baseScale: 1,
+      });
+    }
+  }
+
   private startEncounter(levelOverride?: BossPhase): void {
     const resolvedLevel = levelOverride ?? (clamp(this.encounterIndex + 1, 1, 3) as BossPhase);
     this.encounterIndex = Math.max(this.encounterIndex + (levelOverride ? 0 : 1), resolvedLevel);
@@ -550,6 +652,8 @@ export class BossSystem {
     this.statusTimer = 0;
     this.fightTimer = 0;
     this.attackTimer = 0.75;
+    this.defeatShakeTimer = 0;
+    this.defeatExplosionTimer = 0;
     this.maxHealth = this.config.boss.maxHealthByLevel[resolvedLevel - 1] ?? 42;
     this.health = this.maxHealth;
     this.resetWeakpointState(resolvedLevel);
@@ -576,6 +680,9 @@ export class BossSystem {
     }
 
     if (this.status === 'retreating' || this.status === 'defeated') {
+      if (this.status === 'defeated') {
+        this.updateDefeatEffects(deltaTime);
+      }
       if (this.statusTimer >= this.config.boss.retreatDuration) {
         this.status = 'inactive';
         this.statusTimer = 0;
@@ -618,6 +725,7 @@ export class BossSystem {
         if (projectile.telegraphTimer <= 0 && !projectile.impactSoundPlayed) {
           projectile.impactSoundPlayed = true;
           projectile.blastTimer = this.config.boss.projectileImpactDuration;
+          this.spawnProjectileImpactBursts(projectile);
           this.playProjectileHitSound();
         }
       } else {
@@ -638,7 +746,19 @@ export class BossSystem {
       }
     }
 
+    this.updateImpactBursts(deltaTime);
     return { damage, sourceX };
+  }
+
+  private updateDefeatEffects(deltaTime: number): void {
+    this.defeatShakeTimer = Math.max(0, this.defeatShakeTimer - deltaTime);
+    this.defeatExplosionTimer = Math.max(0, this.defeatExplosionTimer - deltaTime);
+    if (this.defeatExplosionTimer > 0 || this.defeatShakeTimer <= 0) {
+      return;
+    }
+
+    this.defeatExplosionTimer = randomRange(0.12, 0.24);
+    this.spawnBossExplosionBurst();
   }
 
   private updatePresentation(): void {
@@ -666,11 +786,23 @@ export class BossSystem {
         (1 - approachRatio) * 14 -
         retreatRatio * 16,
     );
+    if (this.status === 'defeated') {
+      const shake = clamp(this.defeatShakeTimer / Math.max(CINEMATIC_DEFEAT_MIN_DURATION, 0.001), 0, 1);
+      this.root.position.x += Math.sin(this.time * 46) * shake * 0.22;
+      this.root.position.y += Math.cos(this.time * 39) * shake * 0.16;
+      this.root.position.z += Math.sin(this.time * 31) * shake * 0.18;
+    }
     this.root.rotation.set(
       Math.sin(this.time * 0.9) * 0.035,
       Math.sin(this.time * 0.55) * 0.12,
       Math.cos(this.time * 0.8) * 0.045,
     );
+    if (this.status === 'defeated') {
+      const shake = clamp(this.defeatShakeTimer / Math.max(CINEMATIC_DEFEAT_MIN_DURATION, 0.001), 0, 1);
+      this.root.rotation.x += Math.sin(this.time * 37) * shake * 0.08;
+      this.root.rotation.y += Math.cos(this.time * 29) * shake * 0.11;
+      this.root.rotation.z += Math.sin(this.time * 41) * shake * 0.09;
+    }
     const healthRatio = this.maxHealth > 0 ? this.health / this.maxHealth : 0;
     this.weakpoint.scale.setScalar(0.76 + (1 - healthRatio) * 0.28 + Math.sin(this.time * 8) * 0.04);
     const weakMaterial = this.weakpoint.material as MeshStandardMaterial;
@@ -806,6 +938,14 @@ export class BossSystem {
     this.syncHelicopterLoop();
     if (defeated) {
       this.pendingScoreBonus += this.config.boss.scoreBonusByLevel[this.level - 1] ?? 0;
+      this.defeatShakeTimer = 1.65;
+      this.defeatExplosionTimer = 0;
+      for (const projectile of this.projectiles) {
+        this.deactivateProjectile(projectile);
+      }
+      for (let index = 0; index < 4; index += 1) {
+        this.spawnBossExplosionBurst(index * 0.08);
+      }
     }
   }
 
@@ -1163,6 +1303,107 @@ export class BossSystem {
       this.config.boss.blastSize * (0.45 + expansion * 1.45),
     );
     projectile.blastMaterial.opacity = 0.58 * ratio;
+  }
+
+  private spawnProjectileImpactBursts(projectile: BossProjectileRecord): void {
+    const telegraphZ = -17;
+    const burstCount = projectile.pattern === 'sweep' ? 4 : 6;
+    for (let index = 0; index < burstCount; index += 1) {
+      const progress = burstCount <= 1 ? 0.5 : index / (burstCount - 1);
+      const z = telegraphZ - 11 + progress * 22;
+      const x =
+        projectile.laneX +
+        sampleRoadCurveOffset(
+          z,
+          this.time,
+          this.config.world.roadCurveFrequency,
+          this.config.world.roadCurveAmplitude,
+        ) +
+        randomRange(-projectile.width * 0.16, projectile.width * 0.16);
+      this.spawnImpactBurst(
+        x,
+        this.config.world.roadSurfaceY + 0.28,
+        z + randomRange(-0.55, 0.55),
+        randomRange(0.42, 0.84),
+        index * 0.028,
+        0xffd16f,
+      );
+    }
+  }
+
+  private spawnBossExplosionBurst(delay = 0): void {
+    this.root.getWorldPosition(this.bossCenter);
+    this.spawnImpactBurst(
+      this.bossCenter.x + randomRange(-2.2, 2.2),
+      this.bossCenter.y + randomRange(-0.8, 0.9),
+      this.bossCenter.z + randomRange(-1.6, 1.4),
+      randomRange(0.58, 1.08),
+      delay,
+      0xff8d42,
+    );
+  }
+
+  private spawnImpactBurst(
+    x: number,
+    y: number,
+    z: number,
+    scale: number,
+    delay: number,
+    color: number,
+  ): void {
+    const burst = this.impactBursts.find((entry) => !entry.active);
+    if (!burst) {
+      return;
+    }
+
+    burst.active = true;
+    burst.delay = delay;
+    burst.life = 0.34;
+    burst.maxLife = 0.34;
+    burst.baseScale = scale;
+    burst.material.color.setHex(color);
+    burst.material.opacity = delay > 0 ? 0 : 0.7;
+    burst.mesh.visible = delay <= 0;
+    burst.mesh.position.set(x, y, z);
+    burst.mesh.scale.setScalar(scale * 0.18);
+  }
+
+  private updateImpactBursts(deltaTime: number): void {
+    for (const burst of this.impactBursts) {
+      if (!burst.active) {
+        continue;
+      }
+
+      if (burst.delay > 0) {
+        burst.delay = Math.max(0, burst.delay - deltaTime);
+        if (burst.delay > 0) {
+          continue;
+        }
+        burst.mesh.visible = true;
+      }
+
+      burst.life = Math.max(0, burst.life - deltaTime);
+      const ratio = clamp(burst.life / Math.max(burst.maxLife, 0.001), 0, 1);
+      const expansion = 1 - ratio;
+      burst.mesh.scale.set(
+        burst.baseScale * (0.42 + expansion * 1.55),
+        burst.baseScale * (0.18 + expansion * 0.66),
+        burst.baseScale * (0.42 + expansion * 1.55),
+      );
+      burst.material.opacity = 0.72 * ratio;
+      if (burst.life <= 0) {
+        this.deactivateImpactBurst(burst);
+      }
+    }
+  }
+
+  private deactivateImpactBurst(burst: BossImpactBurstRecord): void {
+    burst.active = false;
+    burst.delay = 0;
+    burst.life = 0;
+    burst.mesh.visible = false;
+    burst.mesh.position.set(0, 999, 0);
+    burst.material.opacity = 0;
   }
 
   private getProjectileSpawnWorldPosition(projectile: BossProjectileRecord): void {

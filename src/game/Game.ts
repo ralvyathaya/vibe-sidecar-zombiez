@@ -401,6 +401,10 @@ export class Game {
         this.inputSystem.createLocalInputFrame(this.coopSession.role, outboundPresentation),
       );
       this.handleContextActions();
+      if (this.bossSystem.isGameplayCinematicActive()) {
+        this.updateBossCinematicFrame(deltaTime);
+        return;
+      }
       this.updatePickupRiskEffects(deltaTime);
       this.updateJumpState(simulationDelta);
       this.decayRoadFeedback(deltaTime);
@@ -862,6 +866,44 @@ export class Game {
     if (damaged) {
       this.roadAimShake = Math.max(this.roadAimShake, 0.006);
     }
+  }
+
+  private updateBossCinematicFrame(deltaTime: number): void {
+    this.vehicleRigSystem.setDriverPistolStance(false);
+    this.bossSystem.update(
+      deltaTime,
+      this.spawnSystem.elapsedSeconds,
+      this.playerSystem.state.strafeX,
+    );
+
+    const cinematicRide = this.lastRideState ?? this.composeRideState(
+      this.driverSystem.update(
+        0,
+        this.combineLaneThreats(this.worldSystem.getLaneThreats(), this.enemySystem.getLaneThreats()),
+        this.enemySystem.hasLatchedRunner(),
+        this.playerSystem.state.failureSeverity,
+        this.spawnSystem.activeEvent,
+        this.spawnSystem.getEventTimer(),
+        this.spawnSystem.getEventDuration(),
+        this.playerSystem.hasNitro(),
+      ),
+    );
+    this.frameRideState = cinematicRide;
+    this.rendererSystem.updateAtmosphere(deltaTime, 'dark', cinematicRide.activeEvent);
+    this.rendererSystem.updateRain(deltaTime, cinematicRide, true);
+    this.rendererSystem.updateSpeedEffect(deltaTime, null);
+    this.vehicleRigSystem.update(
+      deltaTime,
+      this.playerSystem.getPosition(this.playerPosition),
+      0,
+      this.playerSystem.state.hitFlash,
+      this.state,
+      cinematicRide,
+    );
+    this.bossSystem.applyCinematicCamera(this.rendererSystem.camera, deltaTime);
+    this.engineLoop.setDriveState(0, 0);
+    this.engineLoop.setTurnAmount(0);
+    this.sendNetworkSnapshot(deltaTime);
   }
 
   private updateGunnerStats(previousAmmo: number, previousKills: number): void {
