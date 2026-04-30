@@ -60,6 +60,11 @@ const TELEGRAPH_GEOMETRY = new BoxGeometry(1, 0.06, 1);
 const BEAM_GEOMETRY = new CylinderGeometry(1, 1, 1, 6, 1, true);
 const BLAST_GEOMETRY = new SphereGeometry(1, 12, 8);
 const Y_AXIS = new Vector3(0, 1, 0);
+const PROJECTILE_SPAWN_PRIORITY_PATTERNS = [
+  ['laserspawn', 'laser_spawn', 'laser spawn', 'spawn_front', 'laser_front'],
+  ['projectilespawn', 'projectile_spawn', 'projectile spawn', 'muzzle', 'barrel'],
+  ['laser_exit', 'laser exit', 'laseroutput', 'laser_output', 'laser output'],
+];
 
 export class BossSystem {
   private readonly root = new Group();
@@ -741,7 +746,9 @@ export class BossSystem {
     projectile.impactSoundPlayed = false;
     projectile.blastTimer = 0;
     projectile.spawnNodeIndex =
-      this.projectileSpawnNodes.length > 0 ? projectile.id % this.projectileSpawnNodes.length : 0;
+      this.projectileSpawnNodes.length > 0
+        ? (projectile.id - 1) % this.projectileSpawnNodes.length
+        : 0;
     projectile.mesh.visible = true;
     projectile.mesh.position.set(
       projectile.laneX,
@@ -888,6 +895,7 @@ export class BossSystem {
     this.weakpointNodes = [];
     this.projectileSpawnNodes = [];
     this.rotorBaseRotations.clear();
+    const projectileSpawnCandidates: Object3D[] = [];
 
     model.traverse((node) => {
       const name = node.name.toLowerCase();
@@ -902,10 +910,14 @@ export class BossSystem {
       if (this.matchesAnyPattern(name, this.config.boss.weakpointNodePatterns)) {
         this.weakpointNodes.push(node);
       }
-      if (this.matchesAnyPattern(name, this.config.boss.projectileSpawnNodePatterns)) {
-        this.projectileSpawnNodes.push(node);
+      if (
+        this.matchesAnyPattern(name, this.config.boss.projectileSpawnNodePatterns) &&
+        !this.matchesAnyPattern(name, this.config.boss.weakpointNodePatterns)
+      ) {
+        projectileSpawnCandidates.push(node);
       }
     });
+    this.projectileSpawnNodes = this.selectProjectileSpawnNodes(projectileSpawnCandidates);
 
     if (!this.warnedMissingNodes) {
       if (this.rotorNodes.length === 0) {
@@ -922,8 +934,33 @@ export class BossSystem {
     }
   }
 
+  private selectProjectileSpawnNodes(candidates: Object3D[]): Object3D[] {
+    if (candidates.length <= 1) {
+      return candidates;
+    }
+
+    for (const patterns of PROJECTILE_SPAWN_PRIORITY_PATTERNS) {
+      const prioritized = candidates.filter((node) =>
+        this.matchesAnyPattern(node.name.toLowerCase(), patterns),
+      );
+      if (prioritized.length > 0) {
+        return prioritized;
+      }
+    }
+
+    return candidates;
+  }
+
   private matchesAnyPattern(name: string, patterns: string[]): boolean {
-    return patterns.some((pattern) => name.includes(pattern.toLowerCase()));
+    const normalizedName = this.normalizeNodeName(name);
+    return patterns.some((pattern) => {
+      const normalizedPattern = this.normalizeNodeName(pattern);
+      return name.includes(pattern.toLowerCase()) || normalizedName.includes(normalizedPattern);
+    });
+  }
+
+  private normalizeNodeName(value: string): string {
+    return value.toLowerCase().replace(/[\s_-]+/g, '');
   }
 
   private applyBossModelTransform(): void {
@@ -1090,6 +1127,10 @@ export class BossSystem {
       projectile.laneIndex = telegraph.laneIndex;
       projectile.laneX = telegraph.laneX;
       projectile.width = telegraph.width;
+      projectile.spawnNodeIndex =
+        this.projectileSpawnNodes.length > 0
+          ? (projectile.id - 1) % this.projectileSpawnNodes.length
+          : 0;
       projectile.telegraphTimer =
         (1 - telegraph.warningRatio) * this.config.boss.projectileTelegraphDuration;
       projectile.impactTimer = this.config.boss.projectileImpactDuration;
