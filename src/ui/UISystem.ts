@@ -287,6 +287,8 @@ export class UISystem {
   private tankWarningCooldown = 0;
   private mobileControlsEnabled = false;
   private selectedRole: GameplayRole = 'gunner';
+  private roleDetailsPinned: GameplayRole | null = null;
+  private roleDetailsHovered: GameplayRole | null = null;
   private menuPlayMode: MenuPlayMode = 'single';
   private coopSession: CoopSessionState | null = null;
 
@@ -656,14 +658,14 @@ export class UISystem {
       this.overlayMenuGunnerRoleImage,
       'gunner',
       'Police',
-      ['Full weapon kit', 'Aim, reload, clear latch'],
+      ['Full weapon kit'],
     );
     this.setupRoleButton(
       this.overlayMenuDriverRoleButton,
       this.overlayMenuDriverRoleImage,
       'driver',
       'Joe',
-      ['Free roam driver', 'Pistol only'],
+      ['Free roam driver + pistol'],
     );
     this.overlayMenuRoleSelect.append(
       this.overlayMenuGunnerRoleButton,
@@ -1934,16 +1936,34 @@ export class UISystem {
     lockHint.className = 'overlay-role-lock-hint';
     lockHint.textContent = 'Available only in co-op mode';
 
-    body.append(title);
-    button.append(stage, callout, body, lockHint);
+    body.append(title, callout);
+    button.append(stage, body, lockHint);
     button.addEventListener('pointerenter', () => {
+      this.roleDetailsHovered = role;
+      this.syncRoleDetailsVisibility();
       this.setSelectedRole(role);
     });
+    button.addEventListener('pointerleave', () => {
+      if (this.roleDetailsHovered === role) {
+        this.roleDetailsHovered = null;
+        this.syncRoleDetailsVisibility();
+      }
+    });
     button.addEventListener('focus', () => {
+      this.roleDetailsHovered = role;
+      this.syncRoleDetailsVisibility();
       this.setSelectedRole(role);
+    });
+    button.addEventListener('blur', () => {
+      if (this.roleDetailsHovered === role) {
+        this.roleDetailsHovered = null;
+        this.syncRoleDetailsVisibility();
+      }
     });
     button.addEventListener('click', () => {
       this.setSelectedRole(role);
+      this.roleDetailsPinned = this.roleDetailsPinned === role ? null : role;
+      this.syncRoleDetailsVisibility();
       button.dataset.confirmed = 'true';
       window.setTimeout(() => {
         button.dataset.confirmed = 'false';
@@ -1967,6 +1987,15 @@ export class UISystem {
     }
   }
 
+  private syncRoleDetailsVisibility(): void {
+    const gunnerOpen =
+      this.roleDetailsHovered === 'gunner' || this.roleDetailsPinned === 'gunner';
+    const driverOpen =
+      this.roleDetailsHovered === 'driver' || this.roleDetailsPinned === 'driver';
+    this.overlayMenuGunnerRoleButton.dataset.detailsOpen = gunnerOpen ? 'true' : 'false';
+    this.overlayMenuDriverRoleButton.dataset.detailsOpen = driverOpen ? 'true' : 'false';
+  }
+
   private formatRoleLabel(role: GameplayRole): string {
     return role === 'driver' ? 'Driver' : 'Gunner';
   }
@@ -1987,6 +2016,13 @@ export class UISystem {
     this.overlayMenuCoopModeButton.dataset.selected = mode === 'coop' ? 'true' : 'false';
     this.overlayMenuDriverRoleButton.disabled = mode === 'single';
     this.overlayMenuDriverRoleButton.dataset.locked = mode === 'single' ? 'singleplayer' : 'false';
+    if (mode === 'single' && this.roleDetailsPinned === 'driver') {
+      this.roleDetailsPinned = null;
+    }
+    if (mode === 'single' && this.roleDetailsHovered === 'driver') {
+      this.roleDetailsHovered = null;
+    }
+    this.syncRoleDetailsVisibility();
 
     if (mode === 'single') {
       this.setSelectedRole('gunner', emit);

@@ -2088,7 +2088,7 @@ body {
   z-index: 2;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 6px;
   min-width: 0;
   padding: 0;
   border-radius: 0;
@@ -2132,33 +2132,30 @@ body {
 }
 
 .overlay-role-callout {
-  position: absolute;
-  z-index: 5;
-  top: 29%;
+  position: relative;
+  z-index: 1;
   display: block;
-  width: clamp(116px, 11vw, 156px);
+  width: min(100%, 220px);
   pointer-events: none;
   opacity: 0;
-  filter: drop-shadow(0 8px 13px rgba(0, 0, 0, 0.58));
+  filter: drop-shadow(0 6px 11px rgba(0, 0, 0, 0.5));
   transition: opacity 150ms ease, transform 150ms ease;
 }
 
 .overlay-role-card[data-role="driver"] .overlay-role-callout {
-  left: clamp(6px, 1.4vw, 18px);
   text-align: right;
-  transform: translateX(-5px);
+  transform: translateY(2px);
 }
 
 .overlay-role-card[data-role="gunner"] .overlay-role-callout {
-  right: clamp(6px, 1.4vw, 18px);
   text-align: left;
-  transform: translateX(5px);
+  transform: translateY(2px);
 }
 
 .overlay-role-card:hover .overlay-role-callout,
-.overlay-role-card[data-selected="true"] .overlay-role-callout {
+.overlay-role-card[data-details-open="true"] .overlay-role-callout {
   opacity: 1;
-  transform: translateX(0);
+  transform: translateY(0);
 }
 
 .overlay-role-callout-line {
@@ -2180,7 +2177,7 @@ body {
 
 .overlay-role-callout-text {
   display: grid;
-  gap: 4px;
+  gap: 2px;
   min-width: 0;
 }
 
@@ -3732,7 +3729,10 @@ body {
     font-size: clamp(0.7rem, min(2vw, 2.8vh), 0.9rem);
   }
 
-  .overlay-role-callout,
+  .overlay-role-callout {
+    width: min(100%, 170px);
+  }
+
   .overlay-role-hint {
     display: none;
   }
