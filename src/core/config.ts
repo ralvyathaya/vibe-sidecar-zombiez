@@ -7,7 +7,7 @@ export const GAME_CONFIG: GameConfig = {
   uiAudio: {
     selectPath: '/audio/ui/menu-select.ogg',
     confirmPath: '/audio/ui/menu-confirm.ogg',
-    selectVolume: 0.13,
+    selectVolume: 0.20,
     confirmVolume: 0.16,
     selectCooldownSeconds: 0.045,
   },
@@ -18,17 +18,17 @@ export const GAME_CONFIG: GameConfig = {
     tracks: {
       menu: {
         path: '/audio/music/menu.mp3',
-        volume: 0.12,
+        volume: 0.05,
         playbackRate: 1,
       },
       gameplay: {
         path: '/audio/music/gameplay.mp3',
-        volume: 0.105,
+        volume: 0.04,
         playbackRate: 1,
       },
       boss: {
         path: '/audio/music/boss-fights.mp3',
-        volume: 0.16,
+        volume: 0.10,
         playbackRate: 1,
       },
       lyrics: {
