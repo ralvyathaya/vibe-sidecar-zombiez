@@ -343,8 +343,8 @@ export class DriverSystem {
       this.setSupportCue(
         'laneRequestDenied',
         direction < 0
-          ? 'No miracle lane on the left. We live here.'
-          : 'No miracle lane on the right. We live here.',
+          ? "Can't go left. That's the edge."
+          : "Can't go right. That's the edge.",
         'requested edge lane',
       );
       this.laneRequestLockout = this.config.driver.laneRequestCooldown;
@@ -378,8 +378,8 @@ export class DriverSystem {
       this.setSupportCue(
         'laneRequestWrong',
         direction < 0
-          ? 'You asked left. Fate heard right.'
-          : 'You asked right. Fate heard left.',
+          ? 'Sorry, twitched right.'
+          : 'Sorry, twitched left.',
         'driver misread lane request',
       );
       this.laneRequestLockout = this.config.driver.laneRequestCooldown;
@@ -390,7 +390,7 @@ export class DriverSystem {
       this.startLaneChange(requestedLaneIndex, this.config.driver.laneChangeCommitDuration);
       this.setSupportCue(
         'laneRequest',
-        direction < 0 ? 'Alright then left lane it is.' : 'Alright then right lane it is.',
+        direction < 0 ? 'Going left.' : 'Going right.',
         'driver accepted lane request',
       );
       this.laneRequestLockout = this.config.driver.laneRequestCooldown;
@@ -402,8 +402,8 @@ export class DriverSystem {
       this.setSupportCue(
         'laneRequestWrong',
         direction < 0
-          ? "Nu-uh, left lane's cursed."
-          : "Nu-uh, right lane's cursed.",
+          ? "Left's bad. Taking the other side."
+          : "Right's bad. Taking the other side.",
         'driver redirected lane request',
       );
       this.laneRequestLockout = this.config.driver.laneRequestCooldown;
@@ -412,7 +412,7 @@ export class DriverSystem {
 
     this.setSupportCue(
       'laneRequestDenied',
-      'No clean lane. Violence will have to solve this.',
+      'No clean lane. Shoot us one.',
       'no safe lane change available',
     );
     this.laneRequestLockout = this.config.driver.laneRequestCooldown;
@@ -449,14 +449,14 @@ export class DriverSystem {
 
     const label =
       obstacleType === 'car'
-        ? 'Oops. Car.'
+        ? 'My bad. Car.'
         : obstacleType === 'wreck'
-          ? 'Oops. Wreck.'
+          ? 'My bad. Wreck.'
           : obstacleType === 'barricade'
-            ? 'Oops. Barricade.'
+            ? 'My bad. Barricade.'
             : obstacleType === 'concreteBlock'
-              ? 'Oops. Concrete.'
-              : 'Oops.';
+              ? 'My bad. Concrete.'
+              : 'My bad.';
     this.setSupportCue('obstacleHit', label, 'driver clipped an obstacle during a lane cut', true);
     this.supportCueCooldownTimer = this.config.driver.supportCueCooldown;
     this.cautiousHoldTimer = Math.max(
@@ -478,7 +478,7 @@ export class DriverSystem {
       this.engineTroubleRoughness = 0;
       this.setSupportCue(
         'brake',
-        "Brrakkeeeeeee!!.",
+        'Braking. Hold on.',
         'hazard pressure is tightening up',
       );
       this.promptLockout = this.config.driver.promptEffectLockout;
@@ -505,7 +505,7 @@ export class DriverSystem {
       this.engineTroubleRoughness = 0;
       this.setSupportCue(
         'floorIt',
-        'Full throttle, baby!',
+        "Gap's open. I'm sending it.",
         'there is a clean sprint window ahead',
       );
       this.promptLockout = this.config.driver.promptEffectLockout;
@@ -1105,7 +1105,7 @@ export class DriverSystem {
     this.nextForcedEngineTroubleAt = this.rollForcedEngineTroubleTime();
     this.setSupportCue(
       'engineTrouble',
-      'Damn it, this bike is really old',
+      "Bike's coughing. Not ideal.",
       'the bike is stumbling under stress',
     );
     this.promptLockout = this.config.driver.promptEffectLockout;

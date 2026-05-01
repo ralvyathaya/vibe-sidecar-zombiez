@@ -1585,21 +1585,11 @@ export class UISystem {
           : prompt.intent === 'engineTrouble'
             ? 'panic'
             : this.resolveDriverMood(snapshot);
-      const speaker =
-        prompt.intent === 'floorIt'
-          ? 'Driver  Grinning'
-          : prompt.intent === 'brake'
-            ? 'Driver  Measuring'
-            : prompt.intent === 'engineTrouble'
-              ? 'Driver  Wincing'
-              : mood === 'panic'
-                ? 'Driver  Losing It'
-                : 'Driver  Calling It';
       return {
         key: `prompt:${prompt.intent}:${prompt.label}`,
         mood,
         label: prompt.label,
-        speaker,
+        speaker: 'Joe',
         intent: prompt.intent,
         showTimer: true,
         timerRatio: prompt.duration > 0 ? prompt.timer / prompt.duration : 0,
@@ -1617,19 +1607,11 @@ export class UISystem {
           : supportCue.intent === 'laneRequestDenied'
             ? 'observing'
             : 'calm';
-      const speaker =
-        supportCue.intent === 'obstacleHit'
-          ? 'Driver  Instantly Regretful'
-          : supportCue.intent === 'laneRequestWrong'
-          ? 'Driver  Misreading Destiny'
-          : supportCue.intent === 'laneRequestDenied'
-            ? 'Driver  Dryly Refusing'
-            : 'Driver  On Codec';
       return {
         key: `support:${supportCue.intent}:${supportCue.label}`,
         mood,
         label: supportCue.label,
-        speaker,
+        speaker: 'Joe',
         intent: supportCue.intent,
         showTimer: false,
         timerRatio: supportCue.duration > 0 ? supportCue.timer / supportCue.duration : 0,
@@ -1644,8 +1626,8 @@ export class UISystem {
         return {
           key: `boss:intro:${snapshot.boss.level}`,
           mood: 'panic',
-        label: 'That thing came back red. Hit the weakpoints or it will outlast us.',
-          speaker: 'Driver  Reading The Sky',
+          label: "Red glow. Bad news. Hit the weakpoints, don't waste shots on the shell.",
+          speaker: 'Joe',
           intent: 'boss',
           showTimer: false,
           timerRatio: 0,
@@ -1659,8 +1641,8 @@ export class UISystem {
         return {
           key: `boss:intro:${snapshot.boss.level}`,
           mood: 'observing',
-          label: 'Same helicopter, worse attitude. Aim for the weakpoints, not the hull.',
-          speaker: 'Driver  Bad Pattern Recognition',
+          label: "He's back. Meaner this time. Weakpoints first, yeah?",
+          speaker: 'Joe',
           intent: 'boss',
           showTimer: false,
           timerRatio: 0,
@@ -1673,8 +1655,8 @@ export class UISystem {
       return {
         key: `boss:intro:${snapshot.boss.level}`,
         mood: 'observing',
-        label: 'Helicopter overhead. Shoot the glowing weakpoints. Hull shots barely count.',
-        speaker: 'Driver  Looking Up',
+        label: "Helicopter's here. Shoot the glowing bits. Body shots barely count.",
+        speaker: 'Joe',
         intent: 'boss',
         showTimer: false,
         timerRatio: 0,
@@ -1688,8 +1670,8 @@ export class UISystem {
       return {
         key: 'event:floor-it',
         mood: 'observing',
-        label: 'Speed is now our legal defense. Shoot anything that objects.',
-        speaker: 'Driver  Recklessly Calm',
+        label: "Road's open. I'm flooring it. Keep shooting.",
+        speaker: 'Joe',
         intent: 'floorIt',
         showTimer: false,
         timerRatio: 0,
@@ -1703,8 +1685,8 @@ export class UISystem {
       return {
         key: 'event:brake',
         mood: 'observing',
-        label: "I'm not stopping. I'm editing our speed downward.",
-        speaker: 'Driver  Technical Monologue',
+        label: "Braking. Don't ask how much brake we still have.",
+        speaker: 'Joe',
         intent: 'brake',
         showTimer: false,
         timerRatio: 0,
@@ -1718,8 +1700,8 @@ export class UISystem {
       return {
         key: 'event:engine-trouble',
         mood: 'panic',
-        label: 'The engine is making a statement. I reject its politics.',
-        speaker: 'Driver  Existentially Busy',
+        label: "Bike's coughing again. Of course it is.",
+        speaker: 'Joe',
         intent: 'engineTrouble',
         showTimer: false,
         timerRatio: 0,
@@ -1733,8 +1715,8 @@ export class UISystem {
       return {
         key: 'event:latch',
         mood: 'panic',
-        label: 'Lower. Sidecar level. Return that idiot to the asphalt.',
-        speaker: 'Driver  Alarmingly Specific',
+        label: "He's on the sidecar. Aim low. Get him off.",
+        speaker: 'Joe',
         intent: 'latch',
         showTimer: false,
         timerRatio: 0,
@@ -1748,8 +1730,8 @@ export class UISystem {
       return {
         key: 'event:berserk',
         mood: 'panic',
-        label: "They've entered their dramatic phase. Thin the cast.",
-        speaker: 'Driver  Bad Feeling',
+        label: "They're sprinting now. Clear the front.",
+        speaker: 'Joe',
         intent: 'event',
         showTimer: false,
         timerRatio: 0,
@@ -1763,8 +1745,8 @@ export class UISystem {
       return {
         key: 'event:rain',
         mood: 'observing',
-        label: 'Rain just turned the road into soap. Brake early, steer clean.',
-        speaker: 'Driver  Weather Complaint',
+        label: "Road's slick. Small turns, early brakes.",
+        speaker: 'Joe',
         intent: 'event',
         showTimer: false,
         timerRatio: 0,
@@ -1778,8 +1760,8 @@ export class UISystem {
       return {
         key: 'event:blackout',
         mood: 'observing',
-        label: 'Night has become ambitious. Watch the edges.',
-        speaker: 'Driver  Squinting At Fate',
+        label: "Can't see much. Watch the edges.",
+        speaker: 'Joe',
         intent: 'event',
         showTimer: false,
         timerRatio: 0,
@@ -1794,8 +1776,8 @@ export class UISystem {
       return {
         key: 'event:critical-failure',
         mood: 'panic',
-        label: 'Critical damage. The bike is falling apart. Clear me a lane.',
-        speaker: 'Driver  Speaking To Machinery',
+        label: "We're barely holding together. Give me a clean lane.",
+        speaker: 'Joe',
         intent: 'critical',
         showTimer: false,
         timerRatio: 0,
@@ -1809,8 +1791,8 @@ export class UISystem {
       return {
         key: 'event:warning-failure',
         mood: 'panic',
-        label: 'We are one bad decision away from slapstick.',
-        speaker: 'Driver  Pretending Calm',
+        label: "We're one bad bump from walking.",
+        speaker: 'Joe',
         intent: 'warning',
         showTimer: false,
         timerRatio: 0,
@@ -1824,8 +1806,8 @@ export class UISystem {
       return {
         key: 'pickup:nitro',
         mood: 'observing',
-        label: 'Auto accelerator. It shoves us forward while I pretend this was planned.',
-        speaker: 'Driver  Explaining Badly',
+        label: "Nitro's in. This may get stupid.",
+        speaker: 'Joe',
         intent: 'pickup',
         showTimer: false,
         timerRatio: 0,
@@ -1843,8 +1825,8 @@ export class UISystem {
       return {
         key: 'pickup:shotgun',
         mood: 'calm',
-        label: 'Shotgun. For intimate negotiations and sidecar emergencies.',
-        speaker: 'Driver  Quartermaster Theater',
+        label: "Shotgun's up. Save it for panic.",
+        speaker: 'Joe',
         intent: 'pickup',
         showTimer: false,
         timerRatio: 0,
@@ -1862,8 +1844,8 @@ export class UISystem {
       return {
         key: 'pickup:bazooka',
         mood: 'observing',
-        label: 'Bazooka. For when subtlety has failed the republic.',
-        speaker: 'Driver  Quartermaster Theater',
+        label: 'Bazooka. If it flies or blocks us, delete it.',
+        speaker: 'Joe',
         intent: 'pickup',
         showTimer: false,
         timerRatio: 0,
@@ -1882,8 +1864,8 @@ export class UISystem {
       return {
         key: `warning:tank:${Math.floor(snapshot.elapsedSeconds)}`,
         mood: 'panic',
-        label: 'Tank zombie ahead. That one does not respect optimism.',
-        speaker: 'Driver  Grim Forecast',
+        label: "Big one ahead. Don't let it touch us.",
+        speaker: 'Joe',
         intent: 'warning',
         showTimer: false,
         timerRatio: 0,
