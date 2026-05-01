@@ -543,6 +543,7 @@ export class Game {
         preWorldRide.forwardSpeed,
         preWorldRide.segment,
         this.jumpTimer > 0,
+        this.bossSystem.isCombatActive(),
       );
       if (worldImpact.reaction === 'rampJump') {
         this.triggerRampJump();
@@ -559,6 +560,7 @@ export class Game {
         simulationDelta,
         this.spawnSystem.elapsedSeconds,
         this.playerSystem.state.strafeX,
+        this.jumpTimer > 0,
       );
       if (bossImpact.damage > 0) {
         this.rewardSystem.breakChainFromDamage();
@@ -583,6 +585,7 @@ export class Game {
         loadout,
         this.playerSystem.state,
         this.coopSession.activeProfile !== 'driver',
+        this.bossSystem.isCombatActive(),
       );
       for (const pickupEvent of pickupEvents) {
         this.applyPickupEvent(pickupEvent);
@@ -874,6 +877,7 @@ export class Game {
       deltaTime,
       this.spawnSystem.elapsedSeconds,
       this.playerSystem.state.strafeX,
+      this.jumpTimer > 0,
     );
 
     const cinematicRide = this.lastRideState ?? this.composeRideState(

@@ -97,6 +97,7 @@ export class PickupSystem {
     loadout: LoadoutState,
     player: PlayerState,
     collectWeaponPickups = true,
+    bossActive = false,
   ): PickupEvent[] {
     const events: PickupEvent[] = [];
     const scrollDistance = forwardSpeed * deltaTime;
@@ -192,7 +193,9 @@ export class PickupSystem {
     ) {
       const slot = this.pickups.find((entry) => !entry.active);
       if (slot) {
-        this.spawn(slot, loadout, player, bazookaUnlocked, elapsedSeconds, 'bazooka');
+        this.spawn(slot, loadout, player, bazookaUnlocked, elapsedSeconds, 'bazooka', {
+          bossActive,
+        });
         this.scriptedBazookaSpawned = true;
       }
     }
@@ -205,14 +208,23 @@ export class PickupSystem {
     ) {
       const slot = this.pickups.find((entry) => !entry.active);
       if (slot) {
-        this.spawn(slot, loadout, player, bazookaUnlocked, elapsedSeconds, 'assaultRifle');
+        this.spawn(slot, loadout, player, bazookaUnlocked, elapsedSeconds, 'assaultRifle', {
+          bossActive,
+        });
         this.scriptedRifleSpawned = true;
       }
     }
     const desiredWeaponCount =
-      weaponUnlocked ? (bazookaUnlocked ? 3 : loadout.shotgunUnlocked ? 2 : 1) : 0;
+      weaponUnlocked
+        ? (bazookaUnlocked ? 3 : loadout.shotgunUnlocked ? 2 : 1) +
+          (bossActive && bazookaUnlocked ? 1 : 0)
+        : 0;
     const desiredRifleCount = rifleUnlocked ? 1 : 0;
-    const desiredSupportCount = supportUnlocked ? 2 : 0;
+    const desiredSupportCount = supportUnlocked
+      ? bossActive
+        ? this.config.pickups.bossSupportActiveLimit
+        : 2
+      : 0;
     const desiredActiveCount = desiredWeaponCount + desiredRifleCount + desiredSupportCount;
     while (this.getActiveCount() < desiredActiveCount) {
       const slot = this.pickups.find((entry) => !entry.active);
@@ -220,7 +232,9 @@ export class PickupSystem {
         break;
       }
 
-      this.spawn(slot, loadout, player, bazookaUnlocked, elapsedSeconds);
+      this.spawn(slot, loadout, player, bazookaUnlocked, elapsedSeconds, undefined, {
+        bossActive,
+      });
     }
 
     return events;
@@ -436,6 +450,7 @@ export class PickupSystem {
       laneIndex?: number;
       zPosition?: number;
       consumeSpacing?: boolean;
+      bossActive?: boolean;
     },
   ): void {
     const laneIndex =
@@ -444,15 +459,39 @@ export class PickupSystem {
     const activeSupportCount = this.getActiveSupportCount();
     const spawnZ = options?.zPosition ?? this.nextSpawnZ;
     const consumeSpacing = options?.consumeSpacing ?? true;
+    const bossActive = options?.bossActive ?? false;
+    const supportLimit = bossActive ? this.config.pickups.bossSupportActiveLimit : 2;
+    const supportChance = Math.min(
+      0.92,
+      this.config.pickups.supportPickupChance *
+        (bossActive ? this.config.pickups.bossSupportChanceMultiplier : 1),
+    );
+    const supportSpacingMultiplier = bossActive
+      ? this.config.pickups.bossSupportSpacingMultiplier
+      : 1;
+    const bazookaSpacingMultiplier = bossActive
+      ? this.config.pickups.bossBazookaSpacingMultiplier
+      : 1;
     let kind: PickupType;
     if (forcedKind) {
       kind = forcedKind;
     } else {
-      const supportCandidates = this.buildSupportPickupCandidates(loadout, player, elapsedSeconds);
+      const supportCandidates = this.buildSupportPickupCandidates(
+        loadout,
+        player,
+        elapsedSeconds,
+        bossActive,
+      );
+      const canSpawnBossBazooka =
+        bossActive &&
+        bazookaUnlocked &&
+        loadout.bazookaAmmo <= 0 &&
+        !this.hasActiveKind('bazooka') &&
+        Math.random() < this.config.pickups.bossBazookaSpawnChance;
       const canSpawnSupport =
         elapsedSeconds >= this.config.pickups.supportUnlockTimeSeconds &&
-        activeSupportCount < 2 &&
-        Math.random() < this.config.pickups.supportPickupChance &&
+        activeSupportCount < supportLimit &&
+        Math.random() < supportChance &&
         supportCandidates.some((candidate) => candidate.weight > 0.001);
       if (canSpawnSupport) {
         kind = this.pickSupportPickup(loadout, player, elapsedSeconds, supportCandidates);
@@ -466,11 +505,12 @@ export class PickupSystem {
       ) {
         kind = 'assaultRifle';
       } else if (
-        bazookaUnlocked &&
-        elapsedSeconds >= this.config.pickups.bazookaUnlockTimeSeconds &&
-        elapsedSeconds <= 70 &&
-        loadout.bazookaAmmo <= 0 &&
-        Math.random() < this.config.pickups.bazookaSpawnChance * 1.2
+        canSpawnBossBazooka ||
+        (bazookaUnlocked &&
+          elapsedSeconds >= this.config.pickups.bazookaUnlockTimeSeconds &&
+          elapsedSeconds <= 70 &&
+          loadout.bazookaAmmo <= 0 &&
+          Math.random() < this.config.pickups.bazookaSpawnChance * 1.2)
       ) {
         kind = 'bazooka';
       } else if (
@@ -557,9 +597,10 @@ export class PickupSystem {
       (pickup.glow.material as MeshBasicMaterial).color.setHex(0xff8d5b);
       (pickup.beacon.material as MeshBasicMaterial).color.setHex(0xff8d5b);
       if (consumeSpacing) {
-        this.nextSpawnZ -= randomRange(
+        this.advanceNextSpawnZ(
           this.config.pickups.bazookaPickupSpacingMin,
           this.config.pickups.bazookaPickupSpacingMax,
+          bazookaSpacingMultiplier,
         );
       }
       return;
@@ -577,9 +618,10 @@ export class PickupSystem {
       (pickup.glow.material as MeshBasicMaterial).color.setHex(0x8dffad);
       (pickup.beacon.material as MeshBasicMaterial).color.setHex(0x8dffad);
       if (consumeSpacing) {
-        this.nextSpawnZ -= randomRange(
+        this.advanceNextSpawnZ(
           this.config.pickups.supportPickupSpacingMin,
           this.config.pickups.supportPickupSpacingMax,
+          supportSpacingMultiplier,
         );
       }
       return;
@@ -597,9 +639,10 @@ export class PickupSystem {
       (pickup.glow.material as MeshBasicMaterial).color.setHex(0xffd67a);
       (pickup.beacon.material as MeshBasicMaterial).color.setHex(0xffd67a);
       if (consumeSpacing) {
-        this.nextSpawnZ -= randomRange(
+        this.advanceNextSpawnZ(
           this.config.pickups.supportPickupSpacingMin,
           this.config.pickups.supportPickupSpacingMax,
+          supportSpacingMultiplier,
         );
       }
       return;
@@ -612,9 +655,10 @@ export class PickupSystem {
       pickup.adrenalineVariant.visible = true;
       this.applyPickupColor(pickup, 0x8df5ff);
       if (consumeSpacing) {
-        this.nextSpawnZ -= randomRange(
+        this.advanceNextSpawnZ(
           this.config.pickups.supportPickupSpacingMin,
           this.config.pickups.supportPickupSpacingMax,
+          supportSpacingMultiplier,
         );
       }
       return;
@@ -627,9 +671,10 @@ export class PickupSystem {
       pickup.scoreCacheVariant.visible = true;
       this.applyPickupColor(pickup, 0xffe18a);
       if (consumeSpacing) {
-        this.nextSpawnZ -= randomRange(
+        this.advanceNextSpawnZ(
           this.config.pickups.supportPickupSpacingMin,
           this.config.pickups.supportPickupSpacingMax,
+          supportSpacingMultiplier,
         );
       }
       return;
@@ -642,9 +687,10 @@ export class PickupSystem {
       pickup.chainBoostVariant.visible = true;
       this.applyPickupColor(pickup, 0xffb16b);
       if (consumeSpacing) {
-        this.nextSpawnZ -= randomRange(
+        this.advanceNextSpawnZ(
           this.config.pickups.supportPickupSpacingMin,
           this.config.pickups.supportPickupSpacingMax,
+          supportSpacingMultiplier,
         );
       }
       return;
@@ -657,9 +703,10 @@ export class PickupSystem {
       pickup.decoyVariant.visible = true;
       this.applyPickupColor(pickup, 0xa4c2ff);
       if (consumeSpacing) {
-        this.nextSpawnZ -= randomRange(
+        this.advanceNextSpawnZ(
           this.config.pickups.supportPickupSpacingMin,
           this.config.pickups.supportPickupSpacingMax,
+          supportSpacingMultiplier,
         );
       }
       return;
@@ -672,9 +719,10 @@ export class PickupSystem {
       pickup.weaponBoostVariant.visible = true;
       this.applyPickupColor(pickup, 0xff9b5c);
       if (consumeSpacing) {
-        this.nextSpawnZ -= randomRange(
+        this.advanceNextSpawnZ(
           this.config.pickups.supportPickupSpacingMin,
           this.config.pickups.supportPickupSpacingMax,
+          supportSpacingMultiplier,
         );
       }
       return;
@@ -714,6 +762,10 @@ export class PickupSystem {
         this.config.pickups.ammoCrateSpacingMax,
       );
     }
+  }
+
+  private advanceNextSpawnZ(minSpacing: number, maxSpacing: number, multiplier = 1): void {
+    this.nextSpawnZ -= randomRange(minSpacing * multiplier, maxSpacing * multiplier);
   }
 
   private deactivate(pickup: PickupRecord): void {
@@ -1625,11 +1677,12 @@ export class PickupSystem {
     loadout: LoadoutState,
     player: PlayerState,
     elapsedSeconds: number,
+    bossActive = false,
   ): Array<{ type: PickupType; weight: number }> {
     const healthRatio = player.health / Math.max(player.maxHealth, 1);
     const medkitBias =
       healthRatio < 0.48 ? this.config.pickups.medkitLowHealthBias : 0;
-    const medkitWeight =
+    let medkitWeight =
       elapsedSeconds < this.config.pickups.medkitEarliestSeconds
         ? 0
         : healthRatio <= 0.34
@@ -1637,6 +1690,13 @@ export class PickupSystem {
           : healthRatio <= 0.58
             ? 0.16 + medkitBias * 0.45
             : 0.05;
+    if (bossActive && elapsedSeconds >= this.config.pickups.medkitEarliestSeconds) {
+      const bossMedkitFloor =
+        healthRatio <= 0.72
+          ? this.config.pickups.bossMedkitWeightFloor
+          : this.config.pickups.bossMedkitWeightFloor * 0.65;
+      medkitWeight = Math.max(medkitWeight, bossMedkitFloor);
+    }
     const shotgunAmmoRatio = loadout.shotgunAmmo / Math.max(this.config.shotgun.maxAmmo, 1);
     const ammoBias = !loadout.shotgunUnlocked
       ? 0

@@ -132,6 +132,7 @@ export class WorldSystem {
   private nextObstacleZ = -28;
   private nextBarrelEligibleZ = -86;
   private nextRampEligibleZ = -142;
+  private bossActive = false;
   private pendingGateSpawnZ: number | null = null;
   private pendingGateType: ObstacleType | null = null;
   private pendingGateLanes: number[] = [];
@@ -165,6 +166,7 @@ export class WorldSystem {
     this.nextObstacleZ = -28;
     this.nextBarrelEligibleZ = -86;
     this.nextRampEligibleZ = -142;
+    this.bossActive = false;
     this.pendingGateSpawnZ = null;
     this.pendingGateType = null;
     this.pendingGateLanes = [];
@@ -202,9 +204,11 @@ export class WorldSystem {
     forwardSpeed: number,
     segment: RunSegment,
     jumpActive = false,
+    bossActive = false,
   ): WorldImpactResult {
     this.time += deltaTime;
     this.currentSegment = segment;
+    this.bossActive = bossActive;
     const scrollDistance = forwardSpeed * deltaTime;
 
     for (const chunk of this.chunks) {
@@ -1306,7 +1310,12 @@ export class WorldSystem {
     const canSpawnRamp =
       !gateSlot &&
       spawnZ <= this.nextRampEligibleZ &&
-      Math.random() < this.config.world.ramp.spawnChance;
+      Math.random() <
+        Math.min(
+          0.72,
+          this.config.world.ramp.spawnChance *
+            (this.bossActive ? this.config.world.ramp.bossSpawnChanceMultiplier : 1),
+        );
 
     let type = gateSlot?.type ?? (canSpawnRamp ? 'ramp' : canSpawnBarrel ? 'barrel' : this.chooseHazardType());
     let laneIndex = gateSlot?.laneIndex ?? this.pickLaneIndexForType(type, spawnZ);
@@ -1349,10 +1358,13 @@ export class WorldSystem {
           this.config.world.barrel.spawnSpacingMax,
         );
     } else if (type === 'ramp') {
+      const spacingMultiplier = this.bossActive
+        ? this.config.world.ramp.bossSpawnSpacingMultiplier
+        : 1;
       this.nextRampEligibleZ =
         spawnZ - randomRange(
-          this.config.world.ramp.spawnSpacingMin,
-          this.config.world.ramp.spawnSpacingMax,
+          this.config.world.ramp.spawnSpacingMin * spacingMultiplier,
+          this.config.world.ramp.spawnSpacingMax * spacingMultiplier,
         );
     }
   }

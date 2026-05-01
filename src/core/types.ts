@@ -884,6 +884,8 @@ export interface GameConfig {
     };
     ramp: {
       spawnChance: number;
+      bossSpawnChanceMultiplier: number;
+      bossSpawnSpacingMultiplier: number;
       spawnSpacingMin: number;
       spawnSpacingMax: number;
       width: number;
@@ -931,6 +933,8 @@ export interface GameConfig {
     ammoCrateMin: number;
     ammoCrateMax: number;
     bazookaSpawnChance: number;
+    bossBazookaSpawnChance: number;
+    bossBazookaSpacingMultiplier: number;
     bazookaPickupSpacingMin: number;
     bazookaPickupSpacingMax: number;
     riflePickupSpacingMin: number;
@@ -942,6 +946,10 @@ export interface GameConfig {
     supportPickupSpacingMin: number;
     supportPickupSpacingMax: number;
     supportPickupChance: number;
+    bossSupportActiveLimit: number;
+    bossSupportChanceMultiplier: number;
+    bossSupportSpacingMultiplier: number;
+    bossMedkitWeightFloor: number;
     medkitEarliestSeconds: number;
     medkitHeal: number;
     medkitLowHealthBias: number;
