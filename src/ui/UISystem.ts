@@ -1320,9 +1320,9 @@ export class UISystem {
             ? 'DODGE LANE'
           : snapshot.boss.status === 'retreating'
             ? 'RETREATING'
-            : snapshot.boss.status === 'defeated'
-              ? 'BONUS SECURED'
-              : `PHASE ${snapshot.boss.phase}`,
+          : snapshot.boss.status === 'defeated'
+            ? 'BONUS SECURED'
+              : `HIT WEAKPOINTS · PHASE ${snapshot.boss.phase}`,
       );
       this.setTransformStyle(
         this.bossFill,
@@ -1621,6 +1621,51 @@ export class UISystem {
         showControls: false,
         controlsLabel: '',
         persistSeconds: 0.12,
+      };
+    }
+
+    if (snapshot.boss.status === 'approach' && snapshot.boss.level > 0) {
+      if (snapshot.boss.level === 3) {
+        return {
+          key: `boss:intro:${snapshot.boss.level}`,
+          mood: 'panic',
+        label: 'That thing came back red. Hit the weakpoints or it will outlast us.',
+          speaker: 'Driver  Reading The Sky',
+          intent: 'boss',
+          showTimer: false,
+          timerRatio: 0,
+          showControls: false,
+          controlsLabel: '',
+          persistSeconds: 1.85,
+        };
+      }
+
+      if (snapshot.boss.level === 2) {
+        return {
+          key: `boss:intro:${snapshot.boss.level}`,
+          mood: 'observing',
+          label: 'Same helicopter, worse attitude. Aim for the weakpoints, not the hull.',
+          speaker: 'Driver  Bad Pattern Recognition',
+          intent: 'boss',
+          showTimer: false,
+          timerRatio: 0,
+          showControls: false,
+          controlsLabel: '',
+          persistSeconds: 1.75,
+        };
+      }
+
+      return {
+        key: `boss:intro:${snapshot.boss.level}`,
+        mood: 'observing',
+        label: 'Helicopter overhead. Shoot the glowing weakpoints. Hull shots barely count.',
+        speaker: 'Driver  Looking Up',
+        intent: 'boss',
+        showTimer: false,
+        timerRatio: 0,
+        showControls: false,
+        controlsLabel: '',
+        persistSeconds: 1.65,
       };
     }
 

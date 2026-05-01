@@ -82,6 +82,11 @@ const BLAST_GEOMETRY = new SphereGeometry(1, 12, 8);
 const Y_AXIS = new Vector3(0, 1, 0);
 const CINEMATIC_INTRO_MIN_DURATION = 2.45;
 const CINEMATIC_DEFEAT_MIN_DURATION = 2.1;
+const BOSS_AURA_COLORS: Record<Exclude<BossPhase, 0>, number> = {
+  1: 0xffb35f,
+  2: 0xff8a22,
+  3: 0xff2f1f,
+};
 const PROJECTILE_SPAWN_PRIORITY_PATTERNS = [
   ['laserspawn', 'laser_spawn', 'laser spawn', 'spawn_front', 'laser_front'],
   ['projectilespawn', 'projectile_spawn', 'projectile spawn', 'muzzle', 'barrel'],
@@ -93,6 +98,14 @@ export class BossSystem {
   private readonly proceduralGroup = new Group();
   private readonly hull: Mesh;
   private readonly weakpoint: Mesh;
+  private readonly auraMaterial = new MeshBasicMaterial({
+    color: BOSS_AURA_COLORS[1],
+    transparent: true,
+    opacity: 0,
+    blending: AdditiveBlending,
+    depthWrite: false,
+  });
+  private readonly aura: Mesh;
   private readonly keyLight = new PointLight(0xff743b, 0, 18, 2);
   private readonly projectiles: BossProjectileRecord[] = [];
   private readonly impactBursts: BossImpactBurstRecord[] = [];
@@ -269,6 +282,11 @@ export class BossSystem {
     this.proceduralGroup.add(this.weakpoint);
     this.weakpointNodes.push(this.weakpoint);
     this.rebuildWeakpointRecords();
+    this.aura = new Mesh(BLAST_GEOMETRY, this.auraMaterial);
+    this.aura.name = 'BossStageAura';
+    this.aura.visible = false;
+    this.aura.scale.set(8.8, 2.9, 4.8);
+    this.root.add(this.aura);
     this.root.add(this.keyLight);
     this.keyLight.position.set(0, -0.1, 3.4);
 
@@ -305,6 +323,8 @@ export class BossSystem {
     this.root.visible = false;
     this.root.position.copy(this.hoverBase);
     this.keyLight.intensity = 0;
+    this.aura.visible = false;
+    this.auraMaterial.opacity = 0;
     for (const projectile of this.projectiles) {
       this.deactivateProjectile(projectile);
     }
@@ -329,6 +349,7 @@ export class BossSystem {
       burst.mesh.removeFromParent();
       burst.material.dispose();
     }
+    this.auraMaterial.dispose();
     this.preStrikeSound.destroy();
     this.projectileHitSound.destroy();
     this.helicopterLoop.destroy();
@@ -396,6 +417,7 @@ export class BossSystem {
     deltaTime: number,
     elapsedSeconds: number,
     playerX: number,
+    playerAirborne = false,
   ): BossDamageResult {
     this.time += deltaTime;
     this.hitFlashTimer = Math.max(0, this.hitFlashTimer - deltaTime);
@@ -415,7 +437,7 @@ export class BossSystem {
     }
 
     this.updateBossState(deltaTime);
-    const damage = this.updateProjectiles(deltaTime, playerX);
+    const damage = this.updateProjectiles(deltaTime, playerX, playerAirborne);
     this.updatePresentation();
     this.syncHelicopterLoop();
     return damage;
@@ -712,7 +734,11 @@ export class BossSystem {
     }
   }
 
-  private updateProjectiles(deltaTime: number, playerX: number): BossDamageResult {
+  private updateProjectiles(
+    deltaTime: number,
+    playerX: number,
+    playerAirborne: boolean,
+  ): BossDamageResult {
     let damage = 0;
     let sourceX = 0;
     for (const projectile of this.projectiles) {
@@ -731,7 +757,7 @@ export class BossSystem {
       } else {
         projectile.impactTimer = Math.max(0, projectile.impactTimer - deltaTime);
         projectile.blastTimer = Math.max(0, projectile.blastTimer - deltaTime);
-        if (!projectile.hitPlayer) {
+        if (!projectile.hitPlayer && !playerAirborne) {
           const hitWidth = projectile.width * 0.5 + this.config.player.collisionRadius;
           if (Math.abs(playerX - projectile.laneX) <= hitWidth) {
             projectile.hitPlayer = true;
@@ -807,6 +833,22 @@ export class BossSystem {
     this.weakpoint.scale.setScalar(0.76 + (1 - healthRatio) * 0.28 + Math.sin(this.time * 8) * 0.04);
     const weakMaterial = this.weakpoint.material as MeshStandardMaterial;
     const hitFlashRatio = clamp(this.hitFlashTimer / 0.16, 0, 1);
+    const auraColor = BOSS_AURA_COLORS[Math.max(1, this.level) as Exclude<BossPhase, 0>] ?? BOSS_AURA_COLORS[1];
+    const auraIntensity =
+      this.level >= 3
+        ? 0.28 + hitFlashRatio * 0.12
+        : this.level >= 2
+          ? 0.16 + hitFlashRatio * 0.08
+          : 0.045 + hitFlashRatio * 0.04;
+    this.aura.visible = this.level > 0;
+    this.auraMaterial.color.setHex(auraColor);
+    this.auraMaterial.opacity = auraIntensity * (this.status === 'retreating' ? 0.5 : 1);
+    this.aura.scale.set(
+      8.8 + Math.sin(this.time * 3.1) * 0.32 + hitFlashRatio * 0.35,
+      2.9 + Math.cos(this.time * 2.7) * 0.12 + hitFlashRatio * 0.2,
+      4.8 + Math.sin(this.time * 2.2) * 0.24 + hitFlashRatio * 0.28,
+    );
+    this.keyLight.color.setHex(auraColor);
     weakMaterial.emissiveIntensity =
       1.05 + (1 - healthRatio) * 1.3 + Math.sin(this.time * 7) * 0.18 + hitFlashRatio * 2.2;
     this.keyLight.intensity =
