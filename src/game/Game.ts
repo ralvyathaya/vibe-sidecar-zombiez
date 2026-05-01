@@ -13,6 +13,7 @@ import type {
   DriverPromptResolution,
   GameStateType,
   LaneThreatState,
+  MusicTrackKey,
   PickupEvent,
   PickupRiskType,
   PortalRedirectPayload,
@@ -23,6 +24,7 @@ import type {
 import { approach, clamp, randomInt, randomRange, setGameRandomSeed } from '../core/utils';
 import { UISystem } from '../ui/UISystem';
 import { LoopingSound } from './audio/LoopingSound';
+import { MusicDirector } from './audio/MusicDirector';
 import { SoundEffectPool } from './audio/SoundEffectPool';
 import {
   DebugTransformEditor,
@@ -77,6 +79,7 @@ export class Game {
   private readonly gameLoop: GameLoop;
   private readonly engineLoop: LoopingSound;
   private readonly stallLoop: LoopingSound;
+  private readonly musicDirector: MusicDirector;
   private readonly rampJumpSound: SoundEffectPool;
   private readonly gameOverSound: SoundEffectPool;
   private readonly playerPosition = new Vector3();
@@ -227,6 +230,7 @@ export class Game {
       highpassHz: Math.max(48, GAME_CONFIG.vehicle.engineHighpassHz * 0.6),
       lowpassHz: Math.max(900, GAME_CONFIG.vehicle.engineLowpassHz * 0.78),
     });
+    this.musicDirector = new MusicDirector(GAME_CONFIG.music);
     this.rampJumpSound = new SoundEffectPool(GAME_CONFIG.world.ramp.audioPath, {
       poolSize: 2,
       volume: GAME_CONFIG.world.ramp.audioVolume,
@@ -273,6 +277,7 @@ export class Game {
     this.uiSystem.onMusicPreferenceChange = (enabled) => {
       this.audioPreferences.musicEnabled = enabled;
       this.saveAudioPreferences();
+      this.applyAudioPreferences();
     };
     this.uiSystem.onMobileLaneHoldChange = (direction, active) => {
       this.inputSystem.setVirtualLaneHeld(direction, active);
@@ -386,6 +391,7 @@ export class Game {
     this.rewardSystem.destroy();
     this.engineLoop.destroy();
     this.stallLoop.destroy();
+    this.musicDirector.destroy();
     this.rampJumpSound.destroy();
     this.gameOverSound.destroy();
     this.rendererSystem.destroy();
@@ -403,6 +409,7 @@ export class Game {
       this.handleContextActions();
       if (this.bossSystem.isGameplayCinematicActive()) {
         this.updateBossCinematicFrame(deltaTime);
+        this.updateMusic(deltaTime);
         return;
       }
       this.updatePickupRiskEffects(deltaTime);
@@ -676,6 +683,7 @@ export class Game {
       this.lastRideState = idleRide;
     }
 
+    this.updateMusic(deltaTime);
     const ride = this.frameRideState ?? this.lastRideState;
     this.uiSystem.update({
       gameState: this.state,
@@ -1749,6 +1757,7 @@ export class Game {
       this.syncStallLoop(false);
       this.bossSystem.pauseAudio();
     }
+    this.updateMusic(0);
   }
 
   private applyAudioPreferences(): void {
@@ -1756,7 +1765,40 @@ export class Game {
     this.engineLoop.setEnabled(this.audioPreferences.sfxEnabled);
     this.stallLoop.setEnabled(this.audioPreferences.sfxEnabled);
     this.bossSystem.setAudioEnabled(this.audioPreferences.sfxEnabled);
+    this.musicDirector.setEnabled(this.audioPreferences.musicEnabled);
     this.uiSystem.setAudioPreferences(this.audioPreferences);
+    this.updateMusic(0);
+  }
+
+  private updateMusic(deltaTime: number): void {
+    if (!this.audioPreferences.musicEnabled) {
+      this.musicDirector.setTrack(null);
+      this.musicDirector.update(deltaTime);
+      return;
+    }
+
+    this.musicDirector.setTrack(this.resolveMusicTrack());
+    this.musicDirector.update(deltaTime);
+  }
+
+  private resolveMusicTrack(): MusicTrackKey | null {
+    if (this.state === 'running') {
+      if (this.bossSystem.isActive()) {
+        return 'boss';
+      }
+
+      if (this.spawnSystem.elapsedSeconds >= GAME_CONFIG.music.lyricsStartSeconds) {
+        return 'lyrics';
+      }
+
+      return 'gameplay';
+    }
+
+    if (this.state === 'menu' || this.state === 'paused') {
+      return 'menu';
+    }
+
+    return null;
   }
 
   private loadAudioPreferences(): { sfxEnabled: boolean; musicEnabled: boolean } {

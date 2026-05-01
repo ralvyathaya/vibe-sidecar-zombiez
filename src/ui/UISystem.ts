@@ -264,6 +264,16 @@ export class UISystem {
     volume: 0.06,
     playbackRate: 1.12,
   });
+  private readonly menuSelectSound = new SoundEffectPool(GAME_CONFIG.uiAudio.selectPath, {
+    poolSize: 1,
+    volume: GAME_CONFIG.uiAudio.selectVolume,
+    playbackRate: 1,
+  });
+  private readonly menuConfirmSound = new SoundEffectPool(GAME_CONFIG.uiAudio.confirmPath, {
+    poolSize: 1,
+    volume: GAME_CONFIG.uiAudio.confirmVolume,
+    playbackRate: 1,
+  });
   private readonly ammoRounds: HTMLSpanElement[] = [];
   private readonly radarDots: HTMLSpanElement[] = [];
   private readonly screenRainDrops: ScreenRainDrop[] = [];
@@ -291,6 +301,8 @@ export class UISystem {
   private roleDetailsHovered: GameplayRole | null = null;
   private menuPlayMode: MenuPlayMode = 'single';
   private coopSession: CoopSessionState | null = null;
+  private lastMenuCueTarget: Element | null = null;
+  private lastMenuSelectCueAt = 0;
 
   constructor(host: HTMLElement) {
     this.root.className = 'ui-root';
@@ -697,6 +709,9 @@ export class UISystem {
     this.overlayStateSfxToggle.type = 'button';
     this.overlayStateMusicToggle.className = 'overlay-menu-toggle';
     this.overlayStateMusicToggle.type = 'button';
+    this.menuSelectSound.prime();
+    this.menuConfirmSound.prime();
+    this.installMenuAudioCues();
     this.overlayButton.addEventListener('click', () => {
       this.onPrimaryAction?.();
     });
@@ -2416,7 +2431,78 @@ export class UISystem {
   destroy(): void {
     this.releaseMobileControls();
     this.driverDialogSound.destroy();
+    this.menuSelectSound.destroy();
+    this.menuConfirmSound.destroy();
     this.root.remove();
+  }
+
+  private installMenuAudioCues(): void {
+    this.overlay.addEventListener('pointerover', (event) => {
+      const button = this.getCueButton(event.target);
+      if (!button || !this.shouldPlayPointerSelectCue(button, event.relatedTarget)) {
+        return;
+      }
+
+      this.playMenuSelectSound(button);
+    });
+
+    this.overlay.addEventListener('focusin', (event) => {
+      const button = this.getCueButton(event.target);
+      if (!button) {
+        return;
+      }
+
+      this.playMenuSelectSound(button);
+    });
+
+    this.overlay.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0) {
+        return;
+      }
+
+      const button = this.getCueButton(event.target);
+      if (!button) {
+        return;
+      }
+
+      SoundEffectPool.unlockAudio();
+      this.menuConfirmSound.play(GAME_CONFIG.uiAudio.confirmVolume, 1);
+    });
+  }
+
+  private getCueButton(target: EventTarget | null): HTMLButtonElement | null {
+    if (!(target instanceof Element)) {
+      return null;
+    }
+
+    const button = target.closest('button');
+    if (!(button instanceof HTMLButtonElement) || button.disabled) {
+      return null;
+    }
+
+    return this.overlay.contains(button) ? button : null;
+  }
+
+  private shouldPlayPointerSelectCue(
+    button: HTMLButtonElement,
+    relatedTarget: EventTarget | null,
+  ): boolean {
+    return !(relatedTarget instanceof Node && button.contains(relatedTarget));
+  }
+
+  private playMenuSelectSound(target: Element): void {
+    const now = window.performance.now();
+    const cooldownMs = GAME_CONFIG.uiAudio.selectCooldownSeconds * 1000;
+    if (target === this.lastMenuCueTarget && now - this.lastMenuSelectCueAt < cooldownMs) {
+      return;
+    }
+    if (now - this.lastMenuSelectCueAt < cooldownMs) {
+      return;
+    }
+
+    this.lastMenuCueTarget = target;
+    this.lastMenuSelectCueAt = now;
+    this.menuSelectSound.play(GAME_CONFIG.uiAudio.selectVolume, 1);
   }
 
   private syncDriverDialogSound(

@@ -4,6 +4,40 @@ export const GAME_CONFIG: GameConfig = {
   debug: {
     developmentWeapons: false,
   },
+  uiAudio: {
+    selectPath: '/audio/ui/menu-select.ogg',
+    confirmPath: '/audio/ui/menu-confirm.ogg',
+    selectVolume: 0.13,
+    confirmVolume: 0.16,
+    selectCooldownSeconds: 0.045,
+  },
+  music: {
+    enabled: true,
+    fadeSeconds: 0.8,
+    lyricsStartSeconds: 105,
+    tracks: {
+      menu: {
+        path: '/audio/music/menu.mp3',
+        volume: 0.12,
+        playbackRate: 1,
+      },
+      gameplay: {
+        path: '/audio/music/gameplay.mp3',
+        volume: 0.105,
+        playbackRate: 1,
+      },
+      boss: {
+        path: '/audio/music/boss-fights.mp3',
+        volume: 0.16,
+        playbackRate: 1,
+      },
+      lyrics: {
+        path: '/audio/music/lyrics-theme.mp3',
+        volume: 0.095,
+        playbackRate: 1,
+      },
+    },
+  },
   renderer: {
     clearColor: 0x0a0f14,
     fogColor: 0x2a333d,

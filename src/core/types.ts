@@ -87,6 +87,7 @@ export type RunSetpieceType = 'normal' | 'bossApproach' | 'rainstorm' | 'rampJum
 export type BossPhase = 0 | 1 | 2 | 3;
 export type BossAttackPattern = 'singleLane' | 'lanePair' | 'sweep';
 export type BossEncounterStatus = 'inactive' | 'approach' | 'fighting' | 'retreating' | 'defeated';
+export type MusicTrackKey = 'menu' | 'gameplay' | 'boss' | 'lyrics';
 export type DriverIntentType =
   | 'floorIt'
   | 'brake'
@@ -320,6 +321,23 @@ export interface PortalRedirectPayload {
 export interface GameConfig {
   debug: {
     developmentWeapons: boolean;
+  };
+  uiAudio: {
+    selectPath: string;
+    confirmPath: string;
+    selectVolume: number;
+    confirmVolume: number;
+    selectCooldownSeconds: number;
+  };
+  music: {
+    enabled: boolean;
+    fadeSeconds: number;
+    lyricsStartSeconds: number;
+    tracks: Record<MusicTrackKey, {
+      path: string;
+      volume: number;
+      playbackRate: number;
+    }>;
   };
   renderer: {
     clearColor: number;
