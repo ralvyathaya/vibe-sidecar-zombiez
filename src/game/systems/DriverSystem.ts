@@ -36,6 +36,8 @@ export class DriverSystem {
   private laneChangeDurationCurrent = 0;
   private laneRescanTimer = 0;
   private laneRequestLockout = 0;
+  private laneRequestCommitTimer = 0;
+  private laneRequestCommittedLaneIndex: number | null = null;
   private nextPromptIn = 0;
   private nextOpportunityIn = 0;
   private promptLockout = 0;
@@ -82,6 +84,8 @@ export class DriverSystem {
     this.laneChangeDurationCurrent = this.config.driver.laneChangeDuration;
     this.laneRescanTimer = 0;
     this.laneRequestLockout = 0;
+    this.laneRequestCommitTimer = 0;
+    this.laneRequestCommittedLaneIndex = null;
     this.nextPromptIn = 10;
     this.nextOpportunityIn = this.rollOpportunityTimer();
     this.promptLockout = 0;
@@ -151,6 +155,10 @@ export class DriverSystem {
 
     this.laneRescanTimer = Math.max(0, this.laneRescanTimer - deltaTime);
     this.laneRequestLockout = Math.max(0, this.laneRequestLockout - deltaTime);
+    this.laneRequestCommitTimer = Math.max(0, this.laneRequestCommitTimer - deltaTime);
+    if (this.laneRequestCommitTimer <= 0) {
+      this.laneRequestCommittedLaneIndex = null;
+    }
     this.promptLockout = Math.max(0, this.promptLockout - deltaTime);
     this.floorItTimer = Math.max(0, this.floorItTimer - deltaTime);
     this.brakeTimer = Math.max(0, this.brakeTimer - deltaTime);
@@ -388,6 +396,7 @@ export class DriverSystem {
 
     if (requestedSafe) {
       this.startLaneChange(requestedLaneIndex, this.config.driver.laneChangeCommitDuration);
+      this.commitUserRequestedLane(requestedLaneIndex);
       this.setSupportCue(
         'laneRequest',
         direction < 0 ? 'Going left.' : 'Going right.',
@@ -399,6 +408,7 @@ export class DriverSystem {
 
     if (oppositeSafe) {
       this.startLaneChange(oppositeLaneIndex, this.config.driver.laneChangeCommitDuration);
+      this.commitUserRequestedLane(oppositeLaneIndex);
       this.setSupportCue(
         'laneRequestWrong',
         direction < 0
@@ -454,6 +464,8 @@ export class DriverSystem {
         : Math.max(0, (1 - snapshot.laneChangeAlpha) * this.laneChangeDurationCurrent);
     this.laneRescanTimer = 0;
     this.laneRequestLockout = snapshot.laneRequestActive ? this.config.driver.laneRequestCooldown : 0;
+    this.laneRequestCommitTimer = 0;
+    this.laneRequestCommittedLaneIndex = null;
     this.promptLockout = 0;
     this.manualBrakeStrength = snapshot.driveBrakeStrength;
     this.manualBoostStrength = snapshot.driveBoostStrength;
@@ -574,6 +586,14 @@ export class DriverSystem {
     }
 
     const currentLane = this.getLaneThreat(this.targetLaneIndex);
+    if (
+      this.laneRequestCommitTimer > 0 &&
+      this.laneRequestCommittedLaneIndex === this.targetLaneIndex &&
+      !this.shouldBreakUserLaneCommit(currentLane, failureSeverity, hasLatch)
+    ) {
+      return;
+    }
+
     let bestLane = currentLane;
     let bestScore = this.getLaneDriveScore(currentLane, currentLane, failureSeverity, hasLatch);
 
@@ -612,6 +632,33 @@ export class DriverSystem {
     }
 
     this.startLaneChange(bestLane.laneIndex, this.config.driver.laneChangeDuration);
+    this.laneRequestCommitTimer = 0;
+    this.laneRequestCommittedLaneIndex = null;
+  }
+
+  private commitUserRequestedLane(laneIndex: number): void {
+    this.laneRequestCommittedLaneIndex = laneIndex;
+    this.laneRequestCommitTimer = this.config.driver.laneRequestCommitHoldDuration;
+  }
+
+  private shouldBreakUserLaneCommit(
+    lane: LaneThreatState,
+    failureSeverity: number,
+    hasLatch: boolean,
+  ): boolean {
+    if (hasLatch || failureSeverity >= this.config.driver.criticalFailureVetoSeverity) {
+      return true;
+    }
+
+    const blockerDistance = lane.blockerDistance ?? Number.POSITIVE_INFINITY;
+    const blockerIsImmediate =
+      lane.blocker &&
+      blockerDistance <= Math.max(
+        this.config.driver.brakeHazardDistance,
+        this.config.driver.blockerVetoDistance * 0.9,
+      );
+
+    return blockerIsImmediate || lane.bruteCount > 0 || lane.smallCount >= 4 || lane.brokenLane;
   }
 
   private getBrakeCandidate(

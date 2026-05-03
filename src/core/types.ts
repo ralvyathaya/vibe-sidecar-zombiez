@@ -512,6 +512,7 @@ export interface GameConfig {
     laneRescanInterval: number;
     laneChangeDuration: number;
     laneChangeCommitDuration: number;
+    laneRequestCommitHoldDuration: number;
     promptEffectLockout: number;
     scoreMarginToChange: number;
     floorItDuration: number;
