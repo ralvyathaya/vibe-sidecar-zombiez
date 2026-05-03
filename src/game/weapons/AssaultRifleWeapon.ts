@@ -144,6 +144,9 @@ export class AssaultRifleWeapon {
       poolSize: 2,
       volume: this.config.assaultRifle.audio.reloadVolume,
     });
+    this.gunshotSound.prime();
+    this.emptySound.prime();
+    this.reloadSound.prime();
 
     this.viewmodelRoot.name = 'AssaultRifleViewmodel';
     this.contentRoot.name = 'AssaultRifleContentRoot';

@@ -174,7 +174,7 @@ export class NetworkSystem {
   }
 
   sendSnapshot(snapshot: CoopSnapshot): void {
-    if (!this.canSendRealtime()) {
+    if (!this.canSendRealtime() || !this.session.isHost) {
       return;
     }
 

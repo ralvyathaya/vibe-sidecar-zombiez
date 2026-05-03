@@ -337,8 +337,27 @@ export class Game {
         snapshot.presentation.currentWeapon,
         snapshot.presentation.firePulse,
       );
+      this.spawnSystem.applySnapshot(snapshot.spawn);
+      this.pickupSystem.applySnapshot(snapshot.pickup);
+      this.rewardSystem.applySnapshot(snapshot.reward);
+      this.playerSystem.applySnapshot(snapshot.player);
+      this.driverSystem.applySnapshot(snapshot.ride);
+      this.coopStats = { ...snapshot.stats };
+      this.frameRideState = snapshot.ride;
+      this.lastRideState = snapshot.ride;
+      this.latchWasActive = snapshot.ride.latchActive;
+      this.latchEscapeProgress = snapshot.ride.latchWiggle;
+      this.jumpTimer = snapshot.ride.jumpActive
+        ? Math.max(0, GAME_CONFIG.world.ramp.jumpDuration * (1 - snapshot.ride.jumpRatio))
+        : 0;
+      this.syncStallLoop(snapshot.ride.engineTroubleMode);
       if (snapshot.boss) {
         this.bossSystem.applySnapshot(snapshot.boss);
+      }
+      if (snapshot.gameState === 'dead' || !snapshot.player.alive) {
+        this.handleDeath();
+      } else if (this.state !== snapshot.gameState) {
+        this.setState(snapshot.gameState);
       }
     };
     this.networkSystem.onRemoteStart = (seed) => {
@@ -504,13 +523,14 @@ export class Game {
       );
       const playerPosition = this.playerSystem.getPosition(this.playerPosition);
 
-      this.enemySystem.update(
-        simulationDelta,
-        playerPosition,
-        preWorldRide.forwardSpeed,
-        this.spawnSystem.activeEvent,
-        (zombie) => this.handleEnemyContact(zombie),
-      );
+        this.enemySystem.update(
+          simulationDelta,
+          playerPosition,
+          preWorldRide.forwardSpeed,
+          this.spawnSystem.activeEvent,
+          (zombie) => this.handleEnemyContact(zombie),
+          this.jumpTimer > 0,
+        );
       this.updateLatchState(simulationDelta);
 
       const preWeaponStatus = this.weaponSystem.getStatus(this.playerSystem);
@@ -939,23 +959,20 @@ export class Game {
     }
 
     this.networkSnapshotTimer = 0.16;
+    const ride = this.frameRideState ?? this.lastRideState;
+    if (!ride) {
+      return;
+    }
+
     const reward = this.rewardSystem.getState();
     const snapshot: CoopSnapshot = {
       gameState: this.state,
       elapsedSeconds: this.spawnSystem.elapsedSeconds,
-      player: {
-        health: this.playerSystem.state.health,
-        distance: this.playerSystem.state.distance,
-        score: this.playerSystem.state.score,
-        alive: this.playerSystem.state.alive,
-        laneIndex: this.playerSystem.state.laneIndex,
-      },
-      reward: {
-        chainCount: reward.chainCount,
-        multiplier: reward.multiplier,
-        zombiesKilled: reward.zombiesKilled,
-        bestChain: reward.bestChain,
-      },
+      player: { ...this.playerSystem.state },
+      reward: { ...reward },
+      ride,
+      spawn: this.spawnSystem.getSnapshot(),
+      pickup: this.pickupSystem.getSnapshot(),
       stats: { ...this.coopStats },
       presentation: this.weaponSystem.getPresentationState(this.coopSession.role),
       boss: this.bossSystem.getSnapshot(),

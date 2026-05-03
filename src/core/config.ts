@@ -316,6 +316,7 @@ export const GAME_CONFIG: GameConfig = {
     laneRescanInterval: 0.45,
     laneChangeDuration: 0.46,
     laneChangeCommitDuration: 0.3,
+    laneRequestCommitHoldDuration: 1.25,
     promptEffectLockout: 3.6,
     scoreMarginToChange: 1.2,
     floorItDuration: 2.35,

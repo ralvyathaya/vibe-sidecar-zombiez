@@ -138,6 +138,8 @@ export class BazookaWeapon {
       poolSize: 3,
       volume: this.config.bazooka.audio.impactVolume,
     });
+    this.launchSound.prime();
+    this.impactSound.prime();
 
     this.viewmodelRoot.name = 'BazookaViewmodel';
     this.contentRoot.name = 'BazookaContentRoot';

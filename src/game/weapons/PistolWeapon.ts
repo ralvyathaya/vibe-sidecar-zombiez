@@ -173,6 +173,9 @@ export class PistolWeapon {
       poolSize: 2,
       volume: this.config.weapon.audio.reloadVolume,
     });
+    this.gunshotSound.prime();
+    this.emptySound.prime();
+    this.reloadSound.prime();
     this.baseRotation.set(
       MathUtils.degToRad(rotX),
       MathUtils.degToRad(rotY),

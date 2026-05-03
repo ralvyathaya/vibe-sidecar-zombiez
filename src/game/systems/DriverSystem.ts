@@ -36,6 +36,8 @@ export class DriverSystem {
   private laneChangeDurationCurrent = 0;
   private laneRescanTimer = 0;
   private laneRequestLockout = 0;
+  private laneRequestCommitTimer = 0;
+  private laneRequestCommittedLaneIndex: number | null = null;
   private nextPromptIn = 0;
   private nextOpportunityIn = 0;
   private promptLockout = 0;
@@ -82,6 +84,8 @@ export class DriverSystem {
     this.laneChangeDurationCurrent = this.config.driver.laneChangeDuration;
     this.laneRescanTimer = 0;
     this.laneRequestLockout = 0;
+    this.laneRequestCommitTimer = 0;
+    this.laneRequestCommittedLaneIndex = null;
     this.nextPromptIn = 10;
     this.nextOpportunityIn = this.rollOpportunityTimer();
     this.promptLockout = 0;
@@ -151,6 +155,10 @@ export class DriverSystem {
 
     this.laneRescanTimer = Math.max(0, this.laneRescanTimer - deltaTime);
     this.laneRequestLockout = Math.max(0, this.laneRequestLockout - deltaTime);
+    this.laneRequestCommitTimer = Math.max(0, this.laneRequestCommitTimer - deltaTime);
+    if (this.laneRequestCommitTimer <= 0) {
+      this.laneRequestCommittedLaneIndex = null;
+    }
     this.promptLockout = Math.max(0, this.promptLockout - deltaTime);
     this.floorItTimer = Math.max(0, this.floorItTimer - deltaTime);
     this.brakeTimer = Math.max(0, this.brakeTimer - deltaTime);
@@ -388,6 +396,7 @@ export class DriverSystem {
 
     if (requestedSafe) {
       this.startLaneChange(requestedLaneIndex, this.config.driver.laneChangeCommitDuration);
+      this.commitUserRequestedLane(requestedLaneIndex);
       this.setSupportCue(
         'laneRequest',
         direction < 0 ? 'Going left.' : 'Going right.',
@@ -399,6 +408,7 @@ export class DriverSystem {
 
     if (oppositeSafe) {
       this.startLaneChange(oppositeLaneIndex, this.config.driver.laneChangeCommitDuration);
+      this.commitUserRequestedLane(oppositeLaneIndex);
       this.setSupportCue(
         'laneRequestWrong',
         direction < 0
@@ -440,6 +450,75 @@ export class DriverSystem {
 
   getSupportCue(): DriverPromptState | null {
     return this.supportCue;
+  }
+
+  applySnapshot(snapshot: RideState): void {
+    this.laneIndex = snapshot.laneIndex;
+    this.targetLaneIndex = snapshot.targetLaneIndex;
+    this.laneFromIndex = snapshot.laneIndex;
+    this.laneToIndex = snapshot.targetLaneIndex;
+    this.laneChangeDurationCurrent = this.config.driver.laneChangeDuration;
+    this.laneChangeTimer =
+      snapshot.laneChangeAlpha >= 1
+        ? 0
+        : Math.max(0, (1 - snapshot.laneChangeAlpha) * this.laneChangeDurationCurrent);
+    this.laneRescanTimer = 0;
+    this.laneRequestLockout = snapshot.laneRequestActive ? this.config.driver.laneRequestCooldown : 0;
+    this.laneRequestCommitTimer = 0;
+    this.laneRequestCommittedLaneIndex = null;
+    this.promptLockout = 0;
+    this.manualBrakeStrength = snapshot.driveBrakeStrength;
+    this.manualBoostStrength = snapshot.driveBoostStrength;
+    this.manualBrakeMeter = snapshot.manualBrakeMeterRatio;
+    this.manualBoostMeter = snapshot.manualBoostMeterRatio;
+    this.manualBrakeExhausted = snapshot.manualBrakeCooldown > 0;
+    this.manualBoostExhausted = snapshot.manualBoostCooldown > 0;
+    this.floorItTimer = snapshot.floorItMode ? this.config.driver.floorItDuration : 0;
+    this.brakeTimer = snapshot.brakeMode ? this.config.driver.brakeDuration : 0;
+    this.engineTroubleTimer = snapshot.engineTroubleMode ? this.config.driver.engineTroubleDuration : 0;
+    this.engineTroubleRoughness = snapshot.engineTroubleMode ? Math.max(0.05, snapshot.engineTroubleWobble - 0.45) : 0;
+    this.engineTroubleTriggeredThisCycle = snapshot.engineTroubleMode;
+    this.cycleElapsed = snapshot.segmentElapsed;
+    this.segment = snapshot.segment;
+    this.previousEvent = snapshot.activeEvent;
+    this.segmentElapsed = snapshot.segmentElapsed;
+    this.activeEvent = snapshot.activeEvent;
+    this.eventTimer = snapshot.eventTimer;
+    this.eventDuration = snapshot.eventDuration;
+    this.nitroActive = snapshot.nitroActive;
+    this.supportCue = snapshot.supportCue ? { ...snapshot.supportCue } : null;
+    this.supportCueCooldownTimer = 0;
+    this.laneThreats = snapshot.laneThreats.map((lane) => ({ ...lane }));
+    this.manualWorldX = snapshot.worldX;
+    this.manualSteerVelocity = 0;
+    this.time = snapshot.segmentElapsed;
+    this.cautiousHoldTimer = snapshot.failureSeverity > 0.65 ? this.config.driver.cautiousHoldDuration * 0.25 : 0;
+    this.recentLaneChangeTimer = snapshot.laneChangeAlpha < 1 ? this.config.driver.laneChangeDuration * 0.2 : 0;
+  }
+
+  private commitUserRequestedLane(laneIndex: number): void {
+    this.laneRequestCommittedLaneIndex = laneIndex;
+    this.laneRequestCommitTimer = this.config.driver.laneRequestCommitHoldDuration;
+  }
+
+  private shouldBreakUserLaneCommit(
+    lane: LaneThreatState,
+    failureSeverity: number,
+    hasLatch: boolean,
+  ): boolean {
+    if (hasLatch || failureSeverity >= this.config.driver.criticalFailureVetoSeverity) {
+      return true;
+    }
+
+    const blockerDistance = lane.blockerDistance ?? Number.POSITIVE_INFINITY;
+    const blockerIsImmediate =
+      lane.blocker &&
+      blockerDistance <= Math.max(
+        this.config.driver.brakeHazardDistance,
+        this.config.driver.blockerVetoDistance * 0.9,
+      );
+
+    return blockerIsImmediate || lane.bruteCount > 0 || lane.smallCount >= 4 || lane.brokenLane;
   }
 
   notifyObstacleCollision(obstacleType: LaneThreatState['blockerType']): void {
@@ -532,6 +611,14 @@ export class DriverSystem {
     }
 
     const currentLane = this.getLaneThreat(this.targetLaneIndex);
+    if (
+      this.laneRequestCommitTimer > 0 &&
+      this.laneRequestCommittedLaneIndex === this.targetLaneIndex &&
+      !this.shouldBreakUserLaneCommit(currentLane, failureSeverity, hasLatch)
+    ) {
+      return;
+    }
+
     let bestLane = currentLane;
     let bestScore = this.getLaneDriveScore(currentLane, currentLane, failureSeverity, hasLatch);
 
@@ -570,6 +657,8 @@ export class DriverSystem {
     }
 
     this.startLaneChange(bestLane.laneIndex, this.config.driver.laneChangeDuration);
+    this.laneRequestCommitTimer = 0;
+    this.laneRequestCommittedLaneIndex = null;
   }
 
   private getBrakeCandidate(
@@ -816,10 +905,12 @@ export class DriverSystem {
     this.laneFromIndex = this.targetLaneIndex;
     this.laneToIndex = clampedLane;
     this.targetLaneIndex = this.laneToIndex;
-    const nitroMultiplier = this.nitroActive ? this.config.ride.nitroLaneChangeMultiplier : 1;
-    this.laneChangeTimer = duration * nitroMultiplier;
-    this.laneChangeDurationCurrent = this.laneChangeTimer;
-    this.recentLaneChangeTimer = this.laneChangeTimer + 0.22;
+      const nitroMultiplier = this.nitroActive ? this.config.ride.nitroLaneChangeMultiplier : 1;
+      this.laneChangeTimer = duration * nitroMultiplier;
+      this.laneChangeDurationCurrent = this.laneChangeTimer;
+      this.recentLaneChangeTimer = this.laneChangeTimer + 0.22;
+      this.laneRequestCommitTimer = 0;
+      this.laneRequestCommittedLaneIndex = null;
   }
 
   private createPrompt(

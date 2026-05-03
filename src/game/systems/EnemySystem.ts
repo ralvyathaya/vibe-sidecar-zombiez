@@ -314,6 +314,7 @@ export class EnemySystem {
     worldScrollSpeed: number,
     activeEvent: RunEventType,
     onPlayerContact: (zombie: ActiveZombie) => void,
+    playerAirborne = false,
   ): void {
     this.activeEvent = activeEvent;
     this.approachCueCooldown = Math.max(0, this.approachCueCooldown - deltaTime);
@@ -356,6 +357,7 @@ export class EnemySystem {
           deltaTime,
           playerPosition,
           onPlayerContact,
+          playerAirborne,
         );
         if (!zombie.active) {
           continue;
@@ -922,6 +924,7 @@ export class EnemySystem {
     deltaTime: number,
     playerPosition: Vector3,
     onPlayerContact: (zombie: ActiveZombie) => void,
+    playerAirborne = false,
   ): void {
     const startX = zombie.group.position.x;
     const startZ = zombie.group.position.z;
@@ -974,6 +977,7 @@ export class EnemySystem {
     }
 
     if (
+      playerAirborne ||
       distanceToPlayer < collisionRadius ||
       this.didSweepIntoPlayer(
         startX,

@@ -504,6 +504,7 @@ export interface GameConfig {
     laneRescanInterval: number;
     laneChangeDuration: number;
     laneChangeCommitDuration: number;
+    laneRequestCommitHoldDuration: number;
     promptEffectLockout: number;
     scoreMarginToChange: number;
     floorItDuration: number;
@@ -1111,6 +1112,29 @@ export interface CoopRunStats {
   latchSaves: number;
 }
 
+export interface SpawnSnapshot {
+  elapsedSeconds: number;
+  segment: RunSegment;
+  activeEvent: RunEventType;
+  nextSpawnIn: number;
+  runnerCooldown: number;
+  nextEventIn: number;
+  eventTimer: number;
+  eventDuration: number;
+  scriptedBerserkTriggered: boolean;
+  openingForcedWalkerSpawns: number;
+  barrelClusterCooldown: number;
+  spawnPressureMultiplier: number;
+}
+
+export interface PickupSnapshot {
+  nextSpawnZ: number;
+  scriptedRifleSpawned: boolean;
+  scriptedBazookaSpawned: boolean;
+  criticalMedkitTimer: number;
+  criticalMedkitCooldown: number;
+}
+
 export interface CoopSessionState {
   role: CoopRole;
   selectedRole: GameplayRole;
@@ -1154,8 +1178,11 @@ export interface RemotePresentationState {
 export interface CoopSnapshot {
   gameState: GameStateType;
   elapsedSeconds: number;
-  player: Pick<PlayerState, 'health' | 'distance' | 'score' | 'alive' | 'laneIndex'>;
-  reward: Pick<RewardState, 'chainCount' | 'multiplier' | 'zombiesKilled' | 'bestChain'>;
+  player: PlayerState;
+  reward: RewardState;
+  ride: RideState;
+  spawn: SpawnSnapshot;
+  pickup: PickupSnapshot;
   stats: CoopRunStats;
   presentation: RemotePresentationState;
   boss: BossSnapshot;
