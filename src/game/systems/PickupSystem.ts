@@ -20,6 +20,7 @@ import type {
   PickupEffectType,
   PickupRarity,
   PickupRiskType,
+  PickupSnapshot,
   PickupType,
   PlayerState,
 } from '../../core/types';
@@ -323,6 +324,24 @@ export class PickupSystem {
     ) {
       void this.loadBazookaTemplate();
     }
+  }
+
+  getSnapshot(): PickupSnapshot {
+    return {
+      nextSpawnZ: this.nextSpawnZ,
+      scriptedRifleSpawned: this.scriptedRifleSpawned,
+      scriptedBazookaSpawned: this.scriptedBazookaSpawned,
+      criticalMedkitTimer: this.criticalMedkitTimer,
+      criticalMedkitCooldown: this.criticalMedkitCooldown,
+    };
+  }
+
+  applySnapshot(snapshot: PickupSnapshot): void {
+    this.nextSpawnZ = snapshot.nextSpawnZ;
+    this.scriptedRifleSpawned = snapshot.scriptedRifleSpawned;
+    this.scriptedBazookaSpawned = snapshot.scriptedBazookaSpawned;
+    this.criticalMedkitTimer = snapshot.criticalMedkitTimer;
+    this.criticalMedkitCooldown = snapshot.criticalMedkitCooldown;
   }
 
   destroy(): void {

@@ -123,7 +123,7 @@ export class PortalSystem {
         continue;
       }
 
-      if (!redirect && !portal.triggered && this.isPlayerInsidePortal(portal, playerX)) {
+      if (!redirect && !portal.triggered && this.isPlayerInsidePortal(portal, playerX, elapsedSeconds)) {
         portal.triggered = true;
         redirect = this.createRedirect(portal.kind, {
           health: playerState.health,
@@ -307,9 +307,19 @@ export class PortalSystem {
     }
   }
 
-  private isPlayerInsidePortal(portal: RuntimePortal, playerX: number): boolean {
+  private isPlayerInsidePortal(portal: RuntimePortal, playerX: number, elapsedSeconds: number): boolean {
+    const curveOffset = sampleRoadCurveOffset(
+      portal.z,
+      elapsedSeconds,
+      this.config.world.roadCurveFrequency,
+      this.config.world.roadCurveAmplitude,
+    );
     const withinDepth = Math.abs(portal.z) <= this.config.portal.collisionDepth;
-    const withinWidth = Math.abs(playerX - portal.laneLocalX) <= this.config.portal.collisionRadius;
+    const triggerHalfWidth = Math.max(
+      this.config.portal.collisionRadius,
+      this.config.portal.width * 0.72,
+    );
+    const withinWidth = Math.abs(playerX - (portal.laneLocalX + curveOffset)) <= triggerHalfWidth;
     return withinDepth && withinWidth;
   }
 

@@ -1,4 +1,10 @@
-import type { GameConfig, RunEventType, RunSegment, ZombieType } from '../../core/types';
+import type {
+  GameConfig,
+  RunEventType,
+  RunSegment,
+  SpawnSnapshot,
+  ZombieType,
+} from '../../core/types';
 import { lerp, randomInt, randomRange } from '../../core/utils';
 import type { EnemySystem } from './EnemySystem';
 import type { WorldSystem } from './WorldSystem';
@@ -54,6 +60,39 @@ export class SpawnSystem {
 
   getEventDuration(): number {
     return this.eventDuration;
+  }
+
+  getSnapshot(): SpawnSnapshot {
+    return {
+      elapsedSeconds: this.elapsedSeconds,
+      segment: this.segment,
+      activeEvent: this.activeEvent,
+      nextSpawnIn: this.nextSpawnIn,
+      runnerCooldown: this.runnerCooldown,
+      nextEventIn: this.nextEventIn,
+      eventTimer: this.eventTimer,
+      eventDuration: this.eventDuration,
+      scriptedBerserkTriggered: this.scriptedBerserkTriggered,
+      openingForcedWalkerSpawns: this.openingForcedWalkerSpawns,
+      barrelClusterCooldown: this.barrelClusterCooldown,
+      spawnPressureMultiplier: this.spawnPressureMultiplier,
+    };
+  }
+
+  applySnapshot(snapshot: SpawnSnapshot): void {
+    this.elapsedSeconds = Math.max(0, snapshot.elapsedSeconds);
+    this.segment = snapshot.segment;
+    this.activeEvent = snapshot.activeEvent;
+    this.nextSpawnIn = Math.max(0, snapshot.nextSpawnIn);
+    this.runnerCooldown = Math.max(0, snapshot.runnerCooldown);
+    this.nextEventIn = Math.max(0, snapshot.nextEventIn);
+    this.eventTimer = Math.max(0, snapshot.eventTimer);
+    this.eventDuration = Math.max(0, snapshot.eventDuration);
+    this.scriptedBerserkTriggered = snapshot.scriptedBerserkTriggered;
+    this.openingForcedWalkerSpawns = Math.max(0, Math.floor(snapshot.openingForcedWalkerSpawns));
+    this.barrelClusterCooldown = Math.max(0, snapshot.barrelClusterCooldown);
+    this.spawnPressureMultiplier = Math.max(0.25, Math.min(1, snapshot.spawnPressureMultiplier));
+    this.lastEvent = snapshot.activeEvent === 'none' ? null : snapshot.activeEvent;
   }
 
   update(

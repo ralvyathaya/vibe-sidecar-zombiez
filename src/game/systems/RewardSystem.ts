@@ -246,6 +246,11 @@ export class RewardSystem {
     return this.state;
   }
 
+  applySnapshot(snapshot: RewardState): void {
+    Object.assign(this.state, snapshot);
+    this.finalizedRun = false;
+  }
+
   private applyMilestones(elapsedSeconds: number): number {
     let awardedScore = 0;
 

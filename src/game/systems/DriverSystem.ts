@@ -442,6 +442,48 @@ export class DriverSystem {
     return this.supportCue;
   }
 
+  applySnapshot(snapshot: RideState): void {
+    this.laneIndex = snapshot.laneIndex;
+    this.targetLaneIndex = snapshot.targetLaneIndex;
+    this.laneFromIndex = snapshot.laneIndex;
+    this.laneToIndex = snapshot.targetLaneIndex;
+    this.laneChangeDurationCurrent = this.config.driver.laneChangeDuration;
+    this.laneChangeTimer =
+      snapshot.laneChangeAlpha >= 1
+        ? 0
+        : Math.max(0, (1 - snapshot.laneChangeAlpha) * this.laneChangeDurationCurrent);
+    this.laneRescanTimer = 0;
+    this.laneRequestLockout = snapshot.laneRequestActive ? this.config.driver.laneRequestCooldown : 0;
+    this.promptLockout = 0;
+    this.manualBrakeStrength = snapshot.driveBrakeStrength;
+    this.manualBoostStrength = snapshot.driveBoostStrength;
+    this.manualBrakeMeter = snapshot.manualBrakeMeterRatio;
+    this.manualBoostMeter = snapshot.manualBoostMeterRatio;
+    this.manualBrakeExhausted = snapshot.manualBrakeCooldown > 0;
+    this.manualBoostExhausted = snapshot.manualBoostCooldown > 0;
+    this.floorItTimer = snapshot.floorItMode ? this.config.driver.floorItDuration : 0;
+    this.brakeTimer = snapshot.brakeMode ? this.config.driver.brakeDuration : 0;
+    this.engineTroubleTimer = snapshot.engineTroubleMode ? this.config.driver.engineTroubleDuration : 0;
+    this.engineTroubleRoughness = snapshot.engineTroubleMode ? Math.max(0.05, snapshot.engineTroubleWobble - 0.45) : 0;
+    this.engineTroubleTriggeredThisCycle = snapshot.engineTroubleMode;
+    this.cycleElapsed = snapshot.segmentElapsed;
+    this.segment = snapshot.segment;
+    this.previousEvent = snapshot.activeEvent;
+    this.segmentElapsed = snapshot.segmentElapsed;
+    this.activeEvent = snapshot.activeEvent;
+    this.eventTimer = snapshot.eventTimer;
+    this.eventDuration = snapshot.eventDuration;
+    this.nitroActive = snapshot.nitroActive;
+    this.supportCue = snapshot.supportCue ? { ...snapshot.supportCue } : null;
+    this.supportCueCooldownTimer = 0;
+    this.laneThreats = snapshot.laneThreats.map((lane) => ({ ...lane }));
+    this.manualWorldX = snapshot.worldX;
+    this.manualSteerVelocity = 0;
+    this.time = snapshot.segmentElapsed;
+    this.cautiousHoldTimer = snapshot.failureSeverity > 0.65 ? this.config.driver.cautiousHoldDuration * 0.25 : 0;
+    this.recentLaneChangeTimer = snapshot.laneChangeAlpha < 1 ? this.config.driver.laneChangeDuration * 0.2 : 0;
+  }
+
   notifyObstacleCollision(obstacleType: LaneThreatState['blockerType']): void {
     if (!obstacleType || !this.wasTurningRecently() || this.supportCueCooldownTimer > 0) {
       return;

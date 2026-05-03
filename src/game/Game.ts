@@ -337,8 +337,32 @@ export class Game {
         snapshot.presentation.currentWeapon,
         snapshot.presentation.firePulse,
       );
+      this.spawnSystem.applySnapshot(snapshot.spawn);
+      this.pickupSystem.applySnapshot(snapshot.pickup);
+      this.rewardSystem.applySnapshot(snapshot.reward);
+      this.playerSystem.applySnapshot(snapshot.player);
+      this.driverSystem.applySnapshot(snapshot.ride);
+      this.coopStats = { ...snapshot.stats };
+      this.lastDeathCause = snapshot.deathCause;
+      this.frameRideState = snapshot.ride;
+      this.lastRideState = snapshot.ride;
+      this.latchWasActive = snapshot.ride.latchActive;
+      this.latchEscapeProgress = snapshot.ride.latchWiggle;
+      this.jumpTimer = snapshot.ride.jumpActive
+        ? Math.max(0, GAME_CONFIG.world.ramp.jumpDuration * (1 - snapshot.ride.jumpRatio))
+        : 0;
+      this.syncStallLoop(snapshot.ride.engineTroubleMode);
+      this.uiSystem.setDeathCause(this.describeDeathCause(snapshot.deathCause));
       if (snapshot.boss) {
         this.bossSystem.applySnapshot(snapshot.boss);
+      }
+
+      if (snapshot.gameState === 'dead') {
+        if (this.state !== 'dead') {
+          this.handleDeath();
+        }
+      } else if (this.state !== snapshot.gameState) {
+        this.setState(snapshot.gameState);
       }
     };
     this.networkSystem.onRemoteStart = (seed) => {
@@ -510,6 +534,7 @@ export class Game {
         preWorldRide.forwardSpeed,
         this.spawnSystem.activeEvent,
         (zombie) => this.handleEnemyContact(zombie),
+        this.jumpTimer > 0,
       );
       this.updateLatchState(simulationDelta);
 
@@ -644,10 +669,10 @@ export class Game {
       if (portalRedirect) {
         this.handlePortalRedirect(portalRedirect);
       }
-      this.sendNetworkSnapshot(deltaTime);
-
       if (!this.playerSystem.state.alive) {
         this.handleDeath();
+      } else {
+        this.sendNetworkSnapshot(deltaTime);
       }
     } else {
       this.vehicleRigSystem.setDriverPistolStance(false);
@@ -940,22 +965,20 @@ export class Game {
 
     this.networkSnapshotTimer = 0.16;
     const reward = this.rewardSystem.getState();
+    const ride = this.frameRideState ?? this.lastRideState;
+    if (!ride) {
+      return;
+    }
+
     const snapshot: CoopSnapshot = {
       gameState: this.state,
       elapsedSeconds: this.spawnSystem.elapsedSeconds,
-      player: {
-        health: this.playerSystem.state.health,
-        distance: this.playerSystem.state.distance,
-        score: this.playerSystem.state.score,
-        alive: this.playerSystem.state.alive,
-        laneIndex: this.playerSystem.state.laneIndex,
-      },
-      reward: {
-        chainCount: reward.chainCount,
-        multiplier: reward.multiplier,
-        zombiesKilled: reward.zombiesKilled,
-        bestChain: reward.bestChain,
-      },
+      deathCause: this.lastDeathCause,
+      player: { ...this.playerSystem.state },
+      reward: { ...reward },
+      ride,
+      spawn: this.spawnSystem.getSnapshot(),
+      pickup: this.pickupSystem.getSnapshot(),
       stats: { ...this.coopStats },
       presentation: this.weaponSystem.getPresentationState(this.coopSession.role),
       boss: this.bossSystem.getSnapshot(),
@@ -1221,6 +1244,8 @@ export class Game {
     this.uiSystem.setDeathCause(this.describeDeathCause(this.lastDeathCause));
     this.gameOverSound.play(GAME_CONFIG.gameOver.audioVolume, 1);
     this.setState('dead');
+    this.networkSnapshotTimer = 0;
+    this.sendNetworkSnapshot(0);
     if (this.inputSystem.isPointerLocked()) {
       this.suppressUnlockPause = true;
       void document.exitPointerLock();
