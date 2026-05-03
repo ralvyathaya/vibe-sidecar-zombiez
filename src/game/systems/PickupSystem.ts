@@ -56,6 +56,8 @@ export class PickupSystem {
   private nextSpawnZ = -110;
   private scriptedRifleSpawned = false;
   private scriptedBazookaSpawned = false;
+  private bossBazookaCooldownTimer = 0;
+  private bossBazookaBossActive = false;
   private criticalMedkitTimer = -1;
   private criticalMedkitCooldown = 0;
 
@@ -82,6 +84,11 @@ export class PickupSystem {
     );
     this.scriptedRifleSpawned = false;
     this.scriptedBazookaSpawned = false;
+    this.bossBazookaCooldownTimer = randomRange(
+      this.config.pickups.bossBazookaIntervalMinSeconds,
+      this.config.pickups.bossBazookaIntervalMaxSeconds,
+    );
+    this.bossBazookaBossActive = false;
     this.criticalMedkitTimer = -1;
     this.criticalMedkitCooldown = 0;
 
@@ -111,6 +118,16 @@ export class PickupSystem {
       devWeapons || elapsedSeconds >= this.config.pickups.bazookaUnlockTimeSeconds;
     const rifleUnlocked =
       devWeapons || elapsedSeconds >= this.config.pickups.rifleUnlockTimeSeconds;
+    if (!bossActive && this.bossBazookaBossActive) {
+      this.bossBazookaCooldownTimer = randomRange(
+        this.config.pickups.bossBazookaIntervalMinSeconds,
+        this.config.pickups.bossBazookaIntervalMaxSeconds,
+      );
+    }
+    if (bossActive) {
+      this.bossBazookaCooldownTimer = Math.max(0, this.bossBazookaCooldownTimer - deltaTime);
+    }
+    this.bossBazookaBossActive = bossActive;
 
     for (const pickup of this.pickups) {
       if (!pickup.active) {
@@ -238,6 +255,18 @@ export class PickupSystem {
       });
     }
 
+    if (
+      this.canSpawnBossBazooka(loadout, bazookaUnlocked, bossActive) &&
+      this.bossBazookaCooldownTimer <= 0
+    ) {
+      const slot = this.pickups.find((entry) => !entry.active);
+      if (slot) {
+        this.spawn(slot, loadout, player, bazookaUnlocked, elapsedSeconds, 'bazooka', {
+          bossActive,
+        });
+      }
+    }
+
     return events;
   }
 
@@ -331,6 +360,7 @@ export class PickupSystem {
       nextSpawnZ: this.nextSpawnZ,
       scriptedRifleSpawned: this.scriptedRifleSpawned,
       scriptedBazookaSpawned: this.scriptedBazookaSpawned,
+      bossBazookaCooldownTimer: this.bossBazookaCooldownTimer,
       criticalMedkitTimer: this.criticalMedkitTimer,
       criticalMedkitCooldown: this.criticalMedkitCooldown,
     };
@@ -340,6 +370,7 @@ export class PickupSystem {
     this.nextSpawnZ = snapshot.nextSpawnZ;
     this.scriptedRifleSpawned = snapshot.scriptedRifleSpawned;
     this.scriptedBazookaSpawned = snapshot.scriptedBazookaSpawned;
+    this.bossBazookaCooldownTimer = snapshot.bossBazookaCooldownTimer;
     this.criticalMedkitTimer = snapshot.criticalMedkitTimer;
     this.criticalMedkitCooldown = snapshot.criticalMedkitCooldown;
   }
@@ -502,11 +533,9 @@ export class PickupSystem {
         bossActive,
       );
       const canSpawnBossBazooka =
-        bossActive &&
-        bazookaUnlocked &&
-        loadout.bazookaAmmo <= 0 &&
-        !this.hasActiveKind('bazooka') &&
-        Math.random() < this.config.pickups.bossBazookaSpawnChance;
+        this.canSpawnBossBazooka(loadout, bazookaUnlocked, bossActive) &&
+        (this.bossBazookaCooldownTimer <= 0 ||
+          Math.random() < this.config.pickups.bossBazookaSpawnChance);
       const canSpawnSupport =
         elapsedSeconds >= this.config.pickups.supportUnlockTimeSeconds &&
         activeSupportCount < supportLimit &&
@@ -527,7 +556,6 @@ export class PickupSystem {
         canSpawnBossBazooka ||
         (bazookaUnlocked &&
           elapsedSeconds >= this.config.pickups.bazookaUnlockTimeSeconds &&
-          elapsedSeconds <= 70 &&
           loadout.bazookaAmmo <= 0 &&
           Math.random() < this.config.pickups.bazookaSpawnChance * 1.2)
       ) {
@@ -615,6 +643,9 @@ export class PickupSystem {
       pickup.nitroVariant.visible = false;
       (pickup.glow.material as MeshBasicMaterial).color.setHex(0xff8d5b);
       (pickup.beacon.material as MeshBasicMaterial).color.setHex(0xff8d5b);
+      if (bossActive) {
+        this.scheduleBossBazookaCooldown();
+      }
       if (consumeSpacing) {
         this.advanceNextSpawnZ(
           this.config.pickups.bazookaPickupSpacingMin,
@@ -785,6 +816,26 @@ export class PickupSystem {
 
   private advanceNextSpawnZ(minSpacing: number, maxSpacing: number, multiplier = 1): void {
     this.nextSpawnZ -= randomRange(minSpacing * multiplier, maxSpacing * multiplier);
+  }
+
+  private canSpawnBossBazooka(
+    loadout: LoadoutState,
+    bazookaUnlocked: boolean,
+    bossActive: boolean,
+  ): boolean {
+    return (
+      bossActive &&
+      bazookaUnlocked &&
+      loadout.bazookaAmmo <= 0 &&
+      !this.hasActiveKind('bazooka')
+    );
+  }
+
+  private scheduleBossBazookaCooldown(): void {
+    this.bossBazookaCooldownTimer = randomRange(
+      this.config.pickups.bossBazookaIntervalMinSeconds,
+      this.config.pickups.bossBazookaIntervalMaxSeconds,
+    );
   }
 
   private deactivate(pickup: PickupRecord): void {
