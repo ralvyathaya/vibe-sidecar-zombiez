@@ -3687,6 +3687,21 @@ body {
     gap: 7px;
   }
 
+  .overlay-menu {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+    align-content: stretch;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 0 4px 4px;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .overlay-menu::-webkit-scrollbar {
+    display: none;
+  }
+
   .overlay-menu-panel--left,
   .overlay-menu-card,
   .overlay-state-panel--controls,
@@ -3697,6 +3712,29 @@ body {
     border-radius: 18px;
   }
 
+  .overlay-menu-panel--left {
+    grid-column: 1;
+    grid-row: 1;
+    display: grid;
+    grid-template-columns: minmax(96px, 34vw) minmax(0, 1fr);
+    align-items: center;
+    justify-content: stretch;
+    gap: 8px;
+    width: 100%;
+    padding: 0;
+  }
+
+  .overlay-menu-center {
+    grid-column: 1;
+    grid-row: 2;
+    align-self: stretch;
+    min-height: 0;
+  }
+
+  .overlay-menu-right {
+    display: none;
+  }
+
   .overlay-menu-panel::after,
   .overlay-menu-card::after,
   .overlay-state-panel::after {
@@ -3705,14 +3743,15 @@ body {
   }
 
   .overlay-menu-logo {
-    width: clamp(110px, min(28vw, 30vh), 190px);
+    width: clamp(96px, min(33vw, 22vh), 150px);
+    grid-column: 1;
   }
 
   .overlay-menu-playmode,
   .overlay-menu-copy,
   .overlay-menu-stats,
   .overlay-menu-options {
-    width: clamp(150px, 29vw, 190px);
+    width: 100%;
   }
 
   .overlay-menu-right,
@@ -3723,11 +3762,15 @@ body {
   }
 
   .overlay-menu-role-panel {
-    max-width: min(300px, 36vw);
+    max-width: min(430px, 100%);
+    justify-content: start;
+    gap: 7px;
   }
 
   .overlay-role-select {
-    height: clamp(160px, 46vh, 270px);
+    height: clamp(230px, 43vh, 340px);
+    width: min(100%, 430px);
+    margin: 0 auto;
   }
 
   .overlay-role-title {
@@ -3736,6 +3779,16 @@ body {
 
   .overlay-role-callout {
     width: min(100%, 170px);
+  }
+
+  .overlay-role-card[data-role="driver"] {
+    left: 4%;
+    width: 58%;
+  }
+
+  .overlay-role-card[data-role="gunner"] {
+    left: 42%;
+    width: 54%;
   }
 
   .overlay-role-hint {
@@ -3800,8 +3853,18 @@ body {
 
   .overlay-menu-copy,
   .overlay-menu-hint,
-  .overlay-state-hint {
+  .overlay-state-hint,
+  .overlay-menu-eyebrow,
+  .overlay-menu-tagline,
+  .overlay-menu-stats,
+  .overlay-menu-options > .overlay-menu-section-label {
     display: none;
+  }
+
+  .overlay-menu-playmodes {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
   }
 
   .overlay-menu-playmode,
@@ -3815,10 +3878,49 @@ body {
     grid-template-columns: 15px 1fr;
     font-size: clamp(0.64rem, min(2.35vw, 3vh), 0.86rem);
     letter-spacing: 0.035em;
+    padding: 0 8px;
   }
 
   .overlay-menu-room-row {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(78px, 0.38fr) minmax(132px, 0.62fr);
+    gap: 6px;
+  }
+
+  .overlay-menu-options--coop {
+    width: min(100%, 430px);
+    gap: 5px;
+  }
+
+  .overlay-menu-options--coop .overlay-menu-section-label {
+    display: block;
+    margin-top: 1px;
+  }
+
+  .overlay-menu-coop-status {
+    min-height: 0;
+    padding: 5px 8px;
+    font-size: clamp(0.48rem, 1.8vw, 0.6rem);
+    line-height: 1.16;
+  }
+
+  .overlay-menu-lobby-header,
+  .overlay-menu-lobby-slots {
+    margin-bottom: 4px;
+  }
+
+  .overlay-menu-lobby-slot {
+    padding: 4px 6px;
+  }
+
+  .overlay-menu-room-input,
+  .overlay-menu-toggle.overlay-menu-toggle--coop {
+    min-height: 38px;
+  }
+
+  .overlay-menu-solo-action {
+    width: min(240px, 72vw);
+    min-height: 40px;
+    font-size: clamp(0.68rem, 2.3vw, 0.86rem);
   }
 
   .overlay-state-button--primary {
