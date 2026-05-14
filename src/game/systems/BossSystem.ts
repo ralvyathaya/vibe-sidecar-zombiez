@@ -164,6 +164,8 @@ export class BossSystem {
   private weakpoints: BossWeakpointRecord[] = [];
   private projectileSpawnNodes: Object3D[] = [];
   private readonly rotorBaseRotations = new Map<Object3D, { x: number; y: number; z: number }>();
+  private bossModelLoadStarted = false;
+  private bossModelLoadTimer: number | null = null;
   private warnedMissingNodes = false;
 
   constructor(
@@ -198,6 +200,8 @@ export class BossSystem {
       highpassHz: 70,
       lowpassHz: 3200,
     });
+    this.preStrikeSound.primeDeferred(15000);
+    this.projectileHitSound.primeDeferred(15100);
 
     this.hull = new Mesh(
       HULL_GEOMETRY,
@@ -293,7 +297,7 @@ export class BossSystem {
     this.scene.add(this.root);
     this.createProjectilePool();
     this.createImpactBurstPool();
-    this.loadBossModel();
+    this.scheduleBossModelLoad(16000);
     this.reset();
   }
 
@@ -334,6 +338,7 @@ export class BossSystem {
   }
 
   destroy(): void {
+    this.cancelScheduledBossModelLoad();
     this.reset();
     this.root.removeFromParent();
     for (const projectile of this.projectiles) {
@@ -365,6 +370,7 @@ export class BossSystem {
   }
 
   debugSpawn(level: BossPhase = 1): void {
+    this.ensureBossModelLoaded();
     const resolvedLevel = clamp(level, 1, 3) as BossPhase;
     for (const projectile of this.projectiles) {
       this.deactivateProjectile(projectile);
@@ -666,6 +672,7 @@ export class BossSystem {
   }
 
   private startEncounter(levelOverride?: BossPhase): void {
+    this.ensureBossModelLoaded();
     const resolvedLevel = levelOverride ?? (clamp(this.encounterIndex + 1, 1, 3) as BossPhase);
     this.encounterIndex = Math.max(this.encounterIndex + (levelOverride ? 0 : 1), resolvedLevel);
     this.status = 'approach';
@@ -1095,6 +1102,42 @@ export class BossSystem {
 
     weakpoint.destroyed = true;
     this.applyBossDamage(this.config.boss.weakpointBreakDamageByLevel[this.level - 1] ?? 0);
+  }
+
+  private scheduleBossModelLoad(delayMs: number): void {
+    if (this.bossModelLoadStarted || this.bossModelLoadTimer !== null) {
+      return;
+    }
+
+    if (typeof window === 'undefined') {
+      this.ensureBossModelLoaded();
+      return;
+    }
+
+    this.bossModelLoadTimer = window.setTimeout(() => {
+      this.bossModelLoadTimer = null;
+      this.ensureBossModelLoaded();
+    }, Math.max(0, delayMs));
+  }
+
+  private ensureBossModelLoaded(): void {
+    if (this.bossModelLoadStarted) {
+      return;
+    }
+
+    this.cancelScheduledBossModelLoad();
+    this.bossModelLoadStarted = true;
+    this.loadBossModel();
+  }
+
+  private cancelScheduledBossModelLoad(): void {
+    if (this.bossModelLoadTimer === null || typeof window === 'undefined') {
+      this.bossModelLoadTimer = null;
+      return;
+    }
+
+    window.clearTimeout(this.bossModelLoadTimer);
+    this.bossModelLoadTimer = null;
   }
 
   private loadBossModel(): void {

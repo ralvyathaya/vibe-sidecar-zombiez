@@ -133,6 +133,10 @@ export class ShotgunWeapon {
   private sprayDebug: ShotgunSprayDebugSettings;
 
   private loadedScene: Object3D | null = null;
+  private viewmodelLoadPromise: Promise<void> | null = null;
+  private viewmodelLoadTimer: number | null = null;
+  private timingPreloadTimer: number | null = null;
+  private timingPreloadStarted = false;
   private gunshotTimingProbe: HTMLAudioElement | null = null;
   private delayTimingProbe: HTMLAudioElement | null = null;
   private resolvedGunshotDuration = 0;
@@ -187,8 +191,8 @@ export class ShotgunWeapon {
       poolSize: 3,
       volume: this.config.shotgun.audio.delayVolume,
     });
-    this.gunshotSound.prime();
-    this.delaySound.prime();
+    this.gunshotSound.primeDeferred(1800);
+    this.delaySound.primeDeferred(1900);
     this.resolvedCockingDuration = this.config.shotgun.viewmodel.spinDuration;
 
     this.viewmodelRoot.name = 'ShotgunViewmodel';
@@ -231,10 +235,9 @@ export class ShotgunWeapon {
 
     this.applyViewmodelPose();
     this.setEquipped(false);
-    this.preloadGunshotTiming();
-    this.preloadDelayTiming();
+    this.scheduleTimingPreloads(1800);
     void this.loadMuzzleFlashSprite();
-    void this.loadViewmodel();
+    this.scheduleViewmodelLoad(2000);
   }
 
   reset(): void {
@@ -265,6 +268,8 @@ export class ShotgunWeapon {
     this.viewmodelRoot.visible = equipped;
     this.worldEffectsRoot.visible = equipped;
     if (equipped) {
+      this.ensureViewmodelLoaded();
+      this.startTimingPreloads();
       return;
     }
 
@@ -438,6 +443,8 @@ export class ShotgunWeapon {
   }
 
   destroy(): void {
+    this.cancelScheduledViewmodelLoad();
+    this.cancelScheduledTimingPreloads();
     this.camera.remove(this.viewmodelRoot);
     this.worldEffectsRoot.removeFromParent();
     this.disposeObject(this.loadedScene);
@@ -469,6 +476,43 @@ export class ShotgunWeapon {
       console.warn('Failed to load shotgun GLB, using fallback viewmodel.', error);
       this.mountModel(this.createEmergencyFallbackModel());
     }
+  }
+
+  private ensureViewmodelLoaded(): void {
+    if (this.loadedScene || this.viewmodelLoadPromise) {
+      return;
+    }
+
+    this.cancelScheduledViewmodelLoad();
+    this.viewmodelLoadPromise = this.loadViewmodel().finally(() => {
+      this.viewmodelLoadPromise = null;
+    });
+  }
+
+  private scheduleViewmodelLoad(delayMs: number): void {
+    if (this.loadedScene || this.viewmodelLoadPromise || this.viewmodelLoadTimer !== null) {
+      return;
+    }
+
+    if (typeof window === 'undefined') {
+      this.ensureViewmodelLoaded();
+      return;
+    }
+
+    this.viewmodelLoadTimer = window.setTimeout(() => {
+      this.viewmodelLoadTimer = null;
+      this.ensureViewmodelLoaded();
+    }, Math.max(0, delayMs));
+  }
+
+  private cancelScheduledViewmodelLoad(): void {
+    if (this.viewmodelLoadTimer === null || typeof window === 'undefined') {
+      this.viewmodelLoadTimer = null;
+      return;
+    }
+
+    window.clearTimeout(this.viewmodelLoadTimer);
+    this.viewmodelLoadTimer = null;
   }
 
   private mountModel(model: Object3D): void {
@@ -754,6 +798,43 @@ export class ShotgunWeapon {
   private updateMuzzleAnchorFromMarker(): void {
     this.muzzlePoint.getWorldPosition(this.muzzleWorld);
     setLocalPositionFromWorld(this.contentRoot, this.muzzleWorld, this.muzzleAnchor);
+  }
+
+  private scheduleTimingPreloads(delayMs: number): void {
+    if (this.timingPreloadStarted || this.timingPreloadTimer !== null) {
+      return;
+    }
+
+    if (typeof window === 'undefined') {
+      this.startTimingPreloads();
+      return;
+    }
+
+    this.timingPreloadTimer = window.setTimeout(() => {
+      this.timingPreloadTimer = null;
+      this.startTimingPreloads();
+    }, Math.max(0, delayMs));
+  }
+
+  private startTimingPreloads(): void {
+    if (this.timingPreloadStarted) {
+      return;
+    }
+
+    this.cancelScheduledTimingPreloads();
+    this.timingPreloadStarted = true;
+    this.preloadGunshotTiming();
+    this.preloadDelayTiming();
+  }
+
+  private cancelScheduledTimingPreloads(): void {
+    if (this.timingPreloadTimer === null || typeof window === 'undefined') {
+      this.timingPreloadTimer = null;
+      return;
+    }
+
+    window.clearTimeout(this.timingPreloadTimer);
+    this.timingPreloadTimer = null;
   }
 
   private preloadDelayTiming(): void {

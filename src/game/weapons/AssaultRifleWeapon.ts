@@ -104,6 +104,8 @@ export class AssaultRifleWeapon {
   private readonly basePosition: Vector3;
   private readonly baseRotation = new Vector3();
   private loadedScene: Object3D | null = null;
+  private viewmodelLoadPromise: Promise<void> | null = null;
+  private viewmodelLoadTimer: number | null = null;
 
   private ammo = 0;
   private reserveAmmo = 0;
@@ -144,9 +146,9 @@ export class AssaultRifleWeapon {
       poolSize: 2,
       volume: this.config.assaultRifle.audio.reloadVolume,
     });
-    this.gunshotSound.prime();
-    this.emptySound.prime();
-    this.reloadSound.prime();
+    this.gunshotSound.primeDeferred(6000);
+    this.emptySound.primeDeferred(6100);
+    this.reloadSound.primeDeferred(6200);
 
     this.viewmodelRoot.name = 'AssaultRifleViewmodel';
     this.contentRoot.name = 'AssaultRifleContentRoot';
@@ -171,7 +173,7 @@ export class AssaultRifleWeapon {
     this.camera.parent?.add(this.worldEffectsRoot);
     this.applyViewmodelPose();
     this.setEquipped(false);
-    void this.loadViewmodel();
+    this.scheduleViewmodelLoad(6000);
   }
 
   reset(): void {
@@ -192,6 +194,7 @@ export class AssaultRifleWeapon {
   }
 
   destroy(): void {
+    this.cancelScheduledViewmodelLoad();
     this.gunshotSound.destroy();
     this.emptySound.destroy();
     this.reloadSound.destroy();
@@ -215,6 +218,43 @@ export class AssaultRifleWeapon {
       console.warn('Failed to load assault rifle GLB, using fallback viewmodel.', error);
       this.mountModel(this.createProceduralViewmodel());
     }
+  }
+
+  private ensureViewmodelLoaded(): void {
+    if (this.loadedScene || this.viewmodelLoadPromise) {
+      return;
+    }
+
+    this.cancelScheduledViewmodelLoad();
+    this.viewmodelLoadPromise = this.loadViewmodel().finally(() => {
+      this.viewmodelLoadPromise = null;
+    });
+  }
+
+  private scheduleViewmodelLoad(delayMs: number): void {
+    if (this.loadedScene || this.viewmodelLoadPromise || this.viewmodelLoadTimer !== null) {
+      return;
+    }
+
+    if (typeof window === 'undefined') {
+      this.ensureViewmodelLoaded();
+      return;
+    }
+
+    this.viewmodelLoadTimer = window.setTimeout(() => {
+      this.viewmodelLoadTimer = null;
+      this.ensureViewmodelLoaded();
+    }, Math.max(0, delayMs));
+  }
+
+  private cancelScheduledViewmodelLoad(): void {
+    if (this.viewmodelLoadTimer === null || typeof window === 'undefined') {
+      this.viewmodelLoadTimer = null;
+      return;
+    }
+
+    window.clearTimeout(this.viewmodelLoadTimer);
+    this.viewmodelLoadTimer = null;
   }
 
   private mountModel(model: Object3D): void {
@@ -271,6 +311,9 @@ export class AssaultRifleWeapon {
 
   setEquipped(equipped: boolean): void {
     this.equipped = equipped;
+    if (equipped) {
+      this.ensureViewmodelLoaded();
+    }
     this.viewmodelRoot.visible = equipped;
     this.worldEffectsRoot.visible = equipped;
     if (!equipped) {
