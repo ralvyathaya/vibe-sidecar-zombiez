@@ -180,17 +180,13 @@ export class AssaultRifleWeapon {
     this.cooldown = 0;
     this.reloadTimer = 0;
     this.reloadElapsed = 0;
-    this.muzzleFlashTimer = 0;
     this.hitConfirmTimer = 0;
     this.dryFireTimer = 0;
     this.fireKick = 0;
-    this.firingTimer = 0;
-    this.muzzleFlash.visible = false;
-    this.muzzleLight.intensity = 0;
     this.gunshotSound.stopAll();
     this.emptySound.stopAll();
     this.reloadSound.stopAll();
-    this.clearTracers();
+    this.clearTransientEffects();
     this.applyViewmodelPose();
     this.updateMuzzleFlashAnchorPose();
   }
@@ -279,8 +275,7 @@ export class AssaultRifleWeapon {
     this.worldEffectsRoot.visible = equipped;
     if (!equipped) {
       this.cooldown = 0;
-      this.muzzleFlash.visible = false;
-      this.muzzleLight.intensity = 0;
+      this.clearTransientEffects();
     }
   }
 
@@ -794,6 +789,16 @@ export class AssaultRifleWeapon {
       (tracer.glow.material as MeshBasicMaterial).opacity =
         this.config.assaultRifle.tracer.opacity * 0.42 * alpha;
     }
+  }
+
+  private clearTransientEffects(): void {
+    this.muzzleFlashTimer = 0;
+    this.firingTimer = 0;
+    this.muzzleFlash.visible = false;
+    this.muzzleFlashCoreMaterial.opacity = 0;
+    this.muzzleFlashStreakMaterial.opacity = 0;
+    this.muzzleLight.intensity = 0;
+    this.clearTracers();
   }
 
   private clearTracers(): void {
