@@ -11,7 +11,7 @@ import type {
   WeaponStatus,
 } from '../core/types';
 import { GAME_CONFIG } from '../core/config';
-import { formatDistance } from '../core/utils';
+import { formatDistance, getRuntimePerformanceProfile } from '../core/utils';
 import { SoundEffectPool } from '../game/audio/SoundEffectPool';
 
 type DriverPortraitMood = 'calm' | 'observing' | 'panic';
@@ -274,6 +274,7 @@ export class UISystem {
     volume: GAME_CONFIG.uiAudio.confirmVolume,
     playbackRate: 1,
   });
+  private readonly runtimeProfile = getRuntimePerformanceProfile();
   private readonly ammoRounds: HTMLSpanElement[] = [];
   private readonly radarDots: HTMLSpanElement[] = [];
   private readonly screenRainDrops: ScreenRainDrop[] = [];
@@ -282,6 +283,7 @@ export class UISystem {
   private rainCanvasHeight = 0;
   private rainCanvasDpr = 1;
   private rainClock = 0;
+  private rainWasVisible = false;
   private audioPreferences: AudioPreferenceState = {
     sfxEnabled: true,
     musicEnabled: true,
@@ -409,6 +411,13 @@ export class UISystem {
     this.rainOverlay.setAttribute('aria-hidden', 'true');
     this.rainContext = this.rainOverlay.getContext('2d');
     this.seedScreenRainDrops();
+    if (this.runtimeProfile.perfDebug) {
+      console.info('[perf] ui', {
+        tier: this.runtimeProfile.qualityTier,
+        screenRainDrops: this.screenRainDrops.length,
+        hudCanvasDpr: this.runtimeProfile.hudCanvasDpr,
+      });
+    }
     this.buffPanel.className = 'buff-panel';
     this.adrenalineBuff.className = 'buff-chip';
     this.adrenalineBuff.dataset.buff = 'adrenaline';
@@ -2238,7 +2247,10 @@ export class UISystem {
 
   private seedScreenRainDrops(): void {
     this.screenRainDrops.length = 0;
-    const count = Math.max(0, Math.floor(GAME_CONFIG.rain.screenDropletCount));
+    const count = Math.max(
+      0,
+      Math.floor(GAME_CONFIG.rain.screenDropletCount * this.runtimeProfile.screenRainQualityScale),
+    );
     for (let index = 0; index < count; index += 1) {
       this.screenRainDrops.push(this.createScreenRainDrop(true));
     }
@@ -2273,7 +2285,7 @@ export class UISystem {
   private resizeRainCanvas(): void {
     const width = Math.max(1, this.root.clientWidth || window.innerWidth || 1);
     const height = Math.max(1, this.root.clientHeight || window.innerHeight || 1);
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.75);
+    const dpr = Math.min(window.devicePixelRatio || 1, this.runtimeProfile.hudCanvasDpr);
 
     if (
       this.rainCanvasWidth === width &&
@@ -2298,15 +2310,21 @@ export class UISystem {
       return;
     }
 
-    this.resizeRainCanvas();
     const ctx = this.rainContext;
+    if (!visible) {
+      if (this.rainWasVisible) {
+        this.resizeRainCanvas();
+        ctx.clearRect(0, 0, this.rainCanvasWidth, this.rainCanvasHeight);
+        this.rainWasVisible = false;
+      }
+      return;
+    }
+
+    this.rainWasVisible = true;
+    this.resizeRainCanvas();
     const width = this.rainCanvasWidth;
     const height = this.rainCanvasHeight;
     ctx.clearRect(0, 0, width, height);
-
-    if (!visible) {
-      return;
-    }
 
     this.rainClock += deltaTime;
     const intensity = Math.max(0, GAME_CONFIG.rain.intensity);

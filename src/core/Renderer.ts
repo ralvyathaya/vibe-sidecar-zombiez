@@ -153,6 +153,17 @@ export class RendererSystem {
     this.resize = this.resize.bind(this);
     window.addEventListener('resize', this.resize);
     this.resize();
+    if (this.runtimeProfile.perfDebug) {
+      console.info('[perf] renderer', {
+        tier: this.runtimeProfile.qualityTier,
+        pixelRatio: this.renderer.getPixelRatio(),
+        postProcessing: this.runtimeProfile.enablePostProcessing,
+        worldRainDrops: this.worldRainLayers.reduce(
+          (count, layer) => count + layer.drops.length,
+          0,
+        ),
+      });
+    }
   }
 
   render(): void {
@@ -261,6 +272,13 @@ export class RendererSystem {
 
   updateSpeedEffect(deltaTime: number, ride: RideState | null): void {
     this.speedEffectTime += deltaTime;
+    if (!this.runtimeProfile.enablePostProcessing) {
+      this.speedEffectSpeed = 0;
+      this.speedEffectIntensity = 0;
+      this.speedPass.enabled = false;
+      return;
+    }
+
     const targetSpeed = ride
       ? (() => {
           const speedPressure = Math.max(0, (ride.speedMultiplier - 1.04) / 0.18);
@@ -405,7 +423,7 @@ export class RendererSystem {
   private addWorldRain(): void {
     this.worldRainLayers.push(
       this.createWorldRainLayer({
-        count: this.config.rain.worldNearDropCount,
+        count: this.getScaledRainCount(this.config.rain.worldNearDropCount),
         xSpread: 20,
         yMin: -1.2,
         yMax: 14,
@@ -418,7 +436,7 @@ export class RendererSystem {
         opacity: 0.34,
       }),
       this.createWorldRainLayer({
-        count: this.config.rain.worldFarDropCount,
+        count: this.getScaledRainCount(this.config.rain.worldFarDropCount),
         xSpread: 54,
         yMin: 2,
         yMax: 30,
@@ -431,6 +449,10 @@ export class RendererSystem {
         opacity: 0.22,
       }),
     );
+  }
+
+  private getScaledRainCount(count: number): number {
+    return Math.max(0, Math.floor(count * this.runtimeProfile.rainQualityScale));
   }
 
   private createWorldRainLayer(options: {

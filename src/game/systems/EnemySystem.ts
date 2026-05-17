@@ -33,7 +33,7 @@ import type {
   ZombieModelVariant,
   ZombieType,
 } from '../../core/types';
-import { randomRange } from '../../core/utils';
+import { getRuntimePerformanceProfile, randomRange } from '../../core/utils';
 import { SoundEffectPool } from '../audio/SoundEffectPool';
 
 const TORSO_GEOMETRY = new BoxGeometry(0.8, 1.05, 0.5);
@@ -133,6 +133,8 @@ export class EnemySystem {
   private readonly humanoidAssetPromises: Partial<
     Record<HumanoidZombieType, Promise<void>>
   > = {};
+  private readonly humanoidAssetTimers: Partial<Record<HumanoidZombieType, number>> = {};
+  private readonly runtimeProfile = getRuntimePerformanceProfile();
   private approachCueCooldown = 0;
   private latchAnchor: Object3D | null = null;
   private latchedRunner: ActiveZombie | null = null;
@@ -158,9 +160,9 @@ export class EnemySystem {
       poolSize: 2,
       volume: this.config.enemies.audio.approachVolume,
     });
-    this.normalDeathSound.prime();
-    this.tankDeathSound.prime();
-    this.approachSound.prime();
+    this.normalDeathSound.primeDeferred(1200);
+    this.tankDeathSound.primeDeferred(1450);
+    this.approachSound.primeDeferred(1700);
     const latchModel = this.config.enemies.runnerModel;
     this.latchPresentationRoot.name = 'RunnerLatchPresentation';
     this.latchPresentationRoot.visible = false;
@@ -195,31 +197,46 @@ export class EnemySystem {
       this.scene.add(zombie.group);
     }
 
-    for (let index = 0; index < 16; index += 1) {
+    const burstPoolSize = this.getScaledVisualPoolSize(16, 8, this.runtimeProfile.particleScale);
+    const roadSplatPoolSize = this.getScaledVisualPoolSize(
+      56,
+      18,
+      this.runtimeProfile.roadSplatScale,
+    );
+
+    for (let index = 0; index < burstPoolSize; index += 1) {
       const burst = this.createParticleBurst();
       this.hitBloodBursts.push(burst);
       this.scene.add(burst.group);
     }
 
-    for (let index = 0; index < 16; index += 1) {
+    for (let index = 0; index < burstPoolSize; index += 1) {
       const splatter = this.createParticleBurst();
       this.bodySplatterBursts.push(splatter);
       this.scene.add(splatter.group);
     }
 
-    for (let index = 0; index < 16; index += 1) {
+    for (let index = 0; index < burstPoolSize; index += 1) {
       const bloodBurst = this.createParticleBurst();
       this.bloodBursts.push(bloodBurst);
       this.scene.add(bloodBurst.group);
     }
 
-    for (let index = 0; index < 56; index += 1) {
+    for (let index = 0; index < roadSplatPoolSize; index += 1) {
       const roadSplat = this.createRoadSplat();
       this.roadSplats.push(roadSplat);
       this.scene.add(roadSplat.group);
     }
 
-    void this.loadHumanoidAssets('walker');
+    this.scheduleHumanoidAssetLoad('walker', 450);
+    if (this.runtimeProfile.perfDebug) {
+      console.info('[perf] enemies', {
+        tier: this.runtimeProfile.qualityTier,
+        enemyPool: this.config.enemies.poolSize,
+        burstPoolSize,
+        roadSplatPoolSize,
+      });
+    }
   }
 
   reset(): void {
@@ -254,6 +271,7 @@ export class EnemySystem {
 
   destroy(): void {
     this.reset();
+    this.clearHumanoidAssetTimers();
     this.normalDeathSound.destroy();
     this.tankDeathSound.destroy();
     this.approachSound.destroy();
@@ -781,7 +799,7 @@ export class EnemySystem {
 
   prewarmUpcomingAssets(elapsedSeconds: number): void {
     if (elapsedSeconds >= 6 && !this.humanoidAssets.runner && !this.humanoidAssetPromises.runner) {
-      void this.loadHumanoidAssets('runner');
+      this.scheduleHumanoidAssetLoad('runner', 350);
     }
 
     if (
@@ -794,8 +812,52 @@ export class EnemySystem {
     }
 
     if (elapsedSeconds >= 30 && !this.humanoidAssets.tank && !this.humanoidAssetPromises.tank) {
-      void this.loadHumanoidAssets('tank');
+      this.scheduleHumanoidAssetLoad('tank', 650);
     }
+  }
+
+  private scheduleHumanoidAssetLoad(type: HumanoidZombieType, delayMs: number): void {
+    if (
+      this.humanoidAssets[type] ||
+      this.humanoidAssetPromises[type] ||
+      this.humanoidAssetTimers[type] !== undefined
+    ) {
+      return;
+    }
+
+    if (typeof window === 'undefined') {
+      void this.loadHumanoidAssets(type);
+      return;
+    }
+
+    const resolvedDelay = Math.max(0, delayMs * this.runtimeProfile.stagedAssetDelayScale);
+    this.humanoidAssetTimers[type] = window.setTimeout(() => {
+      delete this.humanoidAssetTimers[type];
+      void this.loadHumanoidAssets(type);
+    }, resolvedDelay);
+    this.logPerf('humanoid load scheduled', { type, delayMs: Math.round(resolvedDelay) });
+  }
+
+  private clearHumanoidAssetTimers(): void {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    for (const key of Object.keys(this.humanoidAssetTimers) as HumanoidZombieType[]) {
+      const timer = this.humanoidAssetTimers[key];
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+        delete this.humanoidAssetTimers[key];
+      }
+    }
+  }
+
+  private logPerf(message: string, data?: Record<string, unknown>): void {
+    if (!this.runtimeProfile.perfDebug) {
+      return;
+    }
+
+    console.info(`[perf] enemies ${message}`, data ?? {});
   }
 
   private isHumanoidType(type: ZombieType): type is HumanoidZombieType {
@@ -1576,6 +1638,10 @@ export class EnemySystem {
     };
   }
 
+  private getScaledVisualPoolSize(baseCount: number, minimum: number, scale: number): number {
+    return Math.max(minimum, Math.ceil(baseCount * scale));
+  }
+
   private createRoadSplat(): RoadSplat {
     const group = new Group();
     const material = new MeshBasicMaterial({
@@ -1613,7 +1679,7 @@ export class EnemySystem {
     const walker = this.config.enemies.walkerModel;
     const runner = this.config.enemies.runnerModel;
 
-    return Math.max(
+    const maxCount = Math.max(
       walker.hitBloodCount,
       walker.bodySplatterCount,
       walker.bloodBurstCount,
@@ -1624,6 +1690,7 @@ export class EnemySystem {
       this.config.enemies.tankModel.bodySplatterCount,
       this.config.enemies.tankModel.bloodBurstCount,
     );
+    return Math.max(3, Math.ceil(maxCount * this.runtimeProfile.particleScale));
   }
 
   private spawnHitBloodBurst(zombie: ActiveZombie): void {
@@ -1958,8 +2025,9 @@ export class EnemySystem {
     }
     splat.group.visible = true;
     splat.group.position.set(x, this.config.world.roadSurfaceY, z);
-    splat.life = lifetime;
-    splat.maxLife = lifetime;
+    const scaledLifetime = Math.max(0.35, lifetime * this.runtimeProfile.roadSplatScale);
+    splat.life = scaledLifetime;
+    splat.maxLife = scaledLifetime;
     splat.baseOpacity = opacity;
     splat.material.color.setHex(color);
     splat.material.opacity = opacity;
@@ -2140,23 +2208,25 @@ export class EnemySystem {
     }
 
     const nextPromise = (async () => {
+      this.logPerf('humanoid load start', { type });
       const [{ GLTFLoader }, skeletonUtils] = await Promise.all([
         import('three/examples/jsm/loaders/GLTFLoader.js'),
         import('three/examples/jsm/utils/SkeletonUtils.js'),
       ]);
       const loader = new GLTFLoader();
       const modelConfig = this.getHumanoidConfig(type);
-      const [characterGltf, textureGltf, moveGltf, deathGltf, spawnPoseGltf] = await Promise.all([
-        loader.loadAsync(modelConfig.characterPath),
-        modelConfig.textureMaterialPath
-          ? loader.loadAsync(modelConfig.textureMaterialPath)
-          : Promise.resolve(null),
-        loader.loadAsync(modelConfig.moveAnimationPath),
-        loader.loadAsync(modelConfig.deathAnimationPath),
-        modelConfig.spawnPoseAnimationPath
-          ? loader.loadAsync(modelConfig.spawnPoseAnimationPath)
-          : Promise.resolve(null),
-      ]);
+      const characterGltf = await loader.loadAsync(modelConfig.characterPath);
+      const textureGltf = modelConfig.textureMaterialPath
+        ? await loader.loadAsync(modelConfig.textureMaterialPath).catch(() => null)
+        : null;
+      await this.waitStagedAssetGap();
+      const moveGltf = await loader.loadAsync(modelConfig.moveAnimationPath);
+      await this.waitStagedAssetGap();
+      const deathGltf = await loader.loadAsync(modelConfig.deathAnimationPath);
+      await this.waitStagedAssetGap();
+      const spawnPoseGltf = modelConfig.spawnPoseAnimationPath
+        ? await loader.loadAsync(modelConfig.spawnPoseAnimationPath).catch(() => null)
+        : null;
 
       const moveClip = moveGltf.animations[0];
       const deathClip = deathGltf.animations[0];
@@ -2173,12 +2243,29 @@ export class EnemySystem {
       };
 
       this.attachHumanoidVisuals(type, skeletonUtils.clone as CloneSkinnedScene);
+      this.logPerf('humanoid load done', { type });
     })().catch((error) => {
       console.error(`Failed to load ${type} zombie assets.`, error);
     });
 
     this.humanoidAssetPromises[type] = nextPromise;
     return nextPromise;
+  }
+
+  private async waitStagedAssetGap(): Promise<void> {
+    const delayMs =
+      this.runtimeProfile.qualityTier === 'low'
+        ? 90
+        : this.runtimeProfile.qualityTier === 'medium'
+          ? 45
+          : 0;
+    if (delayMs <= 0 || typeof window === 'undefined') {
+      return;
+    }
+
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, delayMs);
+    });
   }
 
   private attachHumanoidVisuals(

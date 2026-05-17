@@ -24,7 +24,13 @@ import type {
   GameConfig,
   WeaponKind,
 } from '../../core/types';
-import { clamp, randomInt, randomRange, sampleRoadCurveOffset } from '../../core/utils';
+import {
+  clamp,
+  getRuntimePerformanceProfile,
+  randomInt,
+  randomRange,
+  sampleRoadCurveOffset,
+} from '../../core/utils';
 import { LoopingSound } from '../audio/LoopingSound';
 import { SoundEffectPool } from '../audio/SoundEffectPool';
 
@@ -125,6 +131,7 @@ export class BossSystem {
   private readonly preStrikeSound: SoundEffectPool;
   private readonly projectileHitSound: SoundEffectPool;
   private readonly helicopterLoop: LoopingSound;
+  private readonly runtimeProfile = getRuntimePerformanceProfile();
   private readonly defaultBossTransform: DebugTransformSnapshot;
   private readonly snapshotFallback: BossSnapshot = {
     status: 'inactive',
@@ -1116,6 +1123,12 @@ export class BossSystem {
 
     this.bossModelLoadTimer = window.setTimeout(() => {
       this.bossModelLoadTimer = null;
+      if (this.runtimeProfile.perfDebug) {
+        console.info('[perf] boss model load start', {
+          tier: this.runtimeProfile.qualityTier,
+          path: this.config.boss.assetPath,
+        });
+      }
       this.ensureBossModelLoaded();
     }, Math.max(0, delayMs));
   }
@@ -1151,8 +1164,8 @@ export class BossSystem {
             model.name = 'HelicopterBossModel';
             model.traverse((node) => {
               if (node instanceof Mesh) {
-                node.castShadow = true;
-                node.receiveShadow = true;
+                node.castShadow = false;
+                node.receiveShadow = false;
               }
             });
             this.root.add(model);
