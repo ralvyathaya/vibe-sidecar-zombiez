@@ -23,10 +23,8 @@ import {
   Vector3,
   WebGLRenderer,
 } from 'three';
-import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
-import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
-import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
-import { SpeedShaderPass } from './post/SpeedShaderPass';
+import type { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import type { SpeedShaderPass } from './post/SpeedShaderPass';
 import type { GameConfig, RideState, RunEventType, RunSegment } from './types';
 import { approach, getRuntimePerformanceProfile, lerp } from './utils';
 
@@ -70,10 +68,11 @@ export class RendererSystem {
   private readonly fogColor = new Color();
   private readonly colorLerpStart = new Color();
   private readonly colorLerpEnd = new Color();
-  private readonly composer: EffectComposer;
-  private readonly speedPass: SpeedShaderPass;
-  private readonly outputPass: OutputPass;
+  private composer: EffectComposer | null = null;
+  private speedPass: SpeedShaderPass | null = null;
   private readonly runtimeProfile = getRuntimePerformanceProfile();
+  private postProcessingLoading = false;
+  private destroyed = false;
   private speedEffectTime = 0;
   private speedEffectSpeed = 0;
   private speedEffectIntensity = 0;
@@ -131,28 +130,10 @@ export class RendererSystem {
     this.addClouds();
     this.addWorldRain();
     this.lightningDelay = this.rollLightningDelay();
-    const renderPass = new RenderPass(this.scene, this.camera);
-    this.speedPass = new SpeedShaderPass({
-      // Edge-only streaks: sparse continuous lines, much calmer than the previous
-      // segmented burst look.
-      edgeStart: 0.81,
-      edgeStrength: 0.34,
-      lineDensity: 54,
-      lineLength: 18,
-      lineSoftness: 0.08,
-    });
-    this.speedPass.setCenter(0.5, 0.5);
-    this.composer = new EffectComposer(this.renderer);
-    this.composer.addPass(renderPass);
-    this.composer.addPass(this.speedPass);
-    // Keep tone mapping and output color conversion active even when post-processing
-    // is in the chain, otherwise the night scene can look flatter/darker as soon as
-    // the sprint composer path is involved.
-    this.outputPass = new OutputPass();
-    this.composer.addPass(this.outputPass);
     this.resize = this.resize.bind(this);
     window.addEventListener('resize', this.resize);
     this.resize();
+    this.schedulePostProcessingLoad();
     if (this.runtimeProfile.perfDebug) {
       console.info('[perf] renderer', {
         tier: this.runtimeProfile.qualityTier,
@@ -167,7 +148,7 @@ export class RendererSystem {
   }
 
   render(): void {
-    if (this.speedPass.enabled) {
+    if (this.composer && this.speedPass?.enabled) {
       this.composer.render();
       return;
     }
@@ -176,7 +157,9 @@ export class RendererSystem {
   }
 
   destroy(): void {
+    this.destroyed = true;
     window.removeEventListener('resize', this.resize);
+    this.composer?.dispose();
     this.renderer.dispose();
   }
 
@@ -272,10 +255,12 @@ export class RendererSystem {
 
   updateSpeedEffect(deltaTime: number, ride: RideState | null): void {
     this.speedEffectTime += deltaTime;
-    if (!this.runtimeProfile.enablePostProcessing) {
+    if (!this.runtimeProfile.enablePostProcessing || !this.speedPass) {
       this.speedEffectSpeed = 0;
       this.speedEffectIntensity = 0;
-      this.speedPass.enabled = false;
+      if (this.speedPass) {
+        this.speedPass.enabled = false;
+      }
       return;
     }
 
@@ -449,6 +434,83 @@ export class RendererSystem {
         opacity: 0.22,
       }),
     );
+  }
+
+  private schedulePostProcessingLoad(): void {
+    if (!this.runtimeProfile.enablePostProcessing) {
+      return;
+    }
+
+    const load = () => {
+      void this.initPostProcessing();
+    };
+
+    if (typeof window === 'undefined') {
+      load();
+      return;
+    }
+
+    window.setTimeout(load, this.runtimeProfile.qualityTier === 'medium' ? 900 : 450);
+  }
+
+  private async initPostProcessing(): Promise<void> {
+    if (
+      this.destroyed ||
+      this.postProcessingLoading ||
+      this.composer ||
+      !this.runtimeProfile.enablePostProcessing
+    ) {
+      return;
+    }
+
+    this.postProcessingLoading = true;
+    try {
+      const [{ EffectComposer }, { OutputPass }, { RenderPass }, { SpeedShaderPass }] =
+        await Promise.all([
+          import('three/examples/jsm/postprocessing/EffectComposer.js'),
+          import('three/examples/jsm/postprocessing/OutputPass.js'),
+          import('three/examples/jsm/postprocessing/RenderPass.js'),
+          import('./post/SpeedShaderPass'),
+        ]);
+
+      if (this.destroyed) {
+        return;
+      }
+
+      const renderPass = new RenderPass(this.scene, this.camera);
+      const speedPass = new SpeedShaderPass({
+        // Edge-only streaks: sparse continuous lines, much calmer than the previous
+        // segmented burst look.
+        edgeStart: 0.81,
+        edgeStrength: 0.34,
+        lineDensity: 54,
+        lineLength: 18,
+        lineSoftness: 0.08,
+      });
+      speedPass.setCenter(0.5, 0.5);
+
+      const composer = new EffectComposer(this.renderer);
+      composer.addPass(renderPass);
+      composer.addPass(speedPass);
+      // Keep tone mapping and output color conversion active even when post-processing
+      // is in the chain, otherwise the night scene can look flatter/darker as soon as
+      // the sprint composer path is involved.
+      const outputPass = new OutputPass();
+      composer.addPass(outputPass);
+
+      this.speedPass = speedPass;
+      this.composer = composer;
+      this.resize();
+      if (this.runtimeProfile.perfDebug) {
+        console.info('[perf] renderer post-processing ready', {
+          tier: this.runtimeProfile.qualityTier,
+        });
+      }
+    } catch (error) {
+      console.warn('[RendererSystem] Failed to initialize post-processing; using direct render.', error);
+    } finally {
+      this.postProcessingLoading = false;
+    }
   }
 
   private getScaledRainCount(count: number): number {
@@ -626,12 +688,16 @@ export class RendererSystem {
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height, false);
-    this.composer.setPixelRatio(this.renderer.getPixelRatio());
-    this.composer.setSize(width, height);
-    this.speedPass.setResolution(
-      width * this.renderer.getPixelRatio(),
-      height * this.renderer.getPixelRatio(),
-    );
+    if (this.composer) {
+      this.composer.setPixelRatio(this.renderer.getPixelRatio());
+      this.composer.setSize(width, height);
+    }
+    if (this.speedPass) {
+      this.speedPass.setResolution(
+        width * this.renderer.getPixelRatio(),
+        height * this.renderer.getPixelRatio(),
+      );
+    }
   }
 
   private lerpColor(startHex: number, endHex: number, t: number): number {
