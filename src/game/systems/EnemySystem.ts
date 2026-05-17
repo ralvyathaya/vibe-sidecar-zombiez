@@ -19,6 +19,7 @@ import {
   Scene,
   Vector2,
   Vector3,
+  type Intersection,
 } from 'three';
 import type {
   ActiveZombie,
@@ -96,6 +97,9 @@ export class EnemySystem {
   private readonly bloodBursts: ParticleBurst[] = [];
   private readonly roadSplats: RoadSplat[] = [];
   private readonly raycaster = new Raycaster();
+  private readonly raycastActiveRoots: Object3D[] = [];
+  private readonly raycastLatchedRoots: Object3D[] = [];
+  private readonly raycastHits: Intersection<Object3D>[] = [];
   private readonly chaseVector = new Vector3();
   private readonly effectPosition = new Vector3();
   private readonly effectDirection = new Vector3();
@@ -143,6 +147,9 @@ export class EnemySystem {
   private latchPresentationPromise: Promise<void> | null = null;
   private latchPresentationLoaded = false;
   private activeEvent: RunEventType = 'none';
+  private raycastBatchDepth = 0;
+  private raycastRootsPrepared = false;
+  private raycastLatchedRootsPrepared = false;
 
   constructor(
     private readonly scene: Scene,
@@ -420,20 +427,14 @@ export class EnemySystem {
     this.raycaster.near = 0;
     this.raycaster.far = range;
 
-    const activeRoots = this.pool
-      .filter(
-        (entry) =>
-          entry.active &&
-          entry.state === 'alive' &&
-          this.latchedRunner?.id !== entry.id,
-      )
-      .map((entry) => entry.group);
+    const activeRoots = this.getActiveRaycastRoots();
 
     if (activeRoots.length === 0) {
       return null;
     }
 
-    const hits = this.raycaster.intersectObjects(activeRoots, true);
+    this.raycastHits.length = 0;
+    const hits = this.raycaster.intersectObjects(activeRoots, true, this.raycastHits);
     for (const hit of hits) {
       const poolId = hit.object.userData.poolId as number | undefined;
       if (poolId === undefined) {
@@ -472,7 +473,8 @@ export class EnemySystem {
       return null;
     }
 
-    const hits = this.raycaster.intersectObjects(hitRoots, true);
+    this.raycastHits.length = 0;
+    const hits = this.raycaster.intersectObjects(hitRoots, true, this.raycastHits);
     for (const hit of hits) {
       if (hit.object === this.latchOccluder) {
         continue;
@@ -491,6 +493,27 @@ export class EnemySystem {
     }
 
     return null;
+  }
+
+  beginRaycastBatch(): void {
+    if (this.raycastBatchDepth === 0) {
+      this.raycastRootsPrepared = false;
+      this.raycastLatchedRootsPrepared = false;
+    }
+    this.raycastBatchDepth += 1;
+  }
+
+  endRaycastBatch(): void {
+    this.raycastBatchDepth = Math.max(0, this.raycastBatchDepth - 1);
+    if (this.raycastBatchDepth > 0) {
+      return;
+    }
+
+    this.raycastActiveRoots.length = 0;
+    this.raycastLatchedRoots.length = 0;
+    this.raycastHits.length = 0;
+    this.raycastRootsPrepared = false;
+    this.raycastLatchedRootsPrepared = false;
   }
 
   damage(zombie: ActiveZombie, amount: number, impactPoint?: Vector3): EnemyKillResult | null {
@@ -1461,6 +1484,25 @@ export class EnemySystem {
     variant.moveAction.play();
   }
 
+  private getActiveRaycastRoots(): Object3D[] {
+    if (this.raycastBatchDepth > 0 && this.raycastRootsPrepared) {
+      return this.raycastActiveRoots;
+    }
+
+    this.raycastActiveRoots.length = 0;
+    for (const zombie of this.pool) {
+      if (
+        zombie.active &&
+        zombie.state === 'alive' &&
+        this.latchedRunner?.id !== zombie.id
+      ) {
+        this.raycastActiveRoots.push(zombie.group);
+      }
+    }
+    this.raycastRootsPrepared = true;
+    return this.raycastActiveRoots;
+  }
+
   private createLimbPivot(
     x: number,
     y: number,
@@ -1515,20 +1557,30 @@ export class EnemySystem {
   }
 
   private getLatchedHitRoots(zombie: ActiveZombie): Object3D[] {
+    if (this.raycastBatchDepth > 0 && this.raycastLatchedRootsPrepared) {
+      return this.raycastLatchedRoots;
+    }
+
+    this.raycastLatchedRoots.length = 0;
     if (this.latchPresentationLoaded && this.latchPresentationRoot.visible) {
-      return [this.latchPresentationRoot];
+      this.raycastLatchedRoots.push(this.latchPresentationRoot);
+      this.raycastLatchedRootsPrepared = true;
+      return this.raycastLatchedRoots;
     }
 
     const activeVariant = this.getActiveModelVariant(zombie);
     if (activeVariant?.root.visible) {
-      return [activeVariant.root];
+      this.raycastLatchedRoots.push(activeVariant.root);
+      this.raycastLatchedRootsPrepared = true;
+      return this.raycastLatchedRoots;
     }
 
     if (zombie.primitiveRoot.visible) {
-      return [zombie.primitiveRoot];
+      this.raycastLatchedRoots.push(zombie.primitiveRoot);
     }
 
-    return [];
+    this.raycastLatchedRootsPrepared = true;
+    return this.raycastLatchedRoots;
   }
 
   private resetFlashMaterials(materials: FlashMaterial[]): void {
